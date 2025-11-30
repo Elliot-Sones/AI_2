@@ -1,39 +1,39 @@
 settings:
-  game_id: "warehouse_brawl"
-  action_space: "discrete"
+  game_id: "warehouse_brawl" # Unique identifier for the game environment
+  action_space: "discrete"   # Type of actions agent can take (discrete vs continuous)
 
 folders:
-  parent_dir: "./results"
-  model_name: "ppo_utmist"
+  parent_dir: "./results"    # Directory where training results and models are saved
+  model_name: "ppo_utmist"   # Name of the subfolder for this specific training run
 
 policy_kwargs:
-  net_arch: [64, 64]
+  net_arch: [64, 64]         # Neural network structure: two layers of 64 neurons
 
 ppo_settings:
-  gamma: 0.94
-  model_checkpoint: "0"
-  learning_rate: [2.5e-4, 2.5e-6] # Linear decay
-  clip_range: [0.15, 0.025] # Linear decay
-  batch_size: 256
-  n_epochs: 4
-  n_steps: 128
-  gae_lambda: 0.95
-  ent_coef: 0.01
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  time_steps: 50000000 # Total training steps
-  autosave_freq: 50000
-  model_checkpoint: "0"
+  gamma: 0.94                # Discount factor: importance of future rewards (0-1)
+  model_checkpoint: "0"      # Path to load existing model, or '0' for new
+  learning_rate: [2.5e-4, 2.5e-6] # Speed of learning; decays from start to end value
+  clip_range: [0.15, 0.025]  # Limits how much the policy can change per update
+  batch_size: 2048           # INCREASED for GPU: Number of samples used for each gradient update
+  n_epochs: 10               # INCREASED: Number of times to reuse data for training updates
+  n_steps: 512               # INCREASED: Steps to run per environment before updating the model
+  gae_lambda: 0.95           # Factor for Generalized Advantage Estimation (bias-variance trade-off)
+  ent_coef: 0.01             # Entropy coefficient: encourages exploration (randomness)
+  vf_coef: 0.5               # Value function coefficient: weight of value estimation loss
+  max_grad_norm: 0.5         # Clips gradients to prevent unstable large updates
+  time_steps: 50000000       # Total number of frames to train for
+  autosave_freq: 50000       # How often to save the model (in steps)
+  model_checkpoint: "0"      # Duplicate key (same as above)
 
 environment_settings:
-  max_timesteps: 5400 # 3 minutes at 30fps
-  render_mode: null   # Set to "human" to watch, null for training
-  resolution: "LOW"   # LOW (480x720) is faster for training
-  # n_envs: 4           # Number of parallel environments (Commented out to allow auto-scaling)
+  max_timesteps: 5400        # Max duration of one game episode (frames)
+  render_mode: null          # Set to "human" to see game, null for speed
+  resolution: "LOW"          # Game screen size; lower is faster for training
+  # n_envs: 4                # Number of games running in parallel (auto-scaled if commented)
 
 self_play_settings:
-  save_freq: 100000   # Save less frequently (every ~30 mins)
-  max_saved_models: 5 # Keep only last 5 models for self-play
+  save_freq: 100000          # How often to save opponent models for self-play
+  max_saved_models: 5        # Max number of past opponent models to keep
   opponent_selection:
-    random_agent: 0.2
-    self_play: 0.8
+    random_agent: 0.2        # Probability of playing against a random bot
+    self_play: 0.8           # Probability of playing against a past version of self

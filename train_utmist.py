@@ -12,10 +12,10 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
-# Add UTMIST environment to path
+# Add UTMIST environment to path 6
 sys.path.append(os.path.join(os.getcwd(), "UTMIST-AI2-main"))
 
-from environment.agent import SelfPlayWarehouseBrawl, OpponentsCfg, SaveHandler, SaveHandlerMode, CameraResolution, RewardManager, RandomAgent, SelfPlayLatest
+from environment.agent import SelfPlayWarehouseBrawl, OpponentsCfg, SaveHandler, SaveHandlerMode, CameraResolution, RewardManager, RandomAgent, SelfPlayLatest, RewTerm
 
 def get_device():
     """Detects the best available device for training."""
@@ -110,31 +110,101 @@ class LimitedCheckpointCallback(CheckpointCallback):
         return result
 
 # Factory function for environment creation (must be picklable)
+class DamageReward:
+    def __init__(self):
+        self.last_damage_done = {0: 0.0, 1: 0.0}
+        self.last_damage_taken = {0: 0.0, 1: 0.0}
+
+    def __call__(self, env):
+        rewards = []
+        for i in range(2):
+            player = env.players[i]
+            # Damage Done Reward
+            dd = player.damage_done
+            delta_dd = dd - self.last_damage_done[i]
+            self.last_damage_done[i] = dd
+            
+            # Damage Taken Penalty
+            dt = player.damage_taken_total
+            delta_dt = dt - self.last_damage_taken[i]
+            self.last_damage_taken[i] = dt
+            
+            # Net reward: +1 per damage dealt, -0.5 per damage taken
+            reward = (delta_dd * 0.1) - (delta_dt * 0.05) 
+            rewards.append(reward)
+        return torch.tensor(rewards)
+
+class DistanceReward:
+    def __init__(self):
+        self.last_distance = {0: None, 1: None}
+
+    def __call__(self, env):
+        # Reset state if it's the first step of an episode
+        if hasattr(env, 'steps') and env.steps == 0:
+            self.last_distance = {0: None, 1: None}
+
+        rewards = []
+        
+        # Calculate current distance between players
+        p1_pos = env.players[0].body.position
+        p2_pos = env.players[1].body.position
+        # Pymunk Vec2d distance
+        current_dist = p1_pos.get_distance(p2_pos)
+        
+        for i in range(2):
+            if self.last_distance[i] is None:
+                self.last_distance[i] = current_dist
+                rewards.append(0.0)
+                continue
+            
+            # Reward = (Old Distance - New Distance)
+            # Positive if got closer, Negative if moved away
+            diff = self.last_distance[i] - current_dist
+            self.last_distance[i] = current_dist
+            
+            # Scale factor: 1.0 (1 unit closer = +1 reward)
+            # You can adjust this scale.
+            rewards.append(diff * 1.0)
+            
+        return torch.tensor(rewards)
+
+class CurriculumWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.env = env
+        
+    def update_reward_weights(self, new_weights):
+        """
+        Updates the weights of the reward functions in the RewardManager.
+        :param new_weights: Dictionary mapping reward names to new weights.
+        """
+        # Access the inner environment's reward manager
+        # We might need to unwrap if there are other wrappers, but usually this is close to base
+        if hasattr(self.env, 'reward_manager'):
+            for name, weight in new_weights.items():
+                if name in self.env.reward_manager.reward_functions:
+                    self.env.reward_manager.reward_functions[name].weight = weight
+                elif name in self.env.reward_manager.signal_subscriptions:
+                    self.env.reward_manager.signal_subscriptions[name].weight = weight
+            # print(f"Updated reward weights: {new_weights}")
+
+class CurriculumCallback(BaseCallback):
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+        
+    def _on_step(self) -> bool:
+        # Example Curriculum Logic (Placeholder)
+        # You can implement your custom logic here based on self.num_timesteps
+        
+        # if self.num_timesteps == 1000000:
+        #     print("Curriculum Level Up! Increasing Win Reward.")
+        #     self.training_env.env_method("update_reward_weights", {"win": 2.0, "damage": 0.5})
+            
+        return True
+
 def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolution):
     # Define Reward Functions
-    class DamageReward:
-        def __init__(self):
-            self.last_damage_done = {0: 0.0, 1: 0.0}
-            self.last_damage_taken = {0: 0.0, 1: 0.0}
-
-        def __call__(self, env):
-            rewards = []
-            for i in range(2):
-                player = env.players[i]
-                # Damage Done Reward
-                dd = player.damage_done
-                delta_dd = dd - self.last_damage_done[i]
-                self.last_damage_done[i] = dd
-                
-                # Damage Taken Penalty
-                dt = player.damage_taken_total
-                delta_dt = dt - self.last_damage_taken[i]
-                self.last_damage_taken[i] = dt
-                
-                # Net reward: +1 per damage dealt, -0.5 per damage taken
-                reward = (delta_dd * 0.1) - (delta_dt * 0.05) 
-                rewards.append(reward)
-            return torch.tensor(rewards)
+    # DamageReward is now global
 
     def win_reward_func(env, agent, **kwargs):
         rewards = torch.zeros(2)
@@ -157,12 +227,14 @@ def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolut
         return rewards
 
     # Configure RewardManager
-    from environment.agent import RewTerm
+    # from environment.agent import RewTerm # Imported globally now
     
-    damage_reward = DamageReward()
+    # Use DistanceReward instead of DamageReward
+    distance_reward = DistanceReward()
     
     reward_functions = {
-        "damage": RewTerm(func=damage_reward, weight=1.0)
+        "distance": RewTerm(func=distance_reward, weight=1.0)
+        # "damage": RewTerm(func=DamageReward(), weight=1.0) # Disabled for now
     }
     
     signal_subscriptions = {
@@ -191,6 +263,7 @@ def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolut
         resolution=resolution,
         reward_manager=reward_manager
     )
+    env = CurriculumWrapper(env) # Wrap with CurriculumWrapper
     env = Float32Wrapper(env)
     return env
 
@@ -242,8 +315,11 @@ def main(cfg_file):
         print(f"Using configured n_envs: {n_envs}")
     else:
         if device == "cuda":
-            n_envs = 16
-            print("🚀 CUDA detected! Auto-scaling to 16 parallel environments.")
+            # Use all available CPU cores for maximum throughput
+            # Leave 1-2 cores free for the OS/GPU driver if possible, but usually max is fine for headless
+            cpu_count = os.cpu_count() or 1
+            n_envs = max(1, cpu_count - 1) # Leave 1 core for system
+            print(f"🚀 CUDA detected! Auto-scaling to {n_envs} parallel environments (using {n_envs}/{cpu_count} CPU cores).")
         elif device == "mps":
             n_envs = 4
             print("🍎 MPS detected! Auto-scaling to 4 parallel environments.")
@@ -291,6 +367,20 @@ def main(cfg_file):
     learning_rate = linear_schedule(ppo_settings["learning_rate"][0], ppo_settings["learning_rate"][1])
     clip_range = linear_schedule(ppo_settings["clip_range"][0], ppo_settings["clip_range"][1])
     
+    # Dynamic Batch Size Adjustment
+    # PPO requires batch_size to be a factor of (n_envs * n_steps)
+    # Also, buffer_size (n_envs * n_steps) must be >= batch_size
+    
+    buffer_size = n_envs * ppo_settings["n_steps"]
+    batch_size = ppo_settings["batch_size"]
+    
+    if buffer_size < batch_size:
+        print(f"⚠️ Warning: Buffer size ({buffer_size}) is smaller than configured batch_size ({batch_size}).")
+        # Find the largest factor of buffer_size that is <= original batch_size
+        # Or simply set batch_size = buffer_size (simplest safe fix)
+        batch_size = buffer_size
+        print(f"📉 Auto-adjusting batch_size to {batch_size} to match buffer size.")
+    
     # Initialize Agent
     model_checkpoint = ppo_settings["model_checkpoint"]
     
@@ -302,7 +392,7 @@ def main(cfg_file):
             verbose=1,
             learning_rate=learning_rate,
             n_steps=ppo_settings["n_steps"],
-            batch_size=ppo_settings["batch_size"],
+            batch_size=batch_size, # Use the dynamic batch_size
             n_epochs=ppo_settings["n_epochs"],
             gamma=ppo_settings["gamma"],
             gae_lambda=ppo_settings["gae_lambda"],
@@ -337,11 +427,14 @@ def main(cfg_file):
     # Create the self-play callback with the REAL save_handler
     self_play_callback = SelfPlayCallback(save_handler)
 
+    # Create Curriculum Callback
+    curriculum_callback = CurriculumCallback()
+
     print(f"Starting training for {ppo_settings['time_steps']} timesteps...")
     
     agent.learn(
         total_timesteps=ppo_settings["time_steps"],
-        callback=[checkpoint_callback, self_play_callback],
+        callback=[checkpoint_callback, self_play_callback, curriculum_callback],
         progress_bar=True
     )
     
