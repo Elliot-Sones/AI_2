@@ -8,7 +8,7 @@ echo "🚀 Starting Setup for UTMIST AI Training..."
 # 1. Update System & Install System Dependencies
 echo "📦 Installing system dependencies..."
 apt-get update
-apt-get install -y python3-venv python3-pip ffmpeg libsm6 libxext6 screen htop
+apt-get install -y python3-venv python3-pip ffmpeg libsm6 libxext6 screen htop gcc build-essential python3-dev
 
 # 2. Create Virtual Environment
 echo "🐍 Creating Python virtual environment..."
@@ -21,7 +21,7 @@ pip install --upgrade pip
 # 4. Install Python Dependencies
 echo "📚 Installing Python requirements..."
 # Install torch first (usually pre-installed on Vast.ai images, but good to ensure)
-pip install torch torchvision torchaudio
+# pip install torch torchvision torchaudio
 
 # Install project requirements
 cd UTMIST-AI2-main

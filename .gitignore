@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+.venv
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+
+# Training Results
+# Training Results
+results/*
+!results/ppo_utmist/
+results/ppo_utmist/*
+!results/ppo_utmist/model/
+results/ppo_utmist/model/*
+!results/ppo_utmist/model/ppo_utmist_final.zip
+
+# Logs
+*.log
+tb.log
+test_output.log
+
+# Assets
+assets.zip

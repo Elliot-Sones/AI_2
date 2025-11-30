@@ -480,26 +480,9 @@ def main(cfg_file, stage=1, n_envs_override=None):
     }
     resolution = resolution_map.get(params["environment_settings"]["resolution"], CameraResolution.LOW)
 
-    # Auto-scale n_envs based on device if not specified in config
-    if n_envs_override:
-        n_envs = n_envs_override
-        print(f"Using overridden n_envs: {n_envs}")
-    elif "n_envs" in params["environment_settings"]:
-        n_envs = params["environment_settings"]["n_envs"]
-        print(f"Using configured n_envs: {n_envs}")
-    else:
-        if device == "cuda":
-            cpu_count = os.cpu_count() or 1
-            n_envs = max(1, cpu_count - 1)
-            print(f"🚀 CUDA detected! Auto-scaling to {n_envs} parallel environments.")
-        elif device == "mps":
-            n_envs = 4
-            print("🍎 MPS detected! Auto-scaling to 4 parallel environments.")
-        else:
-            n_envs = 1
-            print("Using default n_envs: 1")
-
-    print(f"Creating {n_envs} vectorized environments...")
+    # FORCE n_envs to 1 for debugging
+    n_envs = 1
+    print(f"DEBUG MODE: Forcing n_envs to {n_envs}")
     
     # Prepare arguments for make_env factory
     env_kwargs = {
@@ -515,11 +498,13 @@ def main(cfg_file, stage=1, n_envs_override=None):
     start_method = "spawn" 
     print(f"Using multiprocessing start method: {start_method}")
 
+    # USE DummyVecEnv for debugging
+    print("DEBUG MODE: Using DummyVecEnv")
     env = make_vec_env(
         make_env, 
         n_envs=n_envs, 
-        vec_env_cls=SubprocVecEnv,
-        vec_env_kwargs={"start_method": start_method},
+        vec_env_cls=DummyVecEnv, # CHANGED FROM SubprocVecEnv
+        # vec_env_kwargs={"start_method": start_method}, # Not needed for DummyVecEnv
         env_kwargs=env_kwargs
     )
     env = VecMonitor(env)

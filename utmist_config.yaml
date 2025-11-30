@@ -7,11 +7,13 @@ folders:
   model_name: "ppo_utmist"   # Name of the subfolder for this specific training run
 
 policy_kwargs:
-  net_arch: [64, 64]         # Neural network structure: two layers of 64 neurons
+  net_arch:
+    pi: [256, 256]
+    vf: [256, 256]
 
 ppo_settings:
   gamma: 0.94                # Discount factor: importance of future rewards (0-1)
-  model_checkpoint: "0"      # Path to load existing model, or '0' for new
+  model_checkpoint: "ppo_utmist_final.zip"      # Path to load existing model, or '0' for new
   learning_rate: [2.5e-4, 2.5e-6] # Speed of learning; decays from start to end value
   clip_range: [0.15, 0.025]  # Limits how much the policy can change per update
   batch_size: 2048           # INCREASED for GPU: Number of samples used for each gradient update
@@ -23,13 +25,13 @@ ppo_settings:
   max_grad_norm: 0.5         # Clips gradients to prevent unstable large updates
   time_steps: 50000000       # Total number of frames to train for
   autosave_freq: 50000       # How often to save the model (in steps)
-  model_checkpoint: "0"      # Duplicate key (same as above)
+      # Duplicate key (same as above)
 
 environment_settings:
   max_timesteps: 5400        # Max duration of one game episode (frames)
   render_mode: null          # Set to "human" to see game, null for speed
   resolution: "LOW"          # Game screen size; lower is faster for training
-  # n_envs: 4                # Number of games running in parallel (auto-scaled if commented)
+  n_envs: 32                # Number of games running in parallel (auto-scaled if commented)
 
 self_play_settings:
   save_freq: 100000          # How often to save opponent models for self-play

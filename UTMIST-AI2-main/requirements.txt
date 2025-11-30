@@ -22,7 +22,12 @@ scipy==1.13.1
 stable_baselines3==2.5.0
 sympy==1.5.1
 torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
 tqdm==4.67.1
 transformers==4.48.2
 supabase
 rich
+tensorboard
+imageio
+imageio[ffmpeg]

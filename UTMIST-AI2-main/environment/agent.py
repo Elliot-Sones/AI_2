@@ -612,7 +612,8 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
                  opponent_cfg: OpponentsCfg=OpponentsCfg(),
                  save_handler: Optional[SaveHandler]=None,
                  render_every: int | None = None,
-                 resolution: CameraResolution=CameraResolution.LOW):
+                 resolution: CameraResolution=CameraResolution.LOW,
+                 render_mode: str | None = None):
         """
         Initializes the environment.
 
@@ -621,6 +622,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
             opponent_cfg (OpponentCfg): Configuration for opponents.
             save_handler (SaveHandler): Configuration for self-play.
             render_every (int | None): Number of steps between a demo render (None if no rendering).
+            render_mode (str | None): The render mode (e.g. 'rgb_array').
         """
         super().__init__()
 
@@ -629,6 +631,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
         self.opponent_cfg = opponent_cfg
         self.render_every = render_every
         self.resolution = resolution
+        self.render_mode = render_mode
 
         self.games_done = 0
 
