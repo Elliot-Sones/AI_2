@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+
+/assets/
+/assets/*
+/attacks/
+/attacks/*
+attacks.zip
+assets.zip
+.venv
+.env
+
+/checkpoints/*
+
+# Videos, zip files, or csv
+*.mp4
+*.zip
+*.csv# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual envs
+venv/
+.venv/
+ENV/
+env/
+ai2/
+# Local scratch
+path/
+ai2-venv/

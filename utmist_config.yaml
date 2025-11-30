@@ -1,0 +1,39 @@
+settings:
+  game_id: "warehouse_brawl"
+  action_space: "discrete"
+
+folders:
+  parent_dir: "./results"
+  model_name: "ppo_utmist"
+
+policy_kwargs:
+  net_arch: [64, 64]
+
+ppo_settings:
+  gamma: 0.94
+  model_checkpoint: "0"
+  learning_rate: [2.5e-4, 2.5e-6] # Linear decay
+  clip_range: [0.15, 0.025] # Linear decay
+  batch_size: 256
+  n_epochs: 4
+  n_steps: 128
+  gae_lambda: 0.95
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  time_steps: 50000000 # Total training steps
+  autosave_freq: 50000
+  model_checkpoint: "0"
+
+environment_settings:
+  max_timesteps: 5400 # 3 minutes at 30fps
+  render_mode: null   # Set to "human" to watch, null for training
+  resolution: "LOW"   # LOW (480x720) is faster for training
+  # n_envs: 4           # Number of parallel environments (Commented out to allow auto-scaling)
+
+self_play_settings:
+  save_freq: 100000   # Save less frequently (every ~30 mins)
+  max_saved_models: 5 # Keep only last 5 models for self-play
+  opponent_selection:
+    random_agent: 0.2
+    self_play: 0.8
