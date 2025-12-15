@@ -73,8 +73,8 @@ environment_settings:
 
 # Self-play settings
 self_play_settings:
-  save_freq: 100000
-  max_saved_models: 10
+  save_freq: 500000
+  max_saved_models: 7
   # Note: opponent_selection is controlled by phase, not this config
 
 # ============================================================================
