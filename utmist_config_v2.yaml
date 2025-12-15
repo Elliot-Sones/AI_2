@@ -1,0 +1,110 @@
+# UTMIST AI^2 Training Configuration v2 - Reward Curriculum Edition
+# ====================================================================
+# Manual phase control with phase-specific reward weights.
+#
+# PHASES:
+#   1 = Learn to Approach (distance focus)
+#   2 = Learn to Hit (damage focus)  
+#   3 = Learn to Dominate (net damage focus)
+#   4 = Pure Competition (win focus)
+#
+# Change the phase number below before starting/resuming training.
+
+settings:
+  game_id: "warehouse_brawl"
+  action_space: "discrete"
+
+folders:
+  parent_dir: "./results"
+  model_name: "ppo_utmist_v2"
+
+# ============================================================================
+# CURRICULUM CONTROL - CHANGE THIS TO SWITCH PHASES
+# ============================================================================
+curriculum:
+  phase: 1  # <-- CHANGE THIS: 1, 2, 3, or 4
+
+# ============================================================================
+# Neural network architecture
+policy_kwargs:
+  net_arch: [512, 512, 256]
+
+# Frame stacking for temporal context
+frame_stack: 4
+
+# PPO hyperparameters
+ppo_settings:
+  gamma: 0.99
+  gae_lambda: 0.95
+  
+  # Learning rate schedule
+  learning_rate: [3.0e-4, 1.0e-6]
+  
+  # Clip range schedule
+  clip_range: [0.2, 0.05]
+  
+  # Entropy schedule
+  ent_coef_initial: 0.05
+  ent_coef_final: 0.005
+  
+  # Batch settings
+  batch_size: 8192
+  n_epochs: 8
+  n_steps: 1024
+  
+  # Other settings
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  
+  # Training duration PER PHASE
+  # Recommended: Phase 1 = 10M, Phase 2 = 30M, Phase 3 = 30M, Phase 4 = 30M
+  time_steps: 10000000  # 10M for Phase 1
+  
+  # Set to "0" for new training, or filename to resume
+  # Example: "phase1_final" to continue from Phase 1
+  model_checkpoint: "0"
+
+# Environment settings
+environment_settings:
+  max_timesteps: 5400
+  render_mode: null
+  resolution: "LOW"
+  n_envs: 32  # For GPU, use 8 for CPU/MPS
+
+# Self-play settings
+self_play_settings:
+  save_freq: 100000
+  max_saved_models: 10
+  # Note: opponent_selection is controlled by phase, not this config
+
+# ============================================================================
+# PHASE REFERENCE (for your convenience)
+# ============================================================================
+#
+# PHASE 1: "Learn to Approach"
+#   - Reward weights: distance=2.0, aggression=0.5, all else=0
+#   - Opponents: 90% random, 10% self-play
+#   - Goal: Learn to track and approach opponent
+#   - Recommended timesteps: 10M
+#   - SUCCESS CRITERIA: Agent consistently moves toward opponent
+#
+# PHASE 2: "Learn to Hit"  
+#   - Reward weights: distance=0.5, damage_dealt=1.0, damage_taken=-0.5, net_damage=0.3
+#   - Opponents: 60% random, 40% self-play
+#   - Goal: Learn to deal damage while avoiding damage
+#   - Recommended timesteps: 30M
+#   - SUCCESS CRITERIA: Net damage is consistently positive
+#
+# PHASE 3: "Learn to Dominate"
+#   - Reward weights: distance=0.2, damage_dealt=0.5, damage_taken=-0.3, net_damage=0.5, win=5.0, ko=3.0
+#   - Opponents: 20% random, 80% self-play
+#   - Goal: Win by outplaying, not by luck
+#   - Recommended timesteps: 30M
+#   - SUCCESS CRITERIA: Win rate >70% against self-play
+#
+# PHASE 4: "Pure Competition"
+#   - Reward weights: win=10.0, ko=5.0, conditional bonus for clean wins
+#   - Opponents: 10% random, 90% self-play
+#   - Goal: Maximize win rate
+#   - Recommended timesteps: 30M+
+#   - SUCCESS CRITERIA: Dominates all opponents
