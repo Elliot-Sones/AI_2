@@ -22,7 +22,7 @@ folders:
 # CURRICULUM CONTROL - CHANGE THIS TO SWITCH PHASES
 # ============================================================================
 curriculum:
-  phase: 1  # <-- CHANGE THIS: 1, 2, 3, or 4
+  phase: 4  # <-- Phase 4: Pure Competition (Win Focus)
 
 # ============================================================================
 # Neural network architecture
@@ -58,11 +58,11 @@ ppo_settings:
   
   # Training duration PER PHASE
   # Recommended: Phase 1 = 10M, Phase 2 = 30M, Phase 3 = 30M, Phase 4 = 30M
-  time_steps: 10000000  # 10M for Phase 1
+  time_steps: 30000000  # 30M for Phase 2
   
   # Set to "0" for new training, or filename to resume
   # Example: "phase1_final" to continue from Phase 1
-  model_checkpoint: "0"
+  model_checkpoint: "phase3_final"  # Continue from Phase 3
 
 # Environment settings
 environment_settings:
