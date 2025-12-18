@@ -1,14 +1,11 @@
 """
-UTMIST AI^2 Training Script v2 - With Reward Curriculum
-========================================================
-Phase-based reward curriculum for proper skill acquisition:
-- Phase 1: Learn to approach (distance focus)
-- Phase 2: Learn to hit (damage focus)
-- Phase 3: Learn to dominate (net damage focus)
-- Phase 4: Pure competition (win focus)
+UTMIST AI^2 Training Script v2 - Config-Driven Edition
+=======================================================
+All configuration loaded from YAML file.
+Phase-based reward curriculum for proper skill acquisition.
 
-Manual phase control via config file.
-Comprehensive logging for monitoring progress.
+Usage:
+    python train_utmist_v2.py --cfgFile utmist_config_v2.yaml
 """
 
 import os
@@ -16,15 +13,15 @@ import yaml
 import argparse
 import torch
 import sys
+import signal
 import gymnasium as gym
 import numpy as np
 from functools import partial
-from collections import deque
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
-from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecFrameStack
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecFrameStack, DummyVecEnv
+from stable_baselines3.common.monitor import Monitor
 
 # Add UTMIST environment to path
 sys.path.append(os.path.join(os.getcwd(), "UTMIST-AI2-main"))
@@ -37,84 +34,8 @@ from environment.agent import (
 
 
 # ============================================================================
-# PHASE CONFIGURATIONS
+# UTILITY FUNCTIONS
 # ============================================================================
-
-PHASE_CONFIGS = {
-    1: {
-        "name": "Learn to Approach",
-        "description": "Focus on closing distance while staying on stage",
-        "rewards": {
-            "distance": 2.0,
-            "aggression": 0.5,
-            "damage_dealt": 0.0,
-            "damage_taken": 0.0,
-            "net_damage": 0.0,
-            "win": 0.0,
-            "knockout": -3.0,            # Death penalty from day 1!
-            "edge_penalty": -1.0,        # Strong edge penalty
-        },
-        "opponents": {
-            "random_agent": 0.9,
-            "self_play": 0.1,
-        }
-    },
-    2: {
-        "name": "Learn to Hit",
-        "description": "Focus on dealing damage and avoiding damage",
-        "rewards": {
-            "distance": 0.5,
-            "aggression": 0.2,
-            "damage_dealt": 1.0,
-            "damage_taken": -0.5,
-            "net_damage": 0.3,
-            "win": 1.0,
-            "knockout": 2.0,
-            "edge_penalty": -1.0,        # Consistent edge awareness
-        },
-        "opponents": {
-            "random_agent": 0.6,
-            "self_play": 0.4,
-        }
-    },
-    3: {
-        "name": "Learn to Dominate",
-        "description": "Focus on winning with balanced rewards",
-        "rewards": {
-            "distance": 0.1,
-            "aggression": 0.5,          # Reward for attacking
-            "damage_dealt": 0.3,        # Keep fighting incentive
-            "damage_taken": -0.3,
-            "net_damage": 0.3,          # Reward advantage
-            "win": 8.0,                 # Win reward
-            "knockout": 6.0,            # KO opponent = +6, Get KO'd = -6 (death penalty)
-            "edge_penalty": -1.5,       # Increased to reduce SDs
-        },
-        "opponents": {
-            "random_agent": 0.7,        # 70% diverse agents for generalization
-            "self_play": 0.3,           # 30% self-play
-        }
-    },
-    4: {
-        "name": "Pure Competition",
-        "description": "Win-focused with diverse opponents",
-        "rewards": {
-            "distance": 0.0,
-            "aggression": 0.2,           # Some aggression reward
-            "damage_dealt": 0.2,         # Small damage incentive
-            "damage_taken": -0.1,
-            "net_damage": 0.1,
-            "win": 10.0,                 # High win reward
-            "knockout": 5.0,
-            "edge_penalty": -1.0,        # Reduced for more aggressive play
-        },
-        "opponents": {
-            "random_agent": 0.7,         # 70% diverse (prevent overfitting)
-            "self_play": 0.3,            # 30% self-play
-        }
-    },
-}
-
 
 def get_device():
     """Detects the best available device for training."""
@@ -136,12 +57,98 @@ def linear_schedule(initial_value: float, final_value: float = 0.0):
     return func
 
 
-def entropy_schedule(initial_value: float = 0.05, final_value: float = 0.005):
-    """Entropy coefficient schedule."""
-    def func(progress_remaining: float) -> float:
-        return progress_remaining * (initial_value - final_value) + final_value
-    return func
+def get_opponent_class(name: str):
+    """Get opponent class by name."""
+    opponents = {
+        "random_agent": RandomAgent,
+        "based_agent": BasedAgent,
+        "constant_agent": ConstantAgent,
+        "clockwork_agent": ClockworkAgent,
+    }
+    return opponents.get(name)
 
+
+def get_resolution(resolution_str: str):
+    """Get CameraResolution enum from string."""
+    resolution_map = {
+        "LOW": CameraResolution.LOW,
+        "MEDIUM": CameraResolution.MEDIUM,
+        "HIGH": CameraResolution.HIGH
+    }
+    return resolution_map.get(resolution_str.upper(), CameraResolution.LOW)
+
+
+# ============================================================================
+# PHASE CONFIG LOADER
+# ============================================================================
+
+class PhaseConfig:
+    """Loads and validates phase configuration from YAML."""
+    
+    def __init__(self, params: dict, phase_key):
+        self.params = params
+        self.phase_key = phase_key
+        
+        # Get phase definition from YAML
+        phases = params.get("phases", {})
+        
+        # Handle both string and int keys
+        if phase_key in phases:
+            self.config = phases[phase_key]
+        elif str(phase_key) in phases:
+            self.config = phases[str(phase_key)]
+        else:
+            raise ValueError(f"Phase '{phase_key}' not found in config. Available: {list(phases.keys())}")
+        
+        self.name = self.config.get("name", f"Phase {phase_key}")
+        self.description = self.config.get("description", "")
+        self.type = self.config.get("type", "combat")
+        self.is_navigation = self.type == "navigation"
+        
+        # Rewards (for combat phases)
+        self.rewards = self.config.get("rewards", {
+            "distance": 0.0, "aggression": 0.0, "damage_dealt": 0.0,
+            "damage_taken": 0.0, "net_damage": 0.0, "win": 0.0,
+            "knockout": 0.0, "edge_penalty": 0.0
+        })
+        
+        # Navigation settings (for nav phases)
+        self.navigation = self.config.get("navigation", {})
+        
+        # Opponents
+        self.opponents = self.config.get("opponents", {"random_agent": 1.0})
+    
+    def print_summary(self):
+        """Print phase configuration summary."""
+        print(f"\n{'='*60}")
+        print(f"🎯 PHASE {self.phase_key}: {self.name}")
+        print(f"   {self.description}")
+        print(f"{'='*60}")
+        
+        if self.is_navigation:
+            nav = self.navigation
+            print(f"📍 Navigation Settings:")
+            print(f"   Distance: {nav.get('min_dist', 1.0)} - {nav.get('max_dist', 12.0)}")
+            print(f"   Fall Penalty: {nav.get('fall_penalty', -5.0)}")
+            print(f"   Targets: {nav.get('multi_target', 1)}")
+            print(f"   Time Limit: {nav.get('time_limit_seconds', 90)}s")
+        else:
+            print("⚖️ Reward Weights:")
+            for name, weight in self.rewards.items():
+                if weight != 0:
+                    print(f"   {name}: {weight:+.2f}")
+        
+        print("👥 Opponents:")
+        for name, prob in self.opponents.items():
+            if prob > 0:
+                print(f"   {name}: {prob*100:.0f}%")
+        
+        print(f"{'='*60}\n")
+
+
+# ============================================================================
+# ENVIRONMENT WRAPPERS
+# ============================================================================
 
 class Float32Wrapper(gym.ObservationWrapper):
     """Ensures observations are float32."""
@@ -157,10 +164,197 @@ class Float32Wrapper(gym.ObservationWrapper):
         return observation.astype(np.float32)
 
 
+class FrozenOpponentWrapper(gym.Wrapper):
+    """
+    Wrapper for Phase 0 Navigation Training.
+    Freezes opponent at random positions and rewards navigation.
+    """
+    
+    # Stage bounds (approximate)
+    STAGE_X_MIN = -7.0
+    STAGE_X_MAX = 7.0
+    STAGE_Y_MIN = -1.0  # Ground level
+    STAGE_Y_MAX = 5.0   # Jump height
+    
+    def __init__(self, env, nav_config: dict, debug_logs=True):
+        super().__init__(env)
+        self.nav_config = nav_config
+        self.debug_logs = debug_logs
+        
+        # Load from config
+        self.min_dist = nav_config.get("min_dist", 1.0)
+        self.max_dist = nav_config.get("max_dist", 12.0)
+        self.fall_penalty = nav_config.get("fall_penalty", -5.0)
+        self.time_limit = nav_config.get("time_limit_seconds", 90) * 30  # Convert to frames
+        self.max_targets = nav_config.get("multi_target", 1)
+        
+        # Tracking
+        self.target_position = None
+        self.last_distance = None
+        self.targets_reached = 0
+        self.total_targets = 0
+        self.falls = 0
+        self.episode_steps = 0
+        self.targets_this_episode = 0
+        
+        # Logging
+        self.log_interval = 10000
+        self.steps_since_log = 0
+        self.interval_targets_reached = 0
+        self.interval_falls = 0
+        self.interval_episodes = 0
+        
+    def _get_player(self):
+        """Get player object from environment."""
+        env = self.env
+        if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
+            return env.raw_env.players[0]
+        if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'raw_env'):
+            return env.unwrapped.raw_env.players[0]
+        return None
+    
+    def _get_opponent(self):
+        """Get opponent object from environment."""
+        env = self.env
+        if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
+            return env.raw_env.players[1]
+        if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'raw_env'):
+            return env.unwrapped.raw_env.players[1]
+        return None
+    
+    def _spawn_target(self, player_pos):
+        """Spawn a new target position based on config."""
+        for _ in range(100):
+            x = np.random.uniform(self.STAGE_X_MIN, self.STAGE_X_MAX)
+            y = np.random.uniform(self.STAGE_Y_MIN, self.STAGE_Y_MAX)
+            dist = np.sqrt((x - player_pos[0])**2 + (y - player_pos[1])**2)
+            if self.min_dist <= dist <= self.max_dist:
+                self.target_position = (x, y)
+                self.total_targets += 1
+                return
+        self.target_position = (0.0, 0.0)
+        self.total_targets += 1
+    
+    def _freeze_opponent(self):
+        """Freeze opponent at target position."""
+        opponent = self._get_opponent()
+        if opponent is not None and self.target_position is not None:
+            try:
+                opponent.body.position = self.target_position
+                opponent.body.velocity = (0, 0)
+            except:
+                pass
+    
+    def _get_distance_to_target(self, player_pos):
+        """Calculate distance from player to target."""
+        if self.target_position is None:
+            return 0.0
+        return np.sqrt(
+            (player_pos[0] - self.target_position[0])**2 + 
+            (player_pos[1] - self.target_position[1])**2
+        )
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.episode_steps += 1
+        self.steps_since_log += 1
+        
+        player = self._get_player()
+        if player is None:
+            return obs, reward, terminated, truncated, info
+        
+        player_pos = (player.body.position.x, player.body.position.y)
+        self._freeze_opponent()
+        
+        # Calculate navigation reward
+        nav_reward = 0.0
+        current_dist = self._get_distance_to_target(player_pos)
+        
+        # Approach reward
+        if self.last_distance is not None:
+            dist_reduction = self.last_distance - current_dist
+            nav_reward += dist_reduction * 2.0
+        
+        # Target reached bonus
+        if current_dist < 1.0:
+            nav_reward += 5.0
+            self.targets_reached += 1
+            self.interval_targets_reached += 1
+            self.targets_this_episode += 1
+            
+            if self.targets_this_episode < self.max_targets:
+                self._spawn_target(player_pos)
+            else:
+                truncated = True
+        
+        self.last_distance = current_dist
+        
+        # Edge penalty
+        x_pos = abs(player_pos[0])
+        if x_pos > 5.0:
+            edge_factor = (x_pos - 5.0) / 2.0
+            nav_reward -= 0.5 * min(edge_factor, 1.0)
+        
+        # Fall detection
+        if terminated:
+            my_lives = getattr(player, 'lives_left', 3)
+            if my_lives < 3:
+                nav_reward += self.fall_penalty
+                self.falls += 1
+                self.interval_falls += 1
+        
+        # Time limit
+        if self.episode_steps >= self.time_limit:
+            truncated = True
+        
+        # Logging
+        if self.steps_since_log >= self.log_interval and self.debug_logs:
+            self._log_stats()
+        
+        return obs, reward + nav_reward, terminated, truncated, info
+    
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        
+        player = self._get_player()
+        if player is not None:
+            player_pos = (player.body.position.x, player.body.position.y)
+            self._spawn_target(player_pos)
+            self._freeze_opponent()
+            self.last_distance = self._get_distance_to_target(player_pos)
+        
+        self.episode_steps = 0
+        self.targets_this_episode = 0
+        self.interval_episodes += 1
+        
+        return obs, info
+    
+    def _log_stats(self):
+        """Log navigation statistics."""
+        if self.interval_episodes > 0:
+            reach_rate = (self.interval_targets_reached / max(1, self.interval_episodes)) * 100
+            fall_rate = (self.interval_falls / max(1, self.interval_episodes)) * 100
+        else:
+            reach_rate = fall_rate = 0
+        
+        print(f"\n[NAV] {self.steps_since_log:,} steps | "
+              f"Reach: {reach_rate:.0f}% | Falls: {fall_rate:.0f}% | "
+              f"Episodes: {self.interval_episodes}")
+        
+        self.steps_since_log = 0
+        self.interval_targets_reached = 0
+        self.interval_falls = 0
+        self.interval_episodes = 0
+
+
 class DamageTrackingWrapper(gym.Wrapper):
     """Tracks damage dealt/received and death types (SD vs KO)."""
+    
     def __init__(self, env):
         super().__init__(env)
+        self.reset_tracking()
+    
+    def reset_tracking(self):
         self.total_damage_dealt = 0.0
         self.total_damage_received = 0.0
         self.episode_damage_dealt = 0.0
@@ -169,39 +363,40 @@ class DamageTrackingWrapper(gym.Wrapper):
         self.last_damage_taken = 0.0
         self.wins = 0
         self.losses = 0
-        # Death type tracking
         self.last_lives = 3
-        self.recent_damage_taken = 0.0  # Damage taken in last N frames
-        self.damage_history = []  # Track recent damage for SD detection
-        self.episode_sds = 0  # Self-destructs this episode
-        self.episode_kos = 0  # KO deaths this episode
+        self.recent_damage_taken = 0.0
+        self.damage_history = []
+        self.episode_sds = 0
+        self.episode_kos = 0
         self.total_sds = 0
         self.total_kos = 0
     
     def _get_player(self):
-        """Get player object from the environment, handling various wrapper levels."""
         env = self.env
-        # Try multiple paths to find the player
-        # Path 1: Direct raw_env access (SelfPlayWarehouseBrawl)
         if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
             return env.raw_env.players[0]
-        # Path 2: Through unwrapped
         if hasattr(env, 'unwrapped'):
             unwrapped = env.unwrapped
             if hasattr(unwrapped, 'raw_env') and hasattr(unwrapped.raw_env, 'players'):
                 return unwrapped.raw_env.players[0]
-            if hasattr(unwrapped, 'players'):
-                return unwrapped.players[0]
+        return None
+    
+    def _get_opponent(self):
+        env = self.env
+        if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
+            return env.raw_env.players[1]
+        if hasattr(env, 'unwrapped'):
+            unwrapped = env.unwrapped
+            if hasattr(unwrapped, 'raw_env') and hasattr(unwrapped.raw_env, 'players'):
+                return unwrapped.raw_env.players[1]
         return None
     
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         
-        # Try to extract damage from underlying environment
         try:
             player = self._get_player()
             if player is not None:
-                # Calculate delta damage
                 current_dealt = getattr(player, 'damage_done', 0.0)
                 current_taken = getattr(player, 'damage_taken_total', 0.0)
                 
@@ -215,7 +410,6 @@ class DamageTrackingWrapper(gym.Wrapper):
                     self.episode_damage_received += delta_taken
                     self.total_damage_received += delta_taken
                 
-                # Track damage history for SD detection (last 30 frames = 1 second)
                 self.damage_history.append(delta_taken)
                 if len(self.damage_history) > 30:
                     self.damage_history.pop(0)
@@ -224,12 +418,8 @@ class DamageTrackingWrapper(gym.Wrapper):
                 self.last_damage_done = current_dealt
                 self.last_damage_taken = current_taken
                 
-                # Check for death (lost a life)
                 current_lives = getattr(player, 'lives_left', 3)
                 if current_lives < self.last_lives:
-                    # Player lost a life - determine if SD or KO
-                    # SD = died with low recent damage (self-destruct)
-                    # KO = died with significant recent damage
                     if self.recent_damage_taken < 20:
                         self.episode_sds += 1
                         self.total_sds += 1
@@ -238,56 +428,50 @@ class DamageTrackingWrapper(gym.Wrapper):
                         self.total_kos += 1
                 self.last_lives = current_lives
                 
-                # Add to info
                 info['damage_dealt'] = self.episode_damage_dealt
                 info['damage_received'] = self.episode_damage_received
-                info['total_damage_dealt'] = self.total_damage_dealt
-                info['total_damage_received'] = self.total_damage_received
         except Exception:
             pass
         
-        # Track wins/losses on episode end
         if terminated or truncated:
-            # Use lives comparison for accurate win detection
             try:
                 player = self._get_player()
-                if player is not None:
+                opponent = self._get_opponent()
+                
+                if player and opponent:
                     my_lives = getattr(player, 'lives_left', 0)
-                    # Get opponent lives from environment
-                    env = self.env
-                    if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
-                        opp_lives = getattr(env.raw_env.players[1], 'lives_left', 0)
-                    elif hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'raw_env'):
-                        opp_lives = getattr(env.unwrapped.raw_env.players[1], 'lives_left', 0)
-                    else:
-                        opp_lives = 0
+                    opp_lives = getattr(opponent, 'lives_left', 0)
+                    my_damage = getattr(player, 'damage_done', 0)
+                    opp_damage = getattr(opponent, 'damage_done', 0)
                     
                     if my_lives > opp_lives:
                         self.wins += 1
                         info['win'] = 1
-                    else:
+                    elif my_lives < opp_lives:
                         self.losses += 1
                         info['win'] = 0
+                    else:
+                        if my_damage > opp_damage:
+                            self.wins += 1
+                            info['win'] = 1
+                        else:
+                            self.losses += 1
+                            info['win'] = 0
                 else:
-                    # Fallback to reward-based detection
-                    if reward > 0:
+                    if self.episode_damage_dealt > self.episode_damage_received:
                         self.wins += 1
                         info['win'] = 1
                     else:
                         self.losses += 1
                         info['win'] = 0
             except:
-                # Fallback to reward-based detection
-                if reward > 0:
-                    self.wins += 1
-                    info['win'] = 1
-                else:
-                    self.losses += 1
-                    info['win'] = 0
+                info['win'] = 0
+            
             info['episode_damage_dealt'] = self.episode_damage_dealt
             info['episode_damage_received'] = self.episode_damage_received
             info['episode_sds'] = self.episode_sds
             info['episode_kos'] = self.episode_kos
+            
             # Reset episode stats
             self.episode_damage_dealt = 0.0
             self.episode_damage_received = 0.0
@@ -311,6 +495,10 @@ class DamageTrackingWrapper(gym.Wrapper):
         self.damage_history = []
         return self.env.reset(**kwargs)
 
+
+# ============================================================================
+# CALLBACKS
+# ============================================================================
 
 class VectorizedSaveHandler(SaveHandler):
     """SaveHandler for subprocess environments."""
@@ -347,12 +535,15 @@ class LimitedCheckpointCallback(CheckpointCallback):
         super().__init__(save_freq, save_path, name_prefix, verbose)
         self.max_keep = max_keep
         self.saved_files = []
+        self.last_save_timestep = 0
 
     def _on_step(self) -> bool:
         result = super()._on_step()
-        if self.n_calls % self.save_freq == 0:
+        
+        if self.num_timesteps >= self.last_save_timestep + self.save_freq:
             path = os.path.join(self.save_path, f"{self.name_prefix}_{self.num_timesteps}_steps.zip")
             self.saved_files.append(path)
+            self.last_save_timestep = self.num_timesteps
             
             if len(self.saved_files) > self.max_keep:
                 to_remove = self.saved_files.pop(0)
@@ -362,14 +553,18 @@ class LimitedCheckpointCallback(CheckpointCallback):
 
 
 class DetailedLoggingCallback(BaseCallback):
-    """
-    Simplified logging callback.
-    Shows: Avg damage dealt/received per episode, Net damage, Win rate, SD/KO breakdown.
-    """
-    def __init__(self, log_freq=20000, verbose=1):
+    """Logs damage stats, win rate, SD/KO breakdown."""
+    
+    def __init__(self, log_freq=10000, verbose=1):
         super().__init__(verbose)
         self.log_freq = log_freq
-        # Interval tracking (reset each log)
+        self.reset_interval()
+        self.total_wins = 0
+        self.total_losses = 0
+        self.total_sds = 0
+        self.total_kos = 0
+    
+    def reset_interval(self):
         self.interval_damage_dealt = 0.0
         self.interval_damage_received = 0.0
         self.interval_wins = 0
@@ -377,18 +572,11 @@ class DetailedLoggingCallback(BaseCallback):
         self.interval_episodes = 0
         self.interval_sds = 0
         self.interval_kos = 0
-        # Overall tracking
-        self.total_wins = 0
-        self.total_losses = 0
-        self.total_sds = 0
-        self.total_kos = 0
         
     def _on_step(self) -> bool:
-        # Get infos from the VecEnv
         infos = self.locals.get('infos', [])
         
         for info in infos:
-            # Check for episode completion
             if 'episode_damage_dealt' in info:
                 self.interval_damage_dealt += info.get('episode_damage_dealt', 0)
                 self.interval_damage_received += info.get('episode_damage_received', 0)
@@ -404,363 +592,169 @@ class DetailedLoggingCallback(BaseCallback):
                     self.interval_losses += 1
                     self.total_losses += 1
         
-        # Log every log_freq steps
         if self.num_timesteps % self.log_freq == 0 and self.num_timesteps > 0:
             self._log_stats()
         
         return True
     
     def _log_stats(self):
-        """Log damage and win rate stats."""
         print("\n" + "=" * 60)
-        print(f"📊 STATS @ {self.num_timesteps:,} steps (last {self.log_freq:,} steps)")
+        print(f"📊 STATS @ {self.num_timesteps:,} steps")
         print("=" * 60)
         
-        # Average damage per episode (recent interval)
         if self.interval_episodes > 0:
             avg_dealt = self.interval_damage_dealt / self.interval_episodes
             avg_received = self.interval_damage_received / self.interval_episodes
             avg_net = avg_dealt - avg_received
             
-            print(f"⚔️  Avg Damage Dealt:    {avg_dealt:.1f} per episode")
-            print(f"🛡️  Avg Damage Received: {avg_received:.1f} per episode")
-            print(f"📈 Avg Net Damage:      {avg_net:+.1f} per episode")
+            print(f"⚔️  Avg Damage Dealt:    {avg_dealt:.1f}")
+            print(f"🛡️  Avg Damage Received: {avg_received:.1f}")
+            print(f"📈 Avg Net Damage:      {avg_net:+.1f}")
             
-            # Log to TensorBoard
             self.logger.record("damage/avg_dealt", avg_dealt)
             self.logger.record("damage/avg_received", avg_received)
             self.logger.record("damage/avg_net", avg_net)
         
-        # Win rate (recent interval)
         interval_games = self.interval_wins + self.interval_losses
         if interval_games > 0:
             win_rate = (self.interval_wins / interval_games) * 100
             print(f"🏆 Win Rate (recent):   {win_rate:.1f}% ({self.interval_wins}W / {self.interval_losses}L)")
             self.logger.record("winrate/recent", win_rate)
         
-        # Overall win rate
         total_games = self.total_wins + self.total_losses
         if total_games > 0:
             overall_win_rate = (self.total_wins / total_games) * 100
-            print(f"📊 Win Rate (overall):  {overall_win_rate:.1f}% ({self.total_wins}W / {self.total_losses}L)")
+            print(f"📊 Win Rate (overall):  {overall_win_rate:.1f}%")
             self.logger.record("winrate/overall", overall_win_rate)
         
-        # SD/KO breakdown
         total_deaths = self.interval_sds + self.interval_kos
         if total_deaths > 0:
             sd_pct = (self.interval_sds / total_deaths) * 100
             print(f"💀 Deaths: {self.interval_sds} SD / {self.interval_kos} KO ({sd_pct:.0f}% self-destruct)")
-            self.logger.record("deaths/sds", self.interval_sds)
-            self.logger.record("deaths/kos", self.interval_kos)
             self.logger.record("deaths/sd_pct", sd_pct)
-            self.total_sds += self.interval_sds
-            self.total_kos += self.interval_kos
         
         print("=" * 60 + "\n")
-        
-        # Reset interval counters
-        self.interval_damage_dealt = 0.0
-        self.interval_damage_received = 0.0
-        self.interval_wins = 0
-        self.interval_losses = 0
-        self.interval_episodes = 0
-        self.interval_sds = 0
-        self.interval_kos = 0
+        self.reset_interval()
 
 
 class EvaluationCallback(BaseCallback):
-    """
-    Periodically evaluate agent against diverse opponents.
-    Runs every eval_freq steps (default 500k).
-    """
-    def __init__(self, eval_freq=500000, n_eval_episodes=5, verbose=1, run_initial=True):
+    """Periodically evaluate agent against diverse opponents."""
+    
+    def __init__(self, eval_freq=500000, n_eval_episodes=10, verbose=1):
         super().__init__(verbose)
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
         self.last_eval_step = 0
-        self.run_initial = run_initial
-        self.did_initial = False
         
     def _on_step(self) -> bool:
-        # Run initial evaluation at start
-        if self.run_initial and not self.did_initial:
-            self.did_initial = True
-            self._run_evaluation()
-        # Regular periodic evaluation
-        elif self.num_timesteps - self.last_eval_step >= self.eval_freq:
+        if self.num_timesteps - self.last_eval_step >= self.eval_freq:
             self.last_eval_step = self.num_timesteps
             self._run_evaluation()
         return True
     
     def _run_evaluation(self):
-        """Run evaluation matches against test opponents."""
+        from environment.environment import WarehouseBrawl
+        
         print("\n" + "=" * 50)
-        print(f"EVALUATION @ {self.num_timesteps:,} steps")
+        print(f"🧪 EVALUATION @ {self.num_timesteps:,} steps")
         print("=" * 50)
         
-        try:
-            from environment.environment import CameraResolution, WarehouseBrawl
-            from environment.agent import RandomAgent, BasedAgent, ConstantAgent, ClockworkAgent
-            from stable_baselines3 import PPO
-            import os
+        test_opponents = {
+            "ConstantAgent": ConstantAgent(),
+            "RandomAgent": RandomAgent(),
+            "ClockworkAgent": ClockworkAgent(),
+            "BasedAgent": BasedAgent(),
+        }
+        
+        for opponent_name, opponent in test_opponents.items():
+            wins, losses, draws = 0, 0, 0
+            total_damage_dealt = 0
             
-            # Create a simple evaluation function
-            results = {}
-            
-            # Test opponents - built-in agents
-            test_opponents = {
-                "ConstantAgent": ConstantAgent(),   # Does nothing (easiest)
-                "RandomAgent": RandomAgent(),       # Random actions
-                "ClockworkAgent": ClockworkAgent(), # Preset patterns
-                "BasedAgent": BasedAgent(),         # Rule-based (hardest built-in)
-            }
-            
-            # Try to add previous phase models as opponents
-            model_folder = "./results/ppo_utmist_v2/model"
-            for phase_name in ["phase1_final", "phase2_final"]:
-                model_path = os.path.join(model_folder, f"{phase_name}.zip")
-                if os.path.exists(model_path):
-                    try:
-                        class ModelOpponent:
-                            def __init__(self, model_path):
-                                self.model = PPO.load(model_path, device='cpu')
-                                self.frame_stack = None
-                            def get_env_info(self, env):
-                                self.frame_stack = [np.zeros(64,) for _ in range(4)]
-                            def predict(self, obs):
-                                if self.frame_stack is None:
-                                    return np.zeros(10)
-                                self.frame_stack.pop(0)
-                                self.frame_stack.append(obs.copy())
-                                stacked = np.concatenate(self.frame_stack, axis=0)
-                                action, _ = self.model.predict(stacked, deterministic=True)
-                                return action
-                        test_opponents[phase_name] = ModelOpponent(model_path)
-                    except Exception as e:
-                        print(f"  Could not load {phase_name}: {e}")
-            
-            for opponent_name, opponent in test_opponents.items():
-                wins = 0
-                losses = 0
-                draws = 0
-                total_damage_dealt = 0
-                total_damage_received = 0
-                
-                for ep in range(self.n_eval_episodes):
-                    try:
-                        # Run a quick evaluation episode
-                        env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
-                        env.max_timesteps = 30 * 90  # 90 second match (longer for decisive outcomes)
+            for _ in range(self.n_eval_episodes):
+                try:
+                    env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
+                    env.max_timesteps = 30 * 90
+                    
+                    observations, _ = env.reset()
+                    obs = observations[0]
+                    opponent.get_env_info(env)
+                    opponent_obs = observations[1]
+                    
+                    frame_stack = [obs.copy() for _ in range(4)]
+                    
+                    done = False
+                    while not done:
+                        stacked_obs = np.concatenate(frame_stack, axis=0)
+                        action, _ = self.model.predict(stacked_obs, deterministic=True)
+                        opp_action = opponent.predict(opponent_obs)
                         
-                        observations, _ = env.reset()
+                        observations, _, terminated, truncated, _ = env.step({0: action, 1: opp_action})
+                        
                         obs = observations[0]
-                        opponent.get_env_info(env)
                         opponent_obs = observations[1]
+                        frame_stack.pop(0)
+                        frame_stack.append(obs.copy())
                         
-                        # Frame stacking for evaluation
-                        frame_stack = [obs.copy() for _ in range(4)]
-                        
-                        done = False
-                        step_count = 0
-                        while not done:
-                            # Stack frames
-                            stacked_obs = np.concatenate(frame_stack, axis=0)
-                            
-                            # Get actions
-                            action, _ = self.model.predict(stacked_obs, deterministic=True)
-                            opp_action = opponent.predict(opponent_obs)
-                            
-                            full_action = {0: action, 1: opp_action}
-                            observations, rewards, terminated, truncated, _ = env.step(full_action)
-                            
-                            obs = observations[0]
-                            opponent_obs = observations[1]
-                            
-                            # Update frame stack
-                            frame_stack.pop(0)
-                            frame_stack.append(obs.copy())
-                            
-                            done = terminated or truncated
-                            step_count += 1
-                        
-                        # Get stats
-                        stats = env.get_stats(0)
-                        opp_stats = env.get_stats(1)
-                        
-                        # Determine outcome
-                        if stats.lives_left > opp_stats.lives_left:
+                        done = terminated or truncated
+                    
+                    stats = env.get_stats(0)
+                    opp_stats = env.get_stats(1)
+                    
+                    if stats.lives_left > opp_stats.lives_left:
+                        wins += 1
+                    elif stats.lives_left < opp_stats.lives_left:
+                        losses += 1
+                    else:
+                        if stats.damage_done > opp_stats.damage_done:
                             wins += 1
-                        elif stats.lives_left < opp_stats.lives_left:
-                            losses += 1
                         else:
-                            # Tie-breaker: who dealt more damage?
-                            if stats.damage_done > opp_stats.damage_done:
-                                wins += 1  # Count as win if dominated damage
-                            else:
-                                draws += 1
-                        
-                        total_damage_dealt += stats.damage_done
-                        total_damage_received += stats.damage_taken
-                        
-                        env.close()
-                        
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"  Eval episode error: {e}")
-                        continue
-                
-                # Calculate results
-                total_games = wins + losses + draws
-                win_rate = (wins / total_games) * 100 if total_games > 0 else 0
-                avg_dealt = total_damage_dealt / max(1, total_games)
-                avg_received = total_damage_received / max(1, total_games)
-                
-                results[opponent_name] = {
-                    "win_rate": win_rate,
-                    "wins": wins,
-                    "losses": losses,
-                    "draws": draws,
-                    "games": total_games,
-                    "avg_damage_dealt": avg_dealt,
-                    "avg_damage_received": avg_received,
-                }
-                
-                # Log results - clean format for terminal
-                print(f"\n  ┌─ vs {opponent_name} ─────────────────────")
-                print(f"  │ WIN_RATE: {win_rate:.0f}%  ({wins}W/{losses}L/{draws}D)")
-                print(f"  │ DMG_DEALT: {avg_dealt:.0f}  DMG_RECV: {avg_received:.0f}")
-                print(f"  └────────────────────────────────────")
-                
-                # Log to TensorBoard
-                self.logger.record(f"eval/{opponent_name}/win_rate", win_rate)
-                self.logger.record(f"eval/{opponent_name}/avg_damage_dealt", avg_dealt)
-                self.logger.record(f"eval/{opponent_name}/avg_damage_received", avg_received)
+                            draws += 1
+                    
+                    total_damage_dealt += stats.damage_done
+                    env.close()
+                    
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  Eval error: {e}")
             
-            print("\n" + "=" * 50)
-            print("EVAL COMPLETE")
-            print("=" * 50 + "\n")
+            total_games = wins + losses + draws
+            win_rate = (wins / total_games) * 100 if total_games > 0 else 0
+            avg_dealt = total_damage_dealt / max(1, total_games)
             
-            # Record a video every 1M steps
-            if self.num_timesteps > 0 and self.num_timesteps % 1000000 < self.eval_freq:
-                self._record_demo_video()
-            
-        except Exception as e:
-            print(f"Evaluation error: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _record_demo_video(self):
-        """Record a demo video against BasedAgent."""
-        try:
-            import skvideo.io
-            from environment.environment import CameraResolution, WarehouseBrawl
-            from environment.agent import BasedAgent
-            
-            print("\n🎬 Recording demo video vs BasedAgent...")
-            
-            # Ensure videos folder exists
-            os.makedirs("./videos", exist_ok=True)
-            video_path = f"./videos/demo_{self.num_timesteps//1000000}M.mp4"
-            
-            opponent = BasedAgent()
-            env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
-            env.max_timesteps = 30 * 60  # 60 second match
-            
-            observations, _ = env.reset()
-            obs = observations[0]
-            opponent.get_env_info(env)
-            opponent_obs = observations[1]
-            
-            # Frame stacking
-            frame_stack = [obs.copy() for _ in range(4)]
-            
-            writer = skvideo.io.FFmpegWriter(video_path, outputdict={
-                '-vcodec': 'libx264',
-                '-pix_fmt': 'yuv420p',
-                '-preset': 'fast',
-                '-crf': '23',
-                '-r': '30'
-            })
-            
-            for step in range(env.max_timesteps):
-                stacked_obs = np.concatenate(frame_stack, axis=0)
-                action, _ = self.model.predict(stacked_obs, deterministic=True)
-                opp_action = opponent.predict(opponent_obs)
-                
-                full_action = {0: action, 1: opp_action}
-                observations, rewards, terminated, truncated, _ = env.step(full_action)
-                
-                obs = observations[0]
-                opponent_obs = observations[1]
-                frame_stack.pop(0)
-                frame_stack.append(obs.copy())
-                
-                img = env.render()
-                img = np.rot90(img, k=-1)
-                img = np.fliplr(img)
-                writer.writeFrame(img)
-                
-                if terminated or truncated:
-                    break
-            
-            writer.close()
-            
-            stats = env.get_stats(0)
-            opp_stats = env.get_stats(1)
-            result = "WIN" if stats.lives_left > opp_stats.lives_left else "LOSS" if stats.lives_left < opp_stats.lives_left else "DRAW"
-            
-            print(f"   📹 Video saved: {video_path}")
-            print(f"   Result: {result} | Lives: {stats.lives_left}-{opp_stats.lives_left} | Dmg: {stats.damage_done:.0f}/{stats.damage_taken:.0f}")
-            
-            env.close()
-            
-        except Exception as e:
-            print(f"   Video recording error: {e}")
+            print(f"  vs {opponent_name}: {win_rate:.0f}% ({wins}W/{losses}L/{draws}D) | Avg Dmg: {avg_dealt:.0f}")
+            self.logger.record(f"eval/{opponent_name}/win_rate", win_rate)
+        
+        print("=" * 50 + "\n")
 
 
 # ============================================================================
-# REWARD FUNCTIONS (Phase-Aware)
+# REWARD SYSTEM
 # ============================================================================
 
 class PhaseAwareRewardManager:
-    """
-    Manages rewards based on current training phase.
-    Tracks damage statistics for logging.
-    """
-    def __init__(self, phase: int):
-        self.phase = phase
-        self.phase_config = PHASE_CONFIGS[phase]
-        self.weights = self.phase_config["rewards"]
+    """Manages rewards based on phase config from YAML."""
+    
+    def __init__(self, phase_config: PhaseConfig):
+        self.phase_config = phase_config
+        self.weights = phase_config.rewards
         
-        # Tracking for logging
+        # Tracking
         self.episode_damage_dealt = 0.0
         self.episode_damage_received = 0.0
         self.total_damage_dealt = 0.0
         self.total_damage_received = 0.0
         
-        # Last values for delta calculation
         self.last_damage_done = {0: 0.0, 1: 0.0}
         self.last_damage_taken = {0: 0.0, 1: 0.0}
         self.last_distance = {0: None, 1: None}
-        
-        print(f"\n{'='*60}")
-        print(f"🎯 PHASE {phase}: {self.phase_config['name']}")
-        print(f"   {self.phase_config['description']}")
-        print(f"{'='*60}")
-        print("Reward Weights:")
-        for name, weight in self.weights.items():
-            if weight != 0:
-                print(f"   {name}: {weight:+.2f}")
-        print(f"{'='*60}\n")
     
     def compute_reward(self, env) -> float:
-        """Compute total reward for agent 0."""
         total_reward = 0.0
         player = env.players[0]
         opponent = env.players[1]
         
-        # --- Distance Reward ---
-        if self.weights["distance"] != 0:
+        # Distance Reward
+        if self.weights.get("distance", 0) != 0:
             p1_pos = player.body.position
             p2_pos = opponent.body.position
             current_dist = p1_pos.get_distance(p2_pos)
@@ -768,12 +762,11 @@ class PhaseAwareRewardManager:
             if self.last_distance[0] is None:
                 self.last_distance[0] = current_dist
             else:
-                # Positive reward for getting closer
                 dist_delta = self.last_distance[0] - current_dist
                 total_reward += dist_delta * self.weights["distance"]
                 self.last_distance[0] = current_dist
         
-        # --- Damage Dealt Reward ---
+        # Damage Dealt
         current_damage_done = player.damage_done
         delta_dd = current_damage_done - self.last_damage_done[0]
         self.last_damage_done[0] = current_damage_done
@@ -782,10 +775,10 @@ class PhaseAwareRewardManager:
             self.episode_damage_dealt += delta_dd
             self.total_damage_dealt += delta_dd
         
-        if self.weights["damage_dealt"] != 0:
+        if self.weights.get("damage_dealt", 0) != 0:
             total_reward += delta_dd * self.weights["damage_dealt"]
         
-        # --- Damage Taken Penalty ---
+        # Damage Taken
         current_damage_taken = player.damage_taken_total
         delta_dt = current_damage_taken - self.last_damage_taken[0]
         self.last_damage_taken[0] = current_damage_taken
@@ -794,30 +787,25 @@ class PhaseAwareRewardManager:
             self.episode_damage_received += delta_dt
             self.total_damage_received += delta_dt
         
-        if self.weights["damage_taken"] != 0:
-            total_reward += delta_dt * self.weights["damage_taken"]  # Note: weight is negative
+        if self.weights.get("damage_taken", 0) != 0:
+            total_reward += delta_dt * self.weights["damage_taken"]
         
-        # --- Net Damage Bonus ---
-        if self.weights["net_damage"] != 0:
+        # Net Damage
+        if self.weights.get("net_damage", 0) != 0:
             net_damage = delta_dd - delta_dt
             if net_damage > 0:
                 total_reward += net_damage * self.weights["net_damage"]
         
-        # --- Edge Position Penalty ---
+        # Edge Penalty
         edge_weight = self.weights.get("edge_penalty", 0.0)
         if edge_weight != 0:
-            # Stage edges are around x = ±10-12 units
-            # Penalize when beyond ±8 (approaching edge)
             x_pos = abs(player.body.position.x)
-            edge_threshold = 8.0
-            if x_pos > edge_threshold:
-                # Penalty scales with how far past threshold
-                edge_factor = (x_pos - edge_threshold) / 4.0  # Max ~1.0 at edge
-                total_reward += edge_weight * min(edge_factor, 1.0)  # weight is negative
+            if x_pos > 8.0:
+                edge_factor = (x_pos - 8.0) / 4.0
+                total_reward += edge_weight * min(edge_factor, 1.0)
         
-        # --- Aggression Bonus ---
-        if self.weights["aggression"] != 0:
-            # Check if in attack state (states 6-10 typically)
+        # Aggression
+        if self.weights.get("aggression", 0) != 0:
             attack_states = {6, 7, 8, 9, 10}
             if hasattr(player, 'state_machine') and hasattr(player.state_machine, 'current_state'):
                 state_id = getattr(player.state_machine.current_state, 'id', -1)
@@ -827,42 +815,28 @@ class PhaseAwareRewardManager:
         return total_reward
     
     def compute_win_reward(self, winner_is_agent: bool) -> float:
-        """Compute win/loss reward."""
+        win_weight = self.weights.get("win", 0.0)
         if winner_is_agent:
-            # Check if win was "earned" (net positive damage)
-            net_damage = self.episode_damage_dealt - self.episode_damage_received
-            base_reward = self.weights["win"]
-            
-            # In Phase 4, add conditional bonus for positive net damage
-            if self.phase == 4 and net_damage > 0:
-                base_reward += 5.0  # Extra bonus for "clean" win
-            
+            base_reward = win_weight
+            clean_bonus = self.weights.get("clean_win_bonus", 0.0)
+            if clean_bonus > 0 and self.episode_damage_dealt > self.episode_damage_received:
+                base_reward += clean_bonus
             return base_reward
         else:
-            return -self.weights["win"]
+            return -win_weight
     
     def compute_knockout_reward(self, agent_got_ko: bool) -> float:
-        """Compute KO reward."""
-        if agent_got_ko:
-            return -self.weights["knockout"]
-        else:
-            return self.weights["knockout"]
+        ko_weight = self.weights.get("knockout", 0.0)
+        return -ko_weight if agent_got_ko else ko_weight
     
     def reset_episode(self):
-        """Reset episode-level tracking."""
         self.episode_damage_dealt = 0.0
         self.episode_damage_received = 0.0
         self.last_distance = {0: None, 1: None}
-    
-    def get_stats(self):
-        """Get current statistics."""
-        return {
-            "episode_damage_dealt": self.episode_damage_dealt,
-            "episode_damage_received": self.episode_damage_received,
-            "total_damage_dealt": self.total_damage_dealt,
-            "total_damage_received": self.total_damage_received,
-            "net_damage": self.episode_damage_dealt - self.episode_damage_received,
-        }
+
+
+# Global reward manager
+GLOBAL_REWARD_MANAGER = None
 
 
 class DamageReward:
@@ -872,49 +846,66 @@ class DamageReward:
 
     def __call__(self, env):
         reward = self.reward_manager.compute_reward(env)
-        return torch.tensor([reward, -reward])  # Zero-sum
+        return torch.tensor([reward, -reward])
 
 
-class DistanceReward:
-    """Included in PhaseAwareRewardManager, but kept for compatibility."""
-    def __call__(self, env):
-        # Distance is computed in PhaseAwareRewardManager
+# ============================================================================
+# ENVIRONMENT FACTORIES
+# ============================================================================
+
+def make_nav_env(phase_config: PhaseConfig, resolution):
+    """Factory for navigation Phase 0 environments."""
+    
+    def null_reward_func(env, **kwargs):
         return torch.tensor([0.0, 0.0])
+    
+    reward_manager = RewardManager(
+        reward_functions={"null": RewTerm(func=null_reward_func, weight=0.0)},
+        signal_subscriptions={}
+    )
+    
+    opponent_cfg = OpponentsCfg(
+        opponents={'constant_agent': (1.0, partial(ConstantAgent))}
+    )
+    
+    env = SelfPlayWarehouseBrawl(
+        opponent_cfg=opponent_cfg,
+        save_handler=None,
+        resolution=resolution,
+        reward_manager=reward_manager
+    )
+    env = Float32Wrapper(env)
+    env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=True)
+    env = Monitor(env)
+    
+    return env
 
 
-# Global reward manager (set per phase)
-GLOBAL_REWARD_MANAGER = None
-
-
-def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolution, phase):
-    """Factory function for creating environments."""
+def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
+    """Factory for combat Phases 1-4 environments."""
     global GLOBAL_REWARD_MANAGER
     
-    # Create phase-aware reward manager
     if GLOBAL_REWARD_MANAGER is None:
-        GLOBAL_REWARD_MANAGER = PhaseAwareRewardManager(phase)
+        GLOBAL_REWARD_MANAGER = PhaseAwareRewardManager(phase_config)
     
     reward_manager_instance = GLOBAL_REWARD_MANAGER
     
-    # Win reward function
     def win_reward_func(env, agent, **kwargs):
-        winner_is_agent = (agent == 'opponent')  # 'opponent' means agent 1 won, so agent 0 lost
-        reward = reward_manager_instance.compute_win_reward(not winner_is_agent)
+        winner_is_agent = (agent != 'player')
+        reward = reward_manager_instance.compute_win_reward(winner_is_agent)
         rewards = torch.zeros(2)
         rewards[0] = reward
         rewards[1] = -reward
         return rewards
 
-    # Knockout reward function  
     def knockout_reward_func(env, agent, **kwargs):
-        agent_got_ko = (agent == 'player')  # 'player' means agent 0 was KO'd
+        agent_got_ko = (agent == 'player')
         reward = reward_manager_instance.compute_knockout_reward(agent_got_ko)
         rewards = torch.zeros(2)
         rewards[0] = reward
         rewards[1] = -reward
         return rewards
 
-    # Configure reward manager
     reward_functions = {
         "phase_reward": RewTerm(func=DamageReward(reward_manager_instance), weight=1.0),
     }
@@ -929,13 +920,28 @@ def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolut
         signal_subscriptions=signal_subscriptions
     )
     
-    # Vectorized save handler
+    # Build opponent config from YAML
+    opponents_dict = {}
+    for opp_name, prob in phase_config.opponents.items():
+        if prob <= 0:
+            continue
+        if opp_name == "self_play":
+            opponents_dict[opp_name] = (prob, SelfPlayRandom(partial(PPO.load, device=device)))
+        else:
+            opp_class = get_opponent_class(opp_name)
+            if opp_class:
+                opponents_dict[opp_name] = (prob, partial(opp_class))
+    
+    opponent_cfg = OpponentsCfg(opponents=opponents_dict)
+    
+    resolution = get_resolution(params.get("environment_settings", {}).get("resolution", "LOW"))
+    
     vec_save_handler = VectorizedSaveHandler(
         agent=None,
-        save_freq=save_freq,
-        max_saved=max_saved,
+        save_freq=params["self_play_settings"]["save_freq"],
+        max_saved=params["self_play_settings"]["max_saved_models"],
         run_name="self_play_run",
-        save_path=os.path.join(parent_dir, model_name, "model"),
+        save_path=os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "model"),
         mode=SaveHandlerMode.FORCE
     )
     
@@ -947,113 +953,150 @@ def make_env(opponent_cfg, save_freq, max_saved, parent_dir, model_name, resolut
     )
     env = Float32Wrapper(env)
     env = DamageTrackingWrapper(env)
+    
     return env
 
 
 # ============================================================================
-# MAIN TRAINING FUNCTION
+# TRAINING FUNCTIONS
 # ============================================================================
 
-def main(cfg_file):
+def run_navigation_training(params: dict, phase_config: PhaseConfig):
+    """Run navigation training for Phase 0."""
+    print(f"\n🧭 Starting Navigation Training - {phase_config.name}")
+    
+    device = get_device()
+    resolution = get_resolution(params.get("environment_settings", {}).get("resolution", "LOW"))
+    
+    # Paths
+    model_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "model")
+    tb_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "tb_nav")
+    checkpoint_folder = os.path.join(model_folder, "nav_checkpoints")
+    os.makedirs(model_folder, exist_ok=True)
+    os.makedirs(tb_folder, exist_ok=True)
+    os.makedirs(checkpoint_folder, exist_ok=True)
+    
+    # Settings
+    n_envs = params.get("environment_settings", {}).get("n_envs", 8)
+    total_timesteps = params.get("ppo_settings", {}).get("time_steps", 3_000_000)
+    
+    print(f"📊 Environments: {n_envs} parallel")
+    print(f"🎯 Total timesteps: {total_timesteps:,}")
+    
+    # Create environments
+    env_fns = [lambda: make_nav_env(phase_config, resolution) for _ in range(n_envs)]
+    vec_env = SubprocVecEnv(env_fns) if n_envs > 1 else DummyVecEnv(env_fns)
+    
+    # PPO settings
+    ppo = params.get("ppo_settings", {})
+    lr_config = ppo.get("learning_rate", [3e-4, 1e-6])
+    learning_rate = linear_schedule(lr_config[0], lr_config[1]) if isinstance(lr_config, list) else lr_config
+    
+    clip_config = ppo.get("clip_range", [0.2, 0.05])
+    clip_range = linear_schedule(clip_config[0], clip_config[1]) if isinstance(clip_config, list) else clip_config
+    
+    # Check for checkpoint
+    model_checkpoint = ppo.get("model_checkpoint", "0")
+    
+    if model_checkpoint != "0":
+        checkpoint_path = os.path.join(model_folder, model_checkpoint)
+        if os.path.exists(checkpoint_path) or os.path.exists(checkpoint_path + ".zip"):
+            print(f"📂 Loading checkpoint: {checkpoint_path}")
+            agent = PPO.load(checkpoint_path, env=vec_env, device=device)
+        else:
+            print(f"⚠️ Checkpoint not found: {checkpoint_path}, creating new agent")
+            model_checkpoint = "0"
+    
+    if model_checkpoint == "0":
+        print("🆕 Creating new PPO agent for navigation")
+        net_arch = params.get("policy_kwargs", {}).get("net_arch", [512, 512, 256])
+        
+        agent = PPO(
+            "MlpPolicy",
+            vec_env,
+            learning_rate=learning_rate,
+            n_steps=ppo.get("n_steps", 1024),
+            batch_size=ppo.get("batch_size", 2048),
+            n_epochs=ppo.get("n_epochs", 8),
+            gamma=ppo.get("gamma", 0.99),
+            gae_lambda=ppo.get("gae_lambda", 0.95),
+            clip_range=clip_range,
+            ent_coef=ppo.get("nav_ent_coef", 0.1),
+            vf_coef=ppo.get("vf_coef", 0.5),
+            max_grad_norm=ppo.get("max_grad_norm", 0.5),
+            verbose=1,
+            tensorboard_log=tb_folder,
+            device=device,
+            policy_kwargs={"net_arch": net_arch}
+        )
+    
+    # Callbacks
+    checkpoint_callback = CheckpointCallback(
+        save_freq=500000 // n_envs,
+        save_path=checkpoint_folder,
+        name_prefix=f"nav_{phase_config.phase_key}"
+    )
+    
+    # Signal handler
+    def signal_handler(sig, frame):
+        print("\n⚠️ Training interrupted! Saving model...")
+        interrupt_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_interrupted.zip")
+        agent.save(interrupt_path)
+        print(f"💾 Model saved to: {interrupt_path}")
+        vec_env.close()
+        exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    print(f"\n🚀 Training navigation phase {phase_config.phase_key}...")
+    
+    agent.learn(
+        total_timesteps=total_timesteps,
+        callback=[checkpoint_callback],
+        progress_bar=True
+    )
+    
+    final_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_final.zip")
+    agent.save(final_path)
+    print(f"✅ Navigation training complete! Model saved to: {final_path}")
+    
+    vec_env.close()
+
+
+def run_combat_training(params: dict, phase_config: PhaseConfig):
+    """Run combat training for Phases 1-4."""
     global GLOBAL_REWARD_MANAGER
     
-    # Load configuration
-    with open(cfg_file, 'r') as f:
-        params = yaml.safe_load(f)
-    
-    # Get phase from config
-    phase = params.get("curriculum", {}).get("phase", 1)
-    
-    print("\n" + "=" * 70)
-    print("🎮 UTMIST AI^2 Training Script v2 - Reward Curriculum Edition")
-    print("=" * 70)
-    print(f"📄 Config: {cfg_file}")
-    
-    # Validate phase
-    if phase not in PHASE_CONFIGS:
-        print(f"❌ Invalid phase {phase}. Valid phases: 1, 2, 3, 4")
-        return
-    
-    phase_config = PHASE_CONFIGS[phase]
-    print(f"🎯 Phase {phase}: {phase_config['name']}")
-
-    # Hardware detection
     device = get_device()
-
+    
     # Paths
-    base_path = os.getcwd()
-    model_folder = os.path.join(base_path, params["folders"]["parent_dir"], params["folders"]["model_name"], "model")
-    tensor_board_folder = os.path.join(base_path, params["folders"]["parent_dir"], params["folders"]["model_name"], "tb")
+    model_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "model")
+    tb_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "tb")
     os.makedirs(model_folder, exist_ok=True)
     os.makedirs(os.path.join(model_folder, "checkpoints"), exist_ok=True)
-
-    # Self-Play Configuration
-    max_saved_models = params["self_play_settings"].get("max_saved_models", 10)
     
-    save_handler = SaveHandler(
-        agent=None,
-        save_freq=params["self_play_settings"]["save_freq"],
-        max_saved=max_saved_models,
-        save_path=model_folder,
-        run_name="self_play_run",
-        mode=SaveHandlerMode.FORCE
-    )
-
-    # Opponent configuration from phase
-    opponent_probs = phase_config["opponents"]
-    random_pct = opponent_probs["random_agent"]
-    self_play_pct = opponent_probs["self_play"]
+    # Settings
+    n_envs = params.get("environment_settings", {}).get("n_envs", 32)
+    ppo = params.get("ppo_settings", {})
     
-    # Phase 1+2: Simple opponent mix (only Random + Self-play)
-    # Phase 3+4: Diverse opponents for generalization
-    if phase <= 2:
-        opponent_cfg = OpponentsCfg(
-            opponents={
-                'random_agent': (random_pct, partial(RandomAgent)),
-                'self_play': (self_play_pct, SelfPlayRandom(partial(PPO.load, device=device)))
-            }
-        )
-        print(f"👥 Opponents: {int(random_pct*100)}% Random, {int(self_play_pct*100)}% Self-play (simple)")
-    else:
-        # Distribute random percentage across diverse opponents
-        opponent_cfg = OpponentsCfg(
-            opponents={
-                'random_agent': (random_pct * 0.4, partial(RandomAgent)),
-                'based_agent': (random_pct * 0.3, partial(BasedAgent)),
-                'constant_agent': (random_pct * 0.2, partial(ConstantAgent)),
-                'clockwork_agent': (random_pct * 0.1, partial(ClockworkAgent)),
-                'self_play': (self_play_pct, SelfPlayRandom(partial(PPO.load, device=device)))
-            }
-        )
-        print(f"👥 Opponents: {int(self_play_pct*100)}% Self-play, {int(random_pct*100)}% Diverse (Random/Based/Const/Clock)")
-
-    # Resolution
-    resolution_map = {
-        "LOW": CameraResolution.LOW,
-        "MEDIUM": CameraResolution.MEDIUM,
-        "HIGH": CameraResolution.HIGH
-    }
-    resolution = resolution_map.get(params["environment_settings"]["resolution"], CameraResolution.LOW)
-
-    # Number of parallel environments
-    n_envs = params["environment_settings"].get("n_envs", 32 if device == "cuda" else 8)
     print(f"🔄 Parallel environments: {n_envs}")
-
-    # Environment kwargs
+    
+    # Print opponent distribution
+    print("👥 Opponent Distribution:")
+    for name, prob in phase_config.opponents.items():
+        if prob > 0:
+            print(f"   {name}: {prob*100:.0f}%")
+    
+    # Create environments
     env_kwargs = {
-        "opponent_cfg": opponent_cfg,
-        "save_freq": params["self_play_settings"]["save_freq"],
-        "max_saved": max_saved_models,
-        "parent_dir": params["folders"]["parent_dir"],
-        "model_name": params["folders"]["model_name"],
-        "resolution": resolution,
-        "phase": phase,
+        "phase_config": phase_config,
+        "params": params,
+        "device": device,
     }
-
-    # Create vectorized environment
+    
     env = make_vec_env(
-        make_env, 
-        n_envs=n_envs, 
+        make_combat_env,
+        n_envs=n_envs,
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs={"start_method": "spawn"},
         env_kwargs=env_kwargs
@@ -1065,90 +1108,98 @@ def main(cfg_file):
     if frame_stack > 1:
         print(f"📚 Frame stacking: {frame_stack} frames")
         env = VecFrameStack(env, n_stack=frame_stack)
-
+    
     # PPO Settings
-    ppo_settings = params["ppo_settings"]
+    lr_config = ppo.get("learning_rate", [3e-4, 1e-6])
+    learning_rate = linear_schedule(lr_config[0], lr_config[1]) if isinstance(lr_config, list) else lr_config
     
-    # Schedules
-    learning_rate = linear_schedule(
-        ppo_settings["learning_rate"][0], 
-        ppo_settings["learning_rate"][1]
-    )
-    clip_range = linear_schedule(
-        ppo_settings["clip_range"][0], 
-        ppo_settings["clip_range"][1]
-    )
-    # Note: PPO doesn't support callable schedules for ent_coef, only for learning_rate and clip_range
-    ent_coef = ppo_settings.get("ent_coef", 0.01)
+    clip_config = ppo.get("clip_range", [0.2, 0.05])
+    clip_range = linear_schedule(clip_config[0], clip_config[1]) if isinstance(clip_config, list) else clip_config
     
-    # Batch size
-    buffer_size = n_envs * ppo_settings["n_steps"]
-    batch_size = min(ppo_settings["batch_size"], buffer_size)
-
-    # Network architecture
+    ent_coef = ppo.get("ent_coef", 0.01)
+    buffer_size = n_envs * ppo.get("n_steps", 1024)
+    batch_size = min(ppo.get("batch_size", 8192), buffer_size)
+    
     net_arch = params.get("policy_kwargs", {}).get("net_arch", [512, 512, 256])
     print(f"🧠 Network: {net_arch}")
     
-    # Initialize or load agent
-    model_checkpoint = ppo_settings.get("model_checkpoint", "0")
+    # Create or load agent
+    model_checkpoint = ppo.get("model_checkpoint", "0")
     
     if model_checkpoint == "0":
         print("🆕 Creating new agent...")
         agent = PPO(
-            "MlpPolicy", 
-            env, 
+            "MlpPolicy",
+            env,
             verbose=1,
             learning_rate=learning_rate,
-            n_steps=ppo_settings["n_steps"],
+            n_steps=ppo.get("n_steps", 1024),
             batch_size=batch_size,
-            n_epochs=ppo_settings["n_epochs"],
-            gamma=ppo_settings["gamma"],
-            gae_lambda=ppo_settings["gae_lambda"],
+            n_epochs=ppo.get("n_epochs", 8),
+            gamma=ppo.get("gamma", 0.99),
+            gae_lambda=ppo.get("gae_lambda", 0.95),
             clip_range=clip_range,
             ent_coef=ent_coef,
-            vf_coef=ppo_settings["vf_coef"],
-            max_grad_norm=ppo_settings["max_grad_norm"],
-            tensorboard_log=tensor_board_folder,
+            vf_coef=ppo.get("vf_coef", 0.5),
+            max_grad_norm=ppo.get("max_grad_norm", 0.5),
+            tensorboard_log=tb_folder,
             device=device,
             policy_kwargs={"net_arch": net_arch}
         )
     else:
         checkpoint_path = os.path.join(model_folder, model_checkpoint)
+        if not checkpoint_path.endswith(".zip"):
+            checkpoint_path += ".zip"
+        
         print(f"📂 Loading from: {checkpoint_path}")
         agent = PPO.load(
-            checkpoint_path, 
+            checkpoint_path,
             env=env,
             device=device,
             learning_rate=learning_rate,
             clip_range=clip_range,
             ent_coef=ent_coef,
         )
-
-    # Callbacks
-    checkpoint_callback = LimitedCheckpointCallback(
+    
+    # Save handler for self-play
+    save_handler = SaveHandler(
+        agent=None,
         save_freq=params["self_play_settings"]["save_freq"],
-        save_path=os.path.join(model_folder, "checkpoints"),
-        name_prefix=f"phase{phase}_model",
-        max_keep=10,
-        verbose=1
+        max_saved=params["self_play_settings"]["max_saved_models"],
+        save_path=model_folder,
+        run_name="self_play_run",
+        mode=SaveHandlerMode.FORCE
     )
     
-    self_play_callback = SelfPlayCallback(save_handler)
-    logging_callback = DetailedLoggingCallback(log_freq=10000, verbose=1)
+    # Callbacks
+    log_freq = params.get("logging", {}).get("log_freq", 10000)
+    eval_freq = params.get("logging", {}).get("eval_freq", 500000)
+    eval_episodes = params.get("logging", {}).get("eval_episodes", 10)
     
-    # Only enable evaluation for Phase 3+
-    callbacks = [checkpoint_callback, self_play_callback, logging_callback]
-    if phase >= 3:
-        eval_callback = EvaluationCallback(eval_freq=500000, n_eval_episodes=10, verbose=1)
-        callbacks.append(eval_callback)
-        print(f"🧪 Evaluation: Every 500k steps against diverse opponents")
+    callbacks = [
+        LimitedCheckpointCallback(
+            save_freq=params["self_play_settings"]["save_freq"],
+            save_path=os.path.join(model_folder, "checkpoints"),
+            name_prefix=f"phase{phase_config.phase_key}_model",
+            max_keep=10,
+            verbose=1
+        ),
+        SelfPlayCallback(save_handler),
+        DetailedLoggingCallback(log_freq=log_freq, verbose=1),
+    ]
+    
+    # Enable evaluation for Phase 3+
+    phase_num = int(phase_config.phase_key) if str(phase_config.phase_key).isdigit() else 0
+    if phase_num >= 3:
+        callbacks.append(EvaluationCallback(eval_freq=eval_freq, n_eval_episodes=eval_episodes, verbose=1))
+        print(f"🧪 Evaluation: Every {eval_freq:,} steps")
     else:
-        print(f"🧪 Evaluation: Disabled for Phase {phase} (will enable in Phase 3)")
-
+        print(f"🧪 Evaluation: Disabled for Phase {phase_config.phase_key}")
+    
     # Training
-    total_timesteps = ppo_settings["time_steps"]
-    print(f"\n🚀 Starting Phase {phase} training for {total_timesteps:,} timesteps...")
-    print(f"📊 TensorBoard: {tensor_board_folder}")
+    total_timesteps = ppo.get("time_steps", 5_000_000)
+    print(f"\n🚀 Starting Phase {phase_config.phase_key} training for {total_timesteps:,} timesteps...")
+    print(f"📊 TensorBoard: {tb_folder}")
     print(f"💾 Checkpoints: {os.path.join(model_folder, 'checkpoints')}")
     print("=" * 70 + "\n")
     
@@ -1162,26 +1213,59 @@ def main(cfg_file):
         print("\n⚠️ Training interrupted by user.")
     
     # Save final model
-    final_path = os.path.join(model_folder, f"phase{phase}_final")
+    final_path = os.path.join(model_folder, f"phase{phase_config.phase_key}_final")
     agent.save(final_path)
     print(f"\n✅ Model saved to {final_path}")
     
     # Print final stats
     if GLOBAL_REWARD_MANAGER:
-        stats = GLOBAL_REWARD_MANAGER.get_stats()
         print("\n" + "=" * 70)
         print("📊 FINAL TRAINING STATISTICS")
         print("=" * 70)
-        print(f"Total Damage Dealt:    {stats['total_damage_dealt']:.0f}")
-        print(f"Total Damage Received: {stats['total_damage_received']:.0f}")
-        print(f"Net Damage:            {stats['total_damage_dealt'] - stats['total_damage_received']:+.0f}")
+        print(f"Total Damage Dealt:    {GLOBAL_REWARD_MANAGER.total_damage_dealt:.0f}")
+        print(f"Total Damage Received: {GLOBAL_REWARD_MANAGER.total_damage_received:.0f}")
+        net = GLOBAL_REWARD_MANAGER.total_damage_dealt - GLOBAL_REWARD_MANAGER.total_damage_received
+        print(f"Net Damage:            {net:+.0f}")
         print("=" * 70)
     
     env.close()
 
 
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main(cfg_file: str):
+    # Load configuration
+    with open(cfg_file, 'r') as f:
+        params = yaml.safe_load(f)
+    
+    # Get phase from config
+    phase_key = params.get("curriculum", {}).get("phase", 1)
+    
+    print("\n" + "=" * 70)
+    print("🎮 UTMIST AI^2 Training Script v2 - Config-Driven Edition")
+    print("=" * 70)
+    print(f"📄 Config: {cfg_file}")
+    
+    # Load phase configuration
+    try:
+        phase_config = PhaseConfig(params, phase_key)
+    except ValueError as e:
+        print(f"❌ {e}")
+        return
+    
+    phase_config.print_summary()
+    
+    # Run appropriate training
+    if phase_config.is_navigation:
+        run_navigation_training(params, phase_config)
+    else:
+        run_combat_training(params, phase_config)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="UTMIST AI^2 Training - Reward Curriculum")
+    parser = argparse.ArgumentParser(description="UTMIST AI^2 Training - Config-Driven")
     parser.add_argument("--cfgFile", type=str, default="utmist_config_v2.yaml", help="Configuration file")
     opt = parser.parse_args()
     main(opt.cfgFile)

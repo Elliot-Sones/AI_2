@@ -1,14 +1,14 @@
-# UTMIST AI^2 Training Configuration v2 - Reward Curriculum Edition
+# UTMIST AI^2 Training Configuration v2 - Complete Config Edition
 # ====================================================================
-# Manual phase control with phase-specific reward weights.
+# All configuration in one place for reproducibility.
 #
 # PHASES:
-#   1 = Learn to Approach (distance focus)
-#   2 = Learn to Hit (damage focus)  
-#   3 = Learn to Dominate (net damage focus)
-#   4 = Pure Competition (win focus)
+#   "0a" - "0e" = Navigation training (movement first)
+#   1 - 4 = Combat training (fighting skills)
 #
-# Change the phase number below before starting/resuming training.
+# To switch phases: Change curriculum.phase below.
+# To resume training: Set ppo_settings.model_checkpoint to the model filename.
+# ====================================================================
 
 settings:
   game_id: "warehouse_brawl"
@@ -22,30 +22,184 @@ folders:
 # CURRICULUM CONTROL - CHANGE THIS TO SWITCH PHASES
 # ============================================================================
 curriculum:
-  phase: 4  # <-- Phase 4: Pure Competition (Win Focus)
+  phase: "0a"  # Current phase to train
+
+# ============================================================================
+# PHASE DEFINITIONS - All reward weights and opponent mixes
+# ============================================================================
+phases:
+  # --------------------------------------------------------------------------
+  # NAVIGATION PHASES (Phase 0) - Learn to move before fighting
+  # --------------------------------------------------------------------------
+  "0a":
+    name: "Ground Navigation"
+    description: "Navigate to close ground targets"
+    type: "navigation"
+    navigation:
+      min_dist: 1.0          # Minimum target spawn distance
+      max_dist: 2.0          # Maximum target spawn distance
+      fall_penalty: -3.0     # Penalty for falling off stage
+      time_limit_seconds: 90 # Episode time limit
+      multi_target: 1        # Number of targets per episode
+    opponents:
+      constant_agent: 1.0    # 100% frozen opponent
+
+  "0b":
+    name: "Platform Navigation"
+    description: "Navigate to platform targets (requires jumping)"
+    type: "navigation"
+    navigation:
+      min_dist: 3.0
+      max_dist: 5.0
+      fall_penalty: -5.0
+      time_limit_seconds: 90
+      multi_target: 1
+    opponents:
+      constant_agent: 1.0
+
+  "0c":
+    name: "Full Stage Navigation"
+    description: "Navigate to any position on stage"
+    type: "navigation"
+    navigation:
+      min_dist: 5.0
+      max_dist: 12.0
+      fall_penalty: -6.0
+      time_limit_seconds: 90
+      multi_target: 1
+    opponents:
+      constant_agent: 1.0
+
+  "0d":
+    name: "Multi-Target Navigation"
+    description: "Navigate to 3 sequential targets"
+    type: "navigation"
+    navigation:
+      min_dist: 1.0
+      max_dist: 12.0
+      fall_penalty: -7.0
+      time_limit_seconds: 60
+      multi_target: 3
+    opponents:
+      constant_agent: 1.0
+
+  "0e":
+    name: "Speed Navigation"
+    description: "Navigate quickly under time pressure"
+    type: "navigation"
+    navigation:
+      min_dist: 1.0
+      max_dist: 12.0
+      fall_penalty: -8.0
+      time_limit_seconds: 30
+      multi_target: 3
+    opponents:
+      constant_agent: 1.0
+
+  # --------------------------------------------------------------------------
+  # COMBAT PHASES (1-4) - Progressive skill building
+  # --------------------------------------------------------------------------
+  1:
+    name: "Learn to Approach"
+    description: "Focus on closing distance while staying on stage"
+    type: "combat"
+    rewards:
+      distance: 2.0           # Strong reward for getting closer
+      aggression: 0.5         # Small reward for attacking
+      damage_dealt: 0.0       # No damage reward yet
+      damage_taken: 0.0       # No damage penalty yet
+      net_damage: 0.0
+      win: 0.0
+      knockout: -3.0          # Death penalty from day 1!
+      edge_penalty: -1.0      # Strong edge avoidance
+    opponents:
+      random_agent: 0.9       # 90% easy opponents
+      self_play: 0.1          # 10% self-play
+
+  2:
+    name: "Learn to Hit"
+    description: "Focus on dealing damage and avoiding damage"
+    type: "combat"
+    rewards:
+      distance: 0.5
+      aggression: 0.2
+      damage_dealt: 1.0       # Now rewarded for damage
+      damage_taken: -0.5      # Penalize taking damage
+      net_damage: 0.3
+      win: 1.0
+      knockout: 2.0
+      edge_penalty: -1.0
+    opponents:
+      random_agent: 0.6
+      self_play: 0.4
+
+  3:
+    name: "Learn to Dominate"
+    description: "Win through skill, not luck"
+    type: "combat"
+    rewards:
+      distance: 0.1
+      aggression: 0.5
+      damage_dealt: 0.3
+      damage_taken: -0.3
+      net_damage: 0.3
+      win: 8.0                # Strong win incentive
+      knockout: 6.0           # KO bonus
+      edge_penalty: -1.5      # Increased to reduce SDs
+    opponents:
+      random_agent: 0.28      # 28% random (40% of 70%)
+      based_agent: 0.21       # 21% based (30% of 70%)
+      constant_agent: 0.14    # 14% constant (20% of 70%)
+      clockwork_agent: 0.07   # 7% clockwork (10% of 70%)
+      self_play: 0.30         # 30% self-play
+
+  4:
+    name: "Pure Competition"
+    description: "Win-focused with diverse opponents (Operation Giant Slayer)"
+    type: "combat"
+    rewards:
+      distance: 0.0
+      aggression: 0.2
+      damage_dealt: 0.2
+      damage_taken: -0.1
+      net_damage: 0.1
+      win: 10.0               # Maximum win reward
+      knockout: 5.0
+      edge_penalty: -1.0
+      clean_win_bonus: 5.0    # Extra bonus for positive net damage wins
+    opponents:
+      based_agent: 0.40       # 40% BasedAgent (main challenge)
+      random_agent: 0.10      # 10% RandomAgent
+      clockwork_agent: 0.10   # 10% ClockworkAgent
+      self_play: 0.40         # 40% Self-play
 
 # ============================================================================
 # Neural network architecture
+# ============================================================================
 policy_kwargs:
   net_arch: [512, 512, 256]
 
 # Frame stacking for temporal context
 frame_stack: 4
 
+# ============================================================================
 # PPO hyperparameters
+# ============================================================================
 ppo_settings:
   gamma: 0.99
   gae_lambda: 0.95
   
-  # Learning rate schedule
+  # Learning rate schedule [initial, final]
   learning_rate: [3.0e-4, 1.0e-6]
   
-  # Clip range schedule
+  # Clip range schedule [initial, final]
   clip_range: [0.2, 0.05]
   
-  # Entropy schedule
-  ent_coef_initial: 0.05
-  ent_coef_final: 0.005
+  # Entropy coefficient (encourages exploration)
+  ent_coef: 0.01
+  
+  # For navigation phases, use higher entropy
+  nav_ent_coef: 0.1
   
   # Batch settings
   batch_size: 8192
@@ -56,55 +210,34 @@ ppo_settings:
   vf_coef: 0.5
   max_grad_norm: 0.5
   
-  # Training duration PER PHASE
-  # Recommended: Phase 1 = 10M, Phase 2 = 30M, Phase 3 = 30M, Phase 4 = 30M
-  time_steps: 30000000  # 30M for Phase 2
+  # Training duration for this phase
+  time_steps: 5000000
   
   # Set to "0" for new training, or filename to resume
-  # Example: "phase1_final" to continue from Phase 1
-  model_checkpoint: "phase3_final"  # Continue from Phase 3
+  # Examples: "phase1_final", "phase4_final.zip", "nav_0a_final"
+  model_checkpoint: "0"
 
+# ============================================================================
 # Environment settings
+# ============================================================================
 environment_settings:
-  max_timesteps: 5400
+  max_timesteps: 5400       # Max steps per episode (90 seconds at 60fps)
   render_mode: null
-  resolution: "LOW"
-  n_envs: 32  # For GPU, use 8 for CPU/MPS
+  resolution: "LOW"         # LOW, MEDIUM, HIGH
+  n_envs: 32                # Parallel environments (32 for GPU, 8 for CPU)
 
+# ============================================================================
 # Self-play settings
+# ============================================================================
 self_play_settings:
-  save_freq: 500000
-  max_saved_models: 7
-  # Note: opponent_selection is controlled by phase, not this config
+  save_freq: 500000         # Save model every N steps
+  max_saved_models: 7       # Keep last N models for self-play pool
 
 # ============================================================================
-# PHASE REFERENCE (for your convenience)
+# Logging and evaluation
 # ============================================================================
-#
-# PHASE 1: "Learn to Approach"
-#   - Reward weights: distance=2.0, aggression=0.5, all else=0
-#   - Opponents: 90% random, 10% self-play
-#   - Goal: Learn to track and approach opponent
-#   - Recommended timesteps: 10M
-#   - SUCCESS CRITERIA: Agent consistently moves toward opponent
-#
-# PHASE 2: "Learn to Hit"  
-#   - Reward weights: distance=0.5, damage_dealt=1.0, damage_taken=-0.5, net_damage=0.3
-#   - Opponents: 60% random, 40% self-play
-#   - Goal: Learn to deal damage while avoiding damage
-#   - Recommended timesteps: 30M
-#   - SUCCESS CRITERIA: Net damage is consistently positive
-#
-# PHASE 3: "Learn to Dominate"
-#   - Reward weights: distance=0.2, damage_dealt=0.5, damage_taken=-0.3, net_damage=0.5, win=5.0, ko=3.0
-#   - Opponents: 20% random, 80% self-play
-#   - Goal: Win by outplaying, not by luck
-#   - Recommended timesteps: 30M
-#   - SUCCESS CRITERIA: Win rate >70% against self-play
-#
-# PHASE 4: "Pure Competition"
-#   - Reward weights: win=10.0, ko=5.0, conditional bonus for clean wins
-#   - Opponents: 10% random, 90% self-play
-#   - Goal: Maximize win rate
-#   - Recommended timesteps: 30M+
-#   - SUCCESS CRITERIA: Dominates all opponents
+logging:
+  log_freq: 10000           # Console log every N steps
+  eval_freq: 500000         # Evaluation every N steps (Phase 3+ only)
+  eval_episodes: 10         # Episodes per opponent during eval
+  record_video_freq: 1000000 # Record demo video every N steps

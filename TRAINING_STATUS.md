@@ -71,8 +71,23 @@ python3 train_utmist_v2.py --cfgFile utmist_config_v2.yaml
 
 ---
 
-## Bug Fixes Applied
-
 - ✅ Fixed win detection (was using reward, now uses lives comparison)
 - ✅ Added SD/KO death tracking
 - ✅ Increased edge penalty for stage awareness
+- 🔄 Implemented "Operation Giant Slayer" (Phase 4 opponent mix optimization)
+
+## Next Steps (Operation Giant Slayer)
+
+Current Focus: **Beating BasedAgent**
+- **Opponent Mix**:
+  - 40% Self-Play (Continual learning)
+  - 40% BasedAgent (Hard teacher)
+  - 10% Clockwork (Pattern recognition)
+  - 10% Random (Noise robustness)
+  - 0% Constant (Dropped - too easy)
+
+**Command to Resume:**
+```bash
+source venv/bin/activate
+python3 train_utmist_v2.py --cfgFile utmist_config_v2.yaml
+```
