@@ -33,7 +33,7 @@ pip install -r requirements.txt
 
 # Install extra dependencies
 pip install shimmy>=0.2.1 tensorboard tqdm
-
+e
 echo "✅ Setup Complete!"
 echo ""
 echo "=============================================="

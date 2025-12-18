@@ -1,12 +1,3 @@
-"""
-UTMIST AI^2 Training Script v2 - Config-Driven Edition
-=======================================================
-All configuration loaded from YAML file.
-Phase-based reward curriculum for proper skill acquisition.
-
-Usage:
-    python train_utmist_v2.py --cfgFile utmist_config_v2.yaml
-"""
 
 import os
 import yaml
@@ -16,7 +7,9 @@ import sys
 import signal
 import gymnasium as gym
 import numpy as np
+from collections import deque
 from functools import partial
+import skvideo.io
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
@@ -31,6 +24,7 @@ from environment.agent import (
     CameraResolution, RewardManager, RandomAgent, BasedAgent, ConstantAgent,
     ClockworkAgent, SelfPlayLatest, SelfPlayRandom, RewTerm
 )
+from environment.environment import WarehouseBrawl
 
 
 # ============================================================================
@@ -496,6 +490,84 @@ class DamageTrackingWrapper(gym.Wrapper):
         return self.env.reset(**kwargs)
 
 
+class OpponentHistoryWrapper(gym.Wrapper):
+    """
+    Maintains a rolling buffer of opponent actions and appends to observations.
+    Converts temporal opponent patterns into spatial features for pattern recognition.
+    
+    This enables "Simple Context" - the agent can "see" opponent behavior patterns
+    directly in the observation without needing recurrent neural networks.
+    """
+    
+    def __init__(self, env, history_length=60, action_dim=10, zero_history=False):
+        super().__init__(env)
+        self.history_length = history_length
+        self.action_dim = action_dim
+        self.zero_history = zero_history  # True for navigation phases
+        
+        # Rolling buffer (deque auto-removes oldest when maxlen exceeded)
+        self.history = deque(maxlen=history_length)
+        
+        # Expand observation space to include history
+        orig = env.observation_space
+        history_size = history_length * action_dim  # 60 * 10 = 600
+        self.observation_space = gym.spaces.Box(
+            low=np.concatenate([orig.low, np.zeros(history_size)]),
+            high=np.concatenate([orig.high, np.ones(history_size)]),
+            dtype=np.float32
+        )
+    
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        # Initialize with zeros (no prior history at episode start)
+        self.history.clear()
+        for _ in range(self.history_length):
+            self.history.append(np.zeros(self.action_dim, dtype=np.float32))
+        return self._augment_obs(obs), info
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        
+        if self.zero_history:
+            # Navigation phase: always append zeros (no opponent actions to track)
+            one_hot = np.zeros(self.action_dim, dtype=np.float32)
+        else:
+            # Combat phase: capture real opponent action
+            opponent_action = info.get('opponent_action', None)
+            one_hot = self._encode_action(opponent_action)
+        
+        self.history.append(one_hot)
+        return self._augment_obs(obs), reward, terminated, truncated, info
+    
+    def _encode_action(self, action):
+        """Convert action to one-hot encoding, handling various formats."""
+        one_hot = np.zeros(self.action_dim, dtype=np.float32)
+        if action is None:
+            return one_hot
+        
+        # Handle SB3 model.predict() returning (action, state) tuple
+        if isinstance(action, tuple):
+            action = action[0]
+        
+        # Handle different action array formats
+        if isinstance(action, (int, np.integer)):
+            # Discrete action index
+            if 0 <= int(action) < self.action_dim:
+                one_hot[int(action)] = 1.0
+        elif isinstance(action, np.ndarray):
+            # Multi-binary or continuous action array
+            for i in range(min(len(action), self.action_dim)):
+                if action[i] > 0.5:
+                    one_hot[i] = 1.0
+        
+        return one_hot
+    
+    def _augment_obs(self, obs):
+        """Append flattened history to observation."""
+        history_flat = np.array(list(self.history), dtype=np.float32).flatten()
+        return np.concatenate([obs, history_flat]).astype(np.float32)
+
+
 # ============================================================================
 # CALLBACKS
 # ============================================================================
@@ -728,6 +800,140 @@ class EvaluationCallback(BaseCallback):
 
 
 # ============================================================================
+# VIDEO RECORDING
+# ============================================================================
+
+def record_demo_video(model, video_path: str, opponent_type: str = "random", 
+                      frame_stack: int = 4, max_steps: int = 2700):
+    """
+    Record a demo video of the agent playing against an opponent.
+    
+    Args:
+        model: Trained PPO model
+        video_path: Path to save the video
+        opponent_type: Type of opponent (random, based, constant, clockwork)
+        frame_stack: Number of frames to stack
+        max_steps: Maximum steps per game (default 90 seconds)
+    """
+    print(f"📹 Recording demo video: {video_path}")
+    
+    # Get opponent
+    opponents = {
+        "random": RandomAgent,
+        "based": BasedAgent,
+        "constant": ConstantAgent,
+        "clockwork": ClockworkAgent,
+    }
+    opponent = opponents.get(opponent_type, RandomAgent)()
+    
+    # Create environment
+    env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
+    env.max_timesteps = max_steps
+    
+    observations, _ = env.reset()
+    obs = observations[0]
+    opponent.get_env_info(env)
+    opponent_obs = observations[1]
+    
+    # Initialize frame stack
+    frames = [obs.copy() for _ in range(frame_stack)]
+    stacked_obs = np.concatenate(frames, axis=0)
+    
+    # Video writer
+    os.makedirs(os.path.dirname(video_path), exist_ok=True)
+    writer = skvideo.io.FFmpegWriter(video_path, outputdict={
+        '-vcodec': 'libx264',
+        '-pix_fmt': 'yuv420p',
+        '-preset': 'fast',
+        '-crf': '20',
+        '-r': '30'
+    })
+    
+    try:
+        for step in range(max_steps):
+            action, _ = model.predict(stacked_obs, deterministic=True)
+            opp_action = opponent.predict(opponent_obs)
+            
+            full_action = {0: action, 1: opp_action}
+            observations, rewards, terminated, truncated, _ = env.step(full_action)
+            
+            obs = observations[0]
+            opponent_obs = observations[1]
+            
+            # Update frame stack
+            frames.pop(0)
+            frames.append(obs.copy())
+            stacked_obs = np.concatenate(frames, axis=0)
+            
+            # Capture frame
+            img = env.render()
+            img = np.rot90(img, k=-1)
+            img = np.fliplr(img)
+            writer.writeFrame(img)
+            
+            if terminated or truncated:
+                break
+        
+        # Get final stats
+        stats = env.get_stats(0)
+        opp_stats = env.get_stats(1)
+        
+        if stats.lives_left > opp_stats.lives_left:
+            result = "WIN"
+        elif stats.lives_left < opp_stats.lives_left:
+            result = "LOSS"
+        else:
+            result = "DRAW" if stats.damage_done <= opp_stats.damage_done else "WIN"
+        
+        print(f"   Result: {result} | Lives: {stats.lives_left}-{opp_stats.lives_left} | "
+              f"Damage: {stats.damage_done:.0f} dealt, {stats.damage_taken:.0f} taken")
+        
+    finally:
+        writer.close()
+        env.close()
+    
+    print(f"   ✅ Video saved: {video_path}")
+    return video_path
+
+
+class VideoRecordingCallback(BaseCallback):
+    """Records demo videos at specified intervals during training."""
+    
+    def __init__(self, video_freq: int = 1000000, video_folder: str = "./videos",
+                 phase_key: str = "1", frame_stack: int = 4, verbose: int = 1):
+        super().__init__(verbose)
+        self.video_freq = video_freq
+        self.video_folder = video_folder
+        self.phase_key = phase_key
+        self.frame_stack = frame_stack
+        self.last_video_step = 0
+        
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self.last_video_step >= self.video_freq:
+            self.last_video_step = self.num_timesteps
+            self._record_video()
+        return True
+    
+    def _record_video(self):
+        os.makedirs(self.video_folder, exist_ok=True)
+        video_path = os.path.join(
+            self.video_folder, 
+            f"phase{self.phase_key}_step{self.num_timesteps // 1000}k.mp4"
+        )
+        
+        try:
+            record_demo_video(
+                model=self.model,
+                video_path=video_path,
+                opponent_type="random",
+                frame_stack=self.frame_stack
+            )
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Video recording failed: {e}")
+
+
+# ============================================================================
 # REWARD SYSTEM
 # ============================================================================
 
@@ -853,7 +1059,7 @@ class DamageReward:
 # ENVIRONMENT FACTORIES
 # ============================================================================
 
-def make_nav_env(phase_config: PhaseConfig, resolution):
+def make_nav_env(phase_config: PhaseConfig, resolution, params: dict):
     """Factory for navigation Phase 0 environments."""
     
     def null_reward_func(env, **kwargs):
@@ -876,6 +1082,17 @@ def make_nav_env(phase_config: PhaseConfig, resolution):
     )
     env = Float32Wrapper(env)
     env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=True)
+    
+    # Add opponent history wrapper if enabled (with zeroed history for navigation)
+    history_cfg = params.get("opponent_history", {})
+    if history_cfg.get("enabled", False):
+        env = OpponentHistoryWrapper(
+            env,
+            history_length=history_cfg.get("history_length", 60),
+            action_dim=history_cfg.get("action_dim", 10),
+            zero_history=True  # Navigation: no opponent actions
+        )
+    
     env = Monitor(env)
     
     return env
@@ -954,6 +1171,16 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
     env = Float32Wrapper(env)
     env = DamageTrackingWrapper(env)
     
+    # Add opponent history wrapper if enabled (with real history for combat)
+    history_cfg = params.get("opponent_history", {})
+    if history_cfg.get("enabled", False):
+        env = OpponentHistoryWrapper(
+            env,
+            history_length=history_cfg.get("history_length", 60),
+            action_dim=history_cfg.get("action_dim", 10),
+            zero_history=False  # Combat: real opponent actions
+        )
+    
     return env
 
 
@@ -984,7 +1211,7 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     print(f"🎯 Total timesteps: {total_timesteps:,}")
     
     # Create environments
-    env_fns = [lambda: make_nav_env(phase_config, resolution) for _ in range(n_envs)]
+    env_fns = [lambda: make_nav_env(phase_config, resolution, params) for _ in range(n_envs)]
     vec_env = SubprocVecEnv(env_fns) if n_envs > 1 else DummyVecEnv(env_fns)
     
     # PPO settings
@@ -1037,12 +1264,26 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
         name_prefix=f"nav_{phase_config.phase_key}"
     )
     
-    # Signal handler
+    # Signal handler with video recording
     def signal_handler(sig, frame):
-        print("\n⚠️ Training interrupted! Saving model...")
+        print("\n⚠️ Training interrupted! Saving model and recording video...")
         interrupt_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_interrupted.zip")
         agent.save(interrupt_path)
         print(f"💾 Model saved to: {interrupt_path}")
+        
+        # Record demo video
+        video_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "videos")
+        video_path = os.path.join(video_folder, f"nav_{phase_config.phase_key}_interrupted.mp4")
+        try:
+            record_demo_video(
+                model=agent,
+                video_path=video_path,
+                opponent_type="constant",  # Frozen opponent for nav
+                frame_stack=params.get("frame_stack", 4)
+            )
+        except Exception as e:
+            print(f"⚠️ Video recording failed: {e}")
+        
         vec_env.close()
         exit(0)
     
@@ -1059,6 +1300,19 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     final_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_final.zip")
     agent.save(final_path)
     print(f"✅ Navigation training complete! Model saved to: {final_path}")
+    
+    # Record final demo video
+    video_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "videos")
+    video_path = os.path.join(video_folder, f"nav_{phase_config.phase_key}_final.mp4")
+    try:
+        record_demo_video(
+            model=agent,
+            video_path=video_path,
+            opponent_type="constant",  # Frozen opponent for nav
+            frame_stack=params.get("frame_stack", 4)
+        )
+    except Exception as e:
+        print(f"⚠️ Final video recording failed: {e}")
     
     vec_env.close()
 
@@ -1195,6 +1449,18 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         print(f"🧪 Evaluation: Every {eval_freq:,} steps")
     else:
         print(f"🧪 Evaluation: Disabled for Phase {phase_config.phase_key}")
+    
+    # Video recording every 1M steps
+    video_freq = params.get("logging", {}).get("record_video_freq", 1000000)
+    video_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "videos")
+    callbacks.append(VideoRecordingCallback(
+        video_freq=video_freq,
+        video_folder=video_folder,
+        phase_key=str(phase_config.phase_key),
+        frame_stack=params.get("frame_stack", 4),
+        verbose=1
+    ))
+    print(f"📹 Video Recording: Every {video_freq:,} steps")
     
     # Training
     total_timesteps = ppo.get("time_steps", 5_000_000)

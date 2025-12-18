@@ -667,14 +667,19 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
             self.save_handler.save_agent()
 
     def step(self, action):
+        # Capture opponent action before stepping
+        opponent_action = self.opponent_agent.predict(self.opponent_obs)
 
         full_action = {
             0: action,
-            1: self.opponent_agent.predict(self.opponent_obs),
+            1: opponent_action,
         }
 
         observations, rewards, terminated, truncated, info = self.raw_env.step(full_action)
         self.opponent_obs = observations[1]
+        
+        # Store opponent action in info dict for OpponentHistoryWrapper
+        info['opponent_action'] = opponent_action
 
         if self.save_handler is not None:
             self.save_handler.process()

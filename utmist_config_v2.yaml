@@ -241,3 +241,13 @@ logging:
   eval_freq: 500000         # Evaluation every N steps (Phase 3+ only)
   eval_episodes: 10         # Episodes per opponent during eval
   record_video_freq: 1000000 # Record demo video every N steps
+
+# ============================================================================
+# Opponent History (Simple Context)
+# Turn temporal memory into spatial pattern recognition by appending
+# a rolling buffer of opponent actions to the observation.
+# ============================================================================
+opponent_history:
+  enabled: true             # Set to false to disable and use original obs
+  history_length: 60        # ~2 seconds of opponent actions at 30fps
+  action_dim: 10            # Size of UTMIST action space
