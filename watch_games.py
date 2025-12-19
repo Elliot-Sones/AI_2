@@ -28,9 +28,10 @@ import argparse
 import numpy as np
 from environment.environment import CameraResolution, WarehouseBrawl
 from environment.agent import RandomAgent, BasedAgent, ConstantAgent, ClockworkAgent
+from train_utmist_v2 import Float32Wrapper, OpponentHistoryWrapper
 from stable_baselines3 import PPO
 from tqdm import tqdm
-import skvideo.io
+import imageio
 
 # ============================================================================
 # CONFIGURATION - CHANGE THESE
@@ -80,9 +81,14 @@ def run_game(model, opponent, game_num, opponent_name, save_video=True):
     env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
     env.max_timesteps = 30 * 90  # 90 second match
     
+    # Apply matching wrappers
+    env = Float32Wrapper(env)
+    zero_history = (opponent_name == "constant")
+    env = OpponentHistoryWrapper(env, zero_history=zero_history)
+    
     observations, _ = env.reset()
     obs = observations[0]
-    opponent.get_env_info(env)
+    opponent.get_env_info(env.unwrapped)
     opponent_obs = observations[1]
     
     # Initialize frame stack
@@ -96,16 +102,10 @@ def run_game(model, opponent, game_num, opponent_name, save_video=True):
     if save_video:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         video_path = os.path.join(OUTPUT_DIR, f"game_{game_num}_vs_{opponent_name}.mp4")
-        writer = skvideo.io.FFmpegWriter(video_path, outputdict={
-            '-vcodec': 'libx264',
-            '-pix_fmt': 'yuv420p',
-            '-preset': 'fast',
-            '-crf': '20',
-            '-r': '30'
-        })
+        writer = imageio.get_writer(video_path, fps=30, codec='libx264', quality=8)
     
     # Run game
-    for step in range(env.max_timesteps):
+    for step in range(env.unwrapped.max_timesteps):
         action, _ = model.predict(stacked_obs, deterministic=True)
         opp_action = opponent.predict(opponent_obs)
         
@@ -121,7 +121,7 @@ def run_game(model, opponent, game_num, opponent_name, save_video=True):
             img = env.render()
             img = np.rot90(img, k=-1)
             img = np.fliplr(img)
-            writer.writeFrame(img)
+            writer.append_data(img)
         
         if terminated or truncated:
             break
@@ -130,8 +130,8 @@ def run_game(model, opponent, game_num, opponent_name, save_video=True):
         writer.close()
     
     # Get stats
-    stats = env.get_stats(0)
-    opp_stats = env.get_stats(1)
+    stats = env.unwrapped.get_stats(0)
+    opp_stats = env.unwrapped.get_stats(1)
     
     # Determine result
     if stats.lives_left > opp_stats.lives_left:

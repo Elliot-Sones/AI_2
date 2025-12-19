@@ -232,7 +232,7 @@ Input: `(observation_size × 4 frames) + (60 × 10 opponent history)` = flattene
 |--------|-------|-------------|
 | Approach | +2.0 × distance_reduction | Moving toward target |
 | Target Reached | +5.0 | Within 1.0 units of target |
-| Edge Penalty | -0.5 | When x > 5.0 |
+| Edge Penalty | -0.5 | When x > 10.0 |
 | Fall | -3.0 to -8.0 | Falling off stage (increases with phase) |
 
 ### Combat Rewards (Phase-dependent)

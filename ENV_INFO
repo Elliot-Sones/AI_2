@@ -1,0 +1,157 @@
+ENV_INFO
+
+This document summarizes the game logic and reliable win strategies based on
+the environment source code. All statements below are derived from the
+environment logic to keep confidence high.
+
+Primary sources:
+- UTMIST-AI2-main/environment/environment.py
+- UTMIST-AI2-main/environment/unarmed_attacks/*.json
+- UTMIST-AI2-main/environment/spear_attacks/*.json
+- UTMIST-AI2-main/environment/hammer_attacks/*.json
+
+Match Length and Termination
+- FPS is 30. Standard mode runs max_timesteps = 30 * 300 (5 minutes).
+- GameMode.ATTACK_DEBUG uses a very large max_timesteps.
+- When max_timesteps is reached, the episode is truncated (no win signal).
+
+Win Condition (How to Win)
+- Each player starts with 3 stocks. A KO reduces stocks by 1.
+- The match ends when a player's stocks reach 0 or lower; the other player is
+  declared the winner via win_signal.
+
+KO (Knockout) and Killbox
+- A KO happens when a player leaves the stage "killbox":
+  |x| > (stage_width_tiles // 2) or |y| > (stage_height_tiles // 2).
+- In this environment, stage_width_tiles = 29.8 and stage_height_tiles = 16.8,
+  so the killbox triggers beyond |x| > 14.0 or |y| > 8.0.
+- KOState reduces stocks by 1, then respawns the player after 90 frames
+  (30 fps * 3 seconds). Respawn resets damage and weapon to "Punch".
+
+Stage, Platforms, and Spawns
+- Players do not collide with each other (player-player collision is disabled).
+- There are two ground segments and one moving platform.
+- The moving platform (platform1) moves between waypoints (1, 0) and (-1, 2).
+- When standing on platform1, player velocity inherits platform velocity.
+- Player start positions are at x = +/-5 with the side randomized.
+
+Damage, Stun, and Knockback
+- Damage is additive and capped at 700.
+- Hit stun is applied via stun_time from the move data.
+- Knockback force scales with damage using:
+  fixed_force + variable_force * (X/70 + X^2/12000), where
+  X = opponent_damage + cast_damage.
+- Hit direction is determined by hitAngleDeg plus move facing direction unless
+  a move's dealt_position_target overrides it.
+- Multi-hit moves can distribute damage across attack frames when
+  damageOverLifeOfHitbox is enabled in the move data.
+
+Moves and Inputs
+- Light attack: key "j"
+- Heavy attack: key "k"
+- Directional modifiers use WASD and change move type:
+  Grounded: NLight/DLight/SLight or NSig/DSig/SSig
+  Aerial: NAir/DAir/SAir or Recovery (heavy neutral/side) or Groundpound (heavy down)
+- Move data is loaded from the weapon-specific JSON files:
+  Unarmed (Punch), Spear, and Hammer.
+- The move type is determined by:
+  - Grounded vs airborne
+  - Heavy (k held) vs light (j held)
+  - Direction (neutral, down, or side using WASD)
+- Heavy input overrides light input if both are held.
+- Up input ("w") forces neutral moves even if other directions are held.
+- There is no throw move in get_move(); "h" is only for pickup/drop.
+
+Attack Execution (What Actually Hits)
+- Attacks only apply during their "attack frames" from the JSON data.
+- A hit happens when a move's hitbox capsule intersects the opponent's hurtbox
+  and the opponent is vulnerable.
+- The only built-in invulnerability is DodgeState (vulnerable() returns False).
+- If a hit lands, damage and knockback are applied immediately and can trigger
+  follow-up powers defined in the move data.
+- Some moves are charge moves: holding the key past min_charge and releasing
+  can switch to a follow-up power; holding too long can also force a transition.
+
+Weapons
+- Players start unarmed ("Punch").
+- Two weapon spawners exist by default. Each spawner randomly spawns a Spear or
+  Hammer after a cooldown of roughly 500-700 frames, and despawns after 350 frames.
+- Weapon pickup requires:
+  - Player is unarmed ("Punch")
+  - Player overlaps the pickup capsule
+  - Key "h" is pressed
+- Weapon drop uses the same key "h": pressing it while armed creates a dropped
+  weapon spawner and immediately reverts the player to "Punch".
+- Dropped weapons last about 250 frames if not picked up.
+- After dropping, pickup is locked for about 15 frames to prevent instant re-pickup.
+- While in AttackState, weapon pickup is blocked.
+
+Movement and Survival Tools
+- Jumps: 2 total while airborne (jump cooldown applies).
+- Recoveries: 1 per airtime; heavy aerial neutral/side uses a Recovery and
+  consumes that resource.
+- Jumps and recoveries reset when leaving the ground (entering InAirState).
+- Dodge (key "l") makes the player invulnerable (vulnerable() returns False),
+  ignores gravity, and lasts 10 frames. Cooldowns: 30 frames grounded, 82 frames airborne.
+- Grounded dodge requires near-still horizontal input.
+- Fast fall is triggered by holding "s" while airborne and moving downward.
+- Dash and backdash exist as separate states and alter horizontal speed.
+- Taunt (key "g") locks you in a non-control state briefly.
+
+Strategies With High Confidence (Derived From Code)
+1) Win by forcing KOs, not by damage alone.
+   - Stocks only drop on KO (killbox), so the objective is to launch or escort
+     opponents beyond the killbox boundaries.
+
+2) Build damage before going for edge KOs.
+   - Knockback scales with opponent damage via a quadratic term. Higher damage
+     dramatically increases launch distance, making off-stage KOs more likely.
+
+3) Edge-guard using the killbox dimensions.
+   - The KO zone is at |x| > 14.0 or |y| > 8.0. Positioning pressure near those
+     edges is mechanically decisive.
+
+4) Track opponent recovery usage.
+   - Opponents have only 1 recovery per airtime. If they already spent Recovery,
+     forcing them off-stage again makes KO far more likely.
+
+5) Use dodge as a true invulnerability tool.
+   - During DodgeState the player is not vulnerable, so timed dodges can pass
+     through hitboxes or reset disadvantage without trading damage.
+
+6) Contest weapon spawns while unarmed.
+   - Only unarmed players can pick up weapons. Controlling spawner zones or
+     timing pickups grants access to Spear/Hammer moves and their JSON-defined
+     damage/knockback values.
+
+7) Avoid accidental drops if you want to keep a weapon.
+   - The same "h" key drops the current weapon when armed. Dropping leaves you
+     unarmed and creates a temporary pickup for the opponent.
+
+Validation and Battle Pipeline Requirements (Must-Have Rules)
+- Your submission must define `SubmittedAgent(Agent)` in
+  `UTMIST-AI2-main/user/my_agent.py` with that exact class name.
+- Do not add imports below the allowed import block in
+  `UTMIST-AI2-main/user/my_agent.py`; extra imports can fail validation.
+- Ensure model weights are accessible at runtime:
+  - Set `file_path` to a valid .zip model, or
+  - Implement `_gdown()` with a public link and return a local path.
+- `_initialize()` must load the model quickly; do not start training in CI.
+- `predict(obs)` must return a valid action for the environment action space
+  (10-key action vector matching the env action space).
+- Validation runs `UTMIST-AI2-main/user/validate.py`:
+  - Opponent is `ConstantAgent`
+  - Match length is 90 seconds (max_timesteps = 30 * 90)
+  - Resolution is LOW
+- Battle runs `UTMIST-AI2-main/user/battle.py`:
+  - Two `SubmittedAgent` instances are loaded by file path
+  - Match length is 300 seconds (max_timesteps = 30 * 300)
+- Run locally before CI: `pytest -s UTMIST-AI2-main/user/validate.py`.
+- If using Tenstorrent (ttnn), only enable it when running on supported
+  hardware; otherwise keep CPU-compatible inference.
+
+Notes on Variants
+- There is a second WarehouseBrawl implementation in
+  UTMIST-AI2-main/environment/WarehouseBrawl.py with different time settings,
+  but the main logic described above is from
+  UTMIST-AI2-main/environment/environment.py.

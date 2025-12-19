@@ -9,7 +9,8 @@ import gymnasium as gym
 import numpy as np
 from collections import deque
 from functools import partial
-import skvideo.io
+import imageio
+import json
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
@@ -22,7 +23,8 @@ sys.path.append(os.path.join(os.getcwd(), "UTMIST-AI2-main"))
 from environment.agent import (
     SelfPlayWarehouseBrawl, OpponentsCfg, SaveHandler, SaveHandlerMode,
     CameraResolution, RewardManager, RandomAgent, BasedAgent, ConstantAgent,
-    ClockworkAgent, SelfPlayLatest, SelfPlayRandom, RewTerm
+    ClockworkAgent, EdgeGuardAgent, WeaponHunterAgent, RecoveryPunishAgent,
+    NoisyBasedAgent, SelfPlayLatest, SelfPlayRandom, RewTerm
 )
 from environment.environment import WarehouseBrawl
 
@@ -58,6 +60,10 @@ def get_opponent_class(name: str):
         "based_agent": BasedAgent,
         "constant_agent": ConstantAgent,
         "clockwork_agent": ClockworkAgent,
+        "edge_guard_agent": EdgeGuardAgent,
+        "weapon_hunter_agent": WeaponHunterAgent,
+        "recovery_punish_agent": RecoveryPunishAgent,
+        "noisy_based_agent": NoisyBasedAgent,
     }
     return opponents.get(name)
 
@@ -155,6 +161,8 @@ class Float32Wrapper(gym.ObservationWrapper):
         )
     
     def observation(self, observation):
+        if isinstance(observation, dict):
+            return {k: v.astype(np.float32) for k, v in observation.items()}
         return observation.astype(np.float32)
 
 
@@ -164,11 +172,12 @@ class FrozenOpponentWrapper(gym.Wrapper):
     Freezes opponent at random positions and rewards navigation.
     """
     
-    # Stage bounds (approximate)
-    STAGE_X_MIN = -7.0
-    STAGE_X_MAX = 7.0
-    STAGE_Y_MIN = -1.0  # Ground level
-    STAGE_Y_MAX = 5.0   # Jump height
+    # Stage bounds (empirically refined via extensive aerial exploration)
+    # Note: Game Y-axis increases DOWNWARD (0 is top, +Y is bottom)
+    STAGE_X_MIN = -12.4
+    STAGE_X_MAX = 11.8
+    STAGE_Y_MIN = -7.5  # Max jump height (Top of screen)
+    STAGE_Y_MAX = 8.5   # Max fall depth (Bottom of screen)
     
     def __init__(self, env, nav_config: dict, debug_logs=True):
         super().__init__(env)
@@ -181,6 +190,20 @@ class FrozenOpponentWrapper(gym.Wrapper):
         self.fall_penalty = nav_config.get("fall_penalty", -5.0)
         self.time_limit = nav_config.get("time_limit_seconds", 90) * 30  # Convert to frames
         self.max_targets = nav_config.get("multi_target", 1)
+        
+        # Load valid grounded positions from JSON
+        try:
+            positions_file = os.path.join(os.path.dirname(__file__), 'positions.json')
+            with open(positions_file) as f:
+                data = json.load(f)
+            # Store as list of tuples (x, y)
+            self.grounded_positions = [(p['x'], p['y']) for p in data['grounded_positions']]
+            if debug_logs:
+                print(f"✅ Loaded {len(self.grounded_positions)} grounded positions for safe target spawning")
+        except Exception as e:
+            print(f"⚠️ Failed to load positions.json: {e}")
+            print("❌ Falling back to unsafe random spawning!")
+            self.grounded_positions = []
         
         # Tracking
         self.target_position = None
@@ -197,36 +220,67 @@ class FrozenOpponentWrapper(gym.Wrapper):
         self.interval_targets_reached = 0
         self.interval_falls = 0
         self.interval_episodes = 0
+        self.last_stocks = 3  # Track stocks for fall detection
+        self.fell_this_episode = False  # Track if agent fell during current episode
         
     def _get_player(self):
         """Get player object from environment."""
+        # Traverse wrapper chain to find raw_env with players
         env = self.env
-        if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
-            return env.raw_env.players[0]
-        if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'raw_env'):
-            return env.unwrapped.raw_env.players[0]
+        while env is not None:
+            if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
+                return env.raw_env.players[0]
+            if hasattr(env, 'players'):
+                return env.players[0]
+            env = getattr(env, 'env', None)
         return None
     
     def _get_opponent(self):
         """Get opponent object from environment."""
+        # Traverse wrapper chain to find raw_env with players
         env = self.env
-        if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
-            return env.raw_env.players[1]
-        if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'raw_env'):
-            return env.unwrapped.raw_env.players[1]
+        while env is not None:
+            if hasattr(env, 'raw_env') and hasattr(env.raw_env, 'players'):
+                return env.raw_env.players[1]
+            if hasattr(env, 'players'):
+                return env.players[1]
+            env = getattr(env, 'env', None)
         return None
     
     def _spawn_target(self, player_pos):
-        """Spawn a new target position based on config."""
-        for _ in range(100):
-            x = np.random.uniform(self.STAGE_X_MIN, self.STAGE_X_MAX)
-            y = np.random.uniform(self.STAGE_Y_MIN, self.STAGE_Y_MAX)
-            dist = np.sqrt((x - player_pos[0])**2 + (y - player_pos[1])**2)
-            if self.min_dist <= dist <= self.max_dist:
-                self.target_position = (x, y)
-                self.total_targets += 1
-                return
-        self.target_position = (0.0, 0.0)
+        """Spawn a new target position on a VALID grounded platform."""
+        # Case 1: Use grounded positions (Safe Mode)
+        if self.grounded_positions:
+            # Filter positions by distance range
+            candidates = []
+            min_dist_sq = self.min_dist ** 2
+            max_dist_sq = self.max_dist ** 2
+            
+            for gx, gy in self.grounded_positions:
+                # Calculate squared distance (faster than sqrt)
+                d_sq = (gx - player_pos[0])**2 + (gy - player_pos[1])**2
+                if min_dist_sq <= d_sq <= max_dist_sq:
+                    candidates.append((gx, gy))
+            
+            if candidates:
+                self.target_position = list(candidates[np.random.randint(len(candidates))])
+            else:
+                # Fallback: Pick ANY valid grounded position if none in range
+                # This prevents the "infinite loop / 0.0" fallback
+                self.target_position = list(self.grounded_positions[np.random.randint(len(self.grounded_positions))])
+                
+        # Case 2: Fallback to old unsafe spawning (should not happen if JSON loaded)
+        else:
+            for _ in range(100):
+                x = np.random.uniform(self.STAGE_X_MIN, self.STAGE_X_MAX)
+                y = np.random.uniform(self.STAGE_Y_MIN, self.STAGE_Y_MAX)
+                dist = np.sqrt((x - player_pos[0])**2 + (y - player_pos[1])**2)
+                if self.min_dist <= dist <= self.max_dist:
+                    self.target_position = (x, y)
+                    self.total_targets += 1
+                    return
+            self.target_position = (0.0, 0.0)
+            
         self.total_targets += 1
     
     def _freeze_opponent(self):
@@ -269,11 +323,19 @@ class FrozenOpponentWrapper(gym.Wrapper):
             dist_reduction = self.last_distance - current_dist
             nav_reward += dist_reduction * 2.0
         
-        # Target reached bonus
+        # Target reached bonus - ONLY if agent hasn't fallen this episode!
         if current_dist < 1.0:
-            nav_reward += 5.0
+            if not self.fell_this_episode:
+                nav_reward += 5.0  # Full bonus for safe navigation
+                if self.debug_logs:
+                    print(f"[TARGET REACHED] +5.0 bonus (no falls this episode)")
+            else:
+                if self.debug_logs:
+                    print(f"[TARGET REACHED] NO bonus (fell earlier this episode)")
+            
             self.targets_reached += 1
             self.interval_targets_reached += 1
+            info['nav_reached'] = 1
             self.targets_this_episode += 1
             
             if self.targets_this_episode < self.max_targets:
@@ -283,19 +345,38 @@ class FrozenOpponentWrapper(gym.Wrapper):
         
         self.last_distance = current_dist
         
-        # Edge penalty
+        # Edge avoidance penalty (proactive - penalize being near edges)
+        # Horizontal edges (X)
         x_pos = abs(player_pos[0])
-        if x_pos > 5.0:
-            edge_factor = (x_pos - 5.0) / 2.0
-            nav_reward -= 0.5 * min(edge_factor, 1.0)
+        if x_pos > 8.0:  # Start penalizing earlier
+            edge_factor = (x_pos - 8.0) / 4.0  # Gradual increase
+            nav_reward -= 0.1 * min(edge_factor, 1.0)  # Small penalty: max -0.1/step
         
-        # Fall detection
-        if terminated:
-            my_lives = getattr(player, 'lives_left', 3)
-            if my_lives < 3:
-                nav_reward += self.fall_penalty
-                self.falls += 1
-                self.interval_falls += 1
+        # Vertical edges (Y > 3.0 means getting low, risk of falling)
+        if player_pos[1] > 3.0:
+            y_edge_factor = (player_pos[1] - 3.0) / 3.0
+            nav_reward -= 0.1 * min(y_edge_factor, 1.0)  # Small penalty
+        
+        # Fall detection - Check for stock decreases EVERY step
+        # Using player.stocks (the correct attribute, not lives_left)
+        current_stocks = player.stocks
+        
+        if current_stocks < self.last_stocks:
+            # Agent lost a life (fell off or got KO'd) - END EPISODE IMMEDIATELY
+            nav_reward += self.fall_penalty
+            self.falls += 1
+            self.interval_falls += 1
+            self.fell_this_episode = True
+            terminated = True  # CRITICAL: End episode on fall for clearest learning signal
+            info['nav_fall'] = 1
+            if self.debug_logs:
+                print(f"[FALL - EPISODE ENDED] stocks: {self.last_stocks} -> {current_stocks}, penalty: {self.fall_penalty}")
+        
+        self.last_stocks = current_stocks
+        
+        # Debug logging for edge proximity
+        if player_pos[1] > 5.0 and self.debug_logs:
+            print(f"[DEBUG] Near edge: Y={player_pos[1]:.1f}, stocks={current_stocks}")
         
         # Time limit
         if self.episode_steps >= self.time_limit:
@@ -305,7 +386,13 @@ class FrozenOpponentWrapper(gym.Wrapper):
         if self.steps_since_log >= self.log_interval and self.debug_logs:
             self._log_stats()
         
-        return obs, reward + nav_reward, terminated, truncated, info
+        # Handle reward (can be dict for multi-agent or scalar)
+        if isinstance(reward, dict):
+            reward[0] = reward.get(0, 0.0) + nav_reward
+        else:
+            reward = reward + nav_reward
+        
+        return obs, reward, terminated, truncated, info
     
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -316,10 +403,14 @@ class FrozenOpponentWrapper(gym.Wrapper):
             self._spawn_target(player_pos)
             self._freeze_opponent()
             self.last_distance = self._get_distance_to_target(player_pos)
+            # Track stocks for fall detection (player starts with 3 stocks)
+            self.last_stocks = player.stocks
+        else:
+            self.last_stocks = 3
         
         self.episode_steps = 0
         self.targets_this_episode = 0
-        self.interval_episodes += 1
+        self.fell_this_episode = False  # Reset fall tracking for new episode
         
         return obs, info
     
@@ -565,6 +656,10 @@ class OpponentHistoryWrapper(gym.Wrapper):
     def _augment_obs(self, obs):
         """Append flattened history to observation."""
         history_flat = np.array(list(self.history), dtype=np.float32).flatten()
+        
+        if isinstance(obs, dict):
+            return {k: np.concatenate([v, history_flat]).astype(np.float32) for k, v in obs.items()}
+            
         return np.concatenate([obs, history_flat]).astype(np.float32)
 
 
@@ -709,6 +804,55 @@ class DetailedLoggingCallback(BaseCallback):
         self.reset_interval()
 
 
+class NavLoggingCallback(BaseCallback):
+    """Logs navigation stats (targets reached, falls) globally."""
+    
+    def __init__(self, log_freq=10000, verbose=1):
+        super().__init__(verbose)
+        self.log_freq = log_freq
+        self.reset_interval()
+    
+    def reset_interval(self):
+        self.interval_targets = 0
+        self.interval_falls = 0
+        self.interval_episodes = 0
+        
+    def _on_step(self) -> bool:
+        # Aggregate stats from all environments
+        infos = self.locals.get('infos', [])
+        dones = self.locals.get('dones', [])
+        
+        for idx, info in enumerate(infos):
+            if info.get('nav_reached', 0) > 0:
+                self.interval_targets += 1
+            if info.get('nav_fall', 0) > 0:
+                self.interval_falls += 1
+            if idx < len(dones) and dones[idx]:
+                self.interval_episodes += 1
+        
+        if self.num_timesteps % self.log_freq == 0 and self.num_timesteps > 0:
+            self._log_stats()
+            
+        return True
+    
+    def _log_stats(self):
+        print("\n" + "=" * 60)
+        print(f"🧭 NAVIGATION STATS @ {self.num_timesteps:,} steps")
+        print("=" * 60)
+        
+        episodes = max(1, self.interval_episodes)
+        
+        print(f"🎯 Targets Reached: {self.interval_targets} (Avg {self.interval_targets/episodes:.2f}/ep)")
+        print(f"💀 Falls:           {self.interval_falls} (Avg {self.interval_falls/episodes:.2f}/ep)")
+        print(f"🔢 Total Episodes:  {self.interval_episodes}")
+        
+        self.logger.record("nav/targets_reached", self.interval_targets)
+        self.logger.record("nav/falls", self.interval_falls)
+        
+        print("=" * 60 + "\n")
+        self.reset_interval()
+
+
 class EvaluationCallback(BaseCallback):
     """Periodically evaluate agent against diverse opponents."""
     
@@ -830,9 +974,16 @@ def record_demo_video(model, video_path: str, opponent_type: str = "random",
     env = WarehouseBrawl(resolution=CameraResolution.LOW, train_mode=True)
     env.max_timesteps = max_steps
     
+    # Apply wrappers to match training distribution
+    env = Float32Wrapper(env)
+    
+    # Determine history mode
+    zero_history = (opponent_type == "constant")
+    env = OpponentHistoryWrapper(env, zero_history=zero_history)
+    
     observations, _ = env.reset()
     obs = observations[0]
-    opponent.get_env_info(env)
+    opponent.get_env_info(env.unwrapped)  # Use unwrapped to access obs_helper
     opponent_obs = observations[1]
     
     # Initialize frame stack
@@ -841,13 +992,7 @@ def record_demo_video(model, video_path: str, opponent_type: str = "random",
     
     # Video writer
     os.makedirs(os.path.dirname(video_path), exist_ok=True)
-    writer = skvideo.io.FFmpegWriter(video_path, outputdict={
-        '-vcodec': 'libx264',
-        '-pix_fmt': 'yuv420p',
-        '-preset': 'fast',
-        '-crf': '20',
-        '-r': '30'
-    })
+    writer = imageio.get_writer(video_path, fps=30, codec='libx264', quality=8)
     
     try:
         for step in range(max_steps):
@@ -869,14 +1014,14 @@ def record_demo_video(model, video_path: str, opponent_type: str = "random",
             img = env.render()
             img = np.rot90(img, k=-1)
             img = np.fliplr(img)
-            writer.writeFrame(img)
+            writer.append_data(img)
             
             if terminated or truncated:
                 break
         
         # Get final stats
-        stats = env.get_stats(0)
-        opp_stats = env.get_stats(1)
+        stats = env.unwrapped.get_stats(0)
+        opp_stats = env.unwrapped.get_stats(1)
         
         if stats.lives_left > opp_stats.lives_left:
             result = "WIN"
@@ -1081,7 +1226,7 @@ def make_nav_env(phase_config: PhaseConfig, resolution, params: dict):
         reward_manager=reward_manager
     )
     env = Float32Wrapper(env)
-    env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=True)
+    env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=False)
     
     # Add opponent history wrapper if enabled (with zeroed history for navigation)
     history_cfg = params.get("opponent_history", {})
@@ -1214,6 +1359,12 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     env_fns = [lambda: make_nav_env(phase_config, resolution, params) for _ in range(n_envs)]
     vec_env = SubprocVecEnv(env_fns) if n_envs > 1 else DummyVecEnv(env_fns)
     
+    # Frame stacking (must match combat phases for checkpoint compatibility)
+    frame_stack = params.get("frame_stack", 4)
+    if frame_stack > 1:
+        print(f"📚 Frame stacking: {frame_stack} frames")
+        vec_env = VecFrameStack(vec_env, n_stack=frame_stack)
+    
     # PPO settings
     ppo = params.get("ppo_settings", {})
     lr_config = ppo.get("learning_rate", [3e-4, 1e-6])
@@ -1264,27 +1415,22 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
         name_prefix=f"nav_{phase_config.phase_key}"
     )
     
-    # Signal handler with video recording
+    # Signal handler - save model on interrupt
     def signal_handler(sig, frame):
-        print("\n⚠️ Training interrupted! Saving model and recording video...")
-        interrupt_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_interrupted.zip")
+        print("\n⚠️ Training interrupted! Saving model...")
+        # Use timestamp to avoid overwriting existing checkpoints
+        import time
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        interrupt_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_{timestamp}.zip")
         agent.save(interrupt_path)
         print(f"💾 Model saved to: {interrupt_path}")
+        print("💡 Use 'python watch_navigation.py' to view agent behavior")
         
-        # Record demo video
-        video_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "videos")
-        video_path = os.path.join(video_folder, f"nav_{phase_config.phase_key}_interrupted.mp4")
+        # Safe exit
         try:
-            record_demo_video(
-                model=agent,
-                video_path=video_path,
-                opponent_type="constant",  # Frozen opponent for nav
-                frame_stack=params.get("frame_stack", 4)
-            )
-        except Exception as e:
-            print(f"⚠️ Video recording failed: {e}")
-        
-        vec_env.close()
+            vec_env.close()
+        except:
+            pass
         exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -1293,7 +1439,7 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     
     agent.learn(
         total_timesteps=total_timesteps,
-        callback=[checkpoint_callback],
+        callback=[checkpoint_callback, NavLoggingCallback(log_freq=10000)],
         progress_bar=True
     )
     

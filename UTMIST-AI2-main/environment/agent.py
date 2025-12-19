@@ -1009,6 +1009,220 @@ class ClockworkAgent(Agent):
         self.steps += 1  # Increment step counter
         return action
 
+class HeuristicAgentBase(Agent):
+    """Shared helpers for heuristic opponents with light stochasticity."""
+
+    def _vec(self, obs, name: str) -> np.ndarray:
+        return np.array(self.obs_helper.get_section(obs, name), dtype=float)
+
+    def _scalar(self, obs, name: str) -> float:
+        value = self.obs_helper.get_section(obs, name)
+        if isinstance(value, (list, tuple, np.ndarray)):
+            return float(value[0])
+        return float(value)
+
+    def _maybe_noise(self, action: np.ndarray, keys: List[str], prob: float) -> np.ndarray:
+        if prob <= 0:
+            return action
+        if random.random() < prob and keys:
+            action = self.act_helper.press_keys([random.choice(keys)], action)
+        return action
+
+
+class NoisyBasedAgent(HeuristicAgentBase):
+    """BasedAgent variant with exploration noise to reduce pattern memorization."""
+
+    def __init__(self, epsilon: float = 0.12, jitter_prob: float = 0.05, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.time = 0
+        self.epsilon = epsilon
+        self.jitter_prob = jitter_prob
+
+    def predict(self, obs):
+        self.time += 1
+        if random.random() < self.epsilon:
+            return self.action_space.sample()
+
+        pos = self._vec(obs, 'player_pos')
+        opp_pos = self._vec(obs, 'opponent_pos')
+        opp_state = int(self._scalar(obs, 'opponent_state'))
+        opp_KO = opp_state in [5, 11]
+        action = self.act_helper.zeros()
+
+        if pos[0] > 10.67/2:
+            action = self.act_helper.press_keys(['a'])
+        elif pos[0] < -10.67/2:
+            action = self.act_helper.press_keys(['d'])
+        elif not opp_KO:
+            if opp_pos[0] > pos[0]:
+                action = self.act_helper.press_keys(['d'])
+            else:
+                action = self.act_helper.press_keys(['a'])
+
+        if (pos[1] > 1.6 or pos[1] > opp_pos[1]) and self.time % 2 == 0:
+            action = self.act_helper.press_keys(['space'], action)
+
+        if (pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2 < 4.0:
+            action = self.act_helper.press_keys(['j'], action)
+
+        action = self._maybe_noise(action, ['a', 'd', 'space', 'l'], self.jitter_prob)
+        return action
+
+
+class EdgeGuardAgent(HeuristicAgentBase):
+    """Prioritizes pushing opponents off-stage with mild randomness."""
+
+    def __init__(self, edge_x: float = 8.5, noise_prob: float = 0.06, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.edge_x = edge_x
+        self.noise_prob = noise_prob
+
+    def predict(self, obs):
+        pos = self._vec(obs, 'player_pos')
+        opp_pos = self._vec(obs, 'opponent_pos')
+        opp_state = int(self._scalar(obs, 'opponent_state'))
+        opp_KO = opp_state in [5, 11]
+        action = self.act_helper.zeros()
+
+        if opp_KO:
+            return action
+
+        opp_offstage = abs(opp_pos[0]) > self.edge_x or opp_pos[1] > 6.0
+        self_near_edge = abs(pos[0]) > self.edge_x
+
+        if opp_offstage:
+            target_x = self.edge_x if opp_pos[0] >= 0 else -self.edge_x
+        elif self_near_edge:
+            target_x = 0.0
+        else:
+            target_x = opp_pos[0]
+
+        if target_x > pos[0] + 0.3:
+            action = self.act_helper.press_keys(['d'], action)
+        elif target_x < pos[0] - 0.3:
+            action = self.act_helper.press_keys(['a'], action)
+
+        dist_sq = (pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2
+        if dist_sq < 9.0:
+            if opp_offstage and pos[1] < opp_pos[1]:
+                grounded = self._scalar(obs, 'player_grounded') > 0.5
+                if grounded:
+                    action = self.act_helper.press_keys(['k'], action)
+                else:
+                    action = self.act_helper.press_keys(['s', 'k'], action)
+            else:
+                action = self.act_helper.press_keys(['j'], action)
+
+        if opp_pos[1] < pos[1] - 1.0 and random.random() < 0.5:
+            action = self.act_helper.press_keys(['space'], action)
+
+        action = self._maybe_noise(action, ['a', 'd', 'space', 'l', 'j'], self.noise_prob)
+        return action
+
+
+class WeaponHunterAgent(HeuristicAgentBase):
+    """Seeks weapons when unarmed, then plays aggressive mid-range."""
+
+    def __init__(self, pickup_dist: float = 1.2, noise_prob: float = 0.06, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pickup_dist = pickup_dist
+        self.noise_prob = noise_prob
+
+    def _nearest_spawner(self, pos, obs):
+        candidates = []
+        for i in range(1, 5):
+            sx, sy, wtype = self._vec(obs, f'player_spawner_{i}')
+            if wtype > 0:
+                dist_sq = (pos[0] - sx)**2 + (pos[1] - sy)**2
+                candidates.append((dist_sq, sx, sy))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1], candidates[0][2]
+
+    def predict(self, obs):
+        pos = self._vec(obs, 'player_pos')
+        opp_pos = self._vec(obs, 'opponent_pos')
+        weapon_type = int(round(self._scalar(obs, 'player_weapon_type')))
+        action = self.act_helper.zeros()
+
+        if weapon_type == 0:
+            target = self._nearest_spawner(pos, obs)
+            if target is not None:
+                tx, ty = target
+                if tx > pos[0] + 0.3:
+                    action = self.act_helper.press_keys(['d'], action)
+                elif tx < pos[0] - 0.3:
+                    action = self.act_helper.press_keys(['a'], action)
+                if (pos[0] - tx)**2 + (pos[1] - ty)**2 < self.pickup_dist**2:
+                    action = self.act_helper.press_keys(['h'], action)
+            else:
+                if opp_pos[0] > pos[0]:
+                    action = self.act_helper.press_keys(['d'], action)
+                else:
+                    action = self.act_helper.press_keys(['a'], action)
+        else:
+            if opp_pos[0] > pos[0] + 0.5:
+                action = self.act_helper.press_keys(['d'], action)
+            elif opp_pos[0] < pos[0] - 0.5:
+                action = self.act_helper.press_keys(['a'], action)
+
+            dist_sq = (pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2
+            if dist_sq < 4.0:
+                action = self.act_helper.press_keys(['j'], action)
+            elif dist_sq < 16.0:
+                action = self.act_helper.press_keys(['k'], action)
+
+        action = self._maybe_noise(action, ['a', 'd', 'space', 'l', 'j'], self.noise_prob)
+        return action
+
+
+class RecoveryPunishAgent(HeuristicAgentBase):
+    """Punishes low-recovery opponents near the edge with light randomness."""
+
+    def __init__(self, edge_x: float = 8.5, noise_prob: float = 0.05, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.edge_x = edge_x
+        self.noise_prob = noise_prob
+
+    def predict(self, obs):
+        pos = self._vec(obs, 'player_pos')
+        opp_pos = self._vec(obs, 'opponent_pos')
+        opp_rec = self._scalar(obs, 'opponent_recoveries_left')
+        action = self.act_helper.zeros()
+
+        opp_offstage = abs(opp_pos[0]) > self.edge_x or opp_pos[1] > 6.0
+        low_recovery = opp_rec <= 0.5
+
+        if opp_offstage and low_recovery:
+            target_x = self.edge_x if opp_pos[0] >= 0 else -self.edge_x
+            if target_x > pos[0] + 0.3:
+                action = self.act_helper.press_keys(['d'], action)
+            elif target_x < pos[0] - 0.3:
+                action = self.act_helper.press_keys(['a'], action)
+
+            dist_sq = (pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2
+            if dist_sq < 9.0:
+                grounded = self._scalar(obs, 'player_grounded') > 0.5
+                if grounded:
+                    action = self.act_helper.press_keys(['k'], action)
+                else:
+                    action = self.act_helper.press_keys(['s', 'k'], action)
+        else:
+            if abs(pos[0]) > 6.0:
+                action = self.act_helper.press_keys(['a' if pos[0] > 0 else 'd'], action)
+            else:
+                if opp_pos[0] > pos[0] + 0.5:
+                    action = self.act_helper.press_keys(['d'], action)
+                elif opp_pos[0] < pos[0] - 0.5:
+                    action = self.act_helper.press_keys(['a'], action)
+                dist_sq = (pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2
+                if dist_sq < 6.0:
+                    action = self.act_helper.press_keys(['j'], action)
+
+        action = self._maybe_noise(action, ['a', 'd', 'space', 'l', 'j'], self.noise_prob)
+        return action
+
 from stable_baselines3 import A2C, PPO
 from stable_baselines3.common.base_class import BaseAlgorithm
 

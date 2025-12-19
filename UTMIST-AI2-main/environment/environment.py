@@ -60,7 +60,7 @@ class GameMode(Enum):
 
 
 # Reference PettingZoo AECEnv
-class MalachiteEnv(ABC, Generic[ObsType, ActType, AgentID]):
+class MalachiteEnv(gymnasium.Env, Generic[ObsType, ActType, AgentID]):
 
     agents: list[AgentID]
 
@@ -1132,7 +1132,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         # Not really in use
         self.rewards[agent] += reward
 
-    def reset(self, seed=None) -> Tuple[dict[int, np.ndarray], dict[str, Any]]:
+    def reset(self, seed=None, options=None) -> Tuple[dict[int, np.ndarray], dict[str, Any]]:
         self.seed = seed
         self.space = pymunk.Space()
         self.dt = 1 / 30.0

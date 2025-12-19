@@ -22,7 +22,7 @@ folders:
 # CURRICULUM CONTROL - CHANGE THIS TO SWITCH PHASES
 # ============================================================================
 curriculum:
-  phase: "0a"  # Current phase to train
+  phase: "0c"  # Resume from trained model with end-on-fall
 
 # ============================================================================
 # PHASE DEFINITIONS - All reward weights and opponent mixes
@@ -32,12 +32,12 @@ phases:
   # NAVIGATION PHASES (Phase 0) - Learn to move before fighting
   # --------------------------------------------------------------------------
   "0a":
-    name: "Ground Navigation"
-    description: "Navigate to close ground targets"
+    name: "Near Walking"
+    description: "Walk to nearby targets from spawn (learn platform safety)"
     type: "navigation"
     navigation:
-      min_dist: 1.0          # Minimum target spawn distance
-      max_dist: 2.0          # Maximum target spawn distance
+      min_dist: 1.0
+      max_dist: 3.0          # Short distances - walking only
       fall_penalty: -3.0     # Penalty for falling off stage
       time_limit_seconds: 90 # Episode time limit
       multi_target: 1        # Number of targets per episode
@@ -46,38 +46,38 @@ phases:
 
   "0b":
     name: "Platform Navigation"
-    description: "Navigate to platform targets (requires jumping)"
+    description: "Navigate main platform with medium distances"
     type: "navigation"
     navigation:
-      min_dist: 3.0
-      max_dist: 5.0
-      fall_penalty: -5.0
+      min_dist: 2.0
+      max_dist: 6.0
+      fall_penalty: -15.0   # Balanced: discourages falls but allows calculated risks
       time_limit_seconds: 90
       multi_target: 1
     opponents:
       constant_agent: 1.0
 
   "0c":
-    name: "Full Stage Navigation"
-    description: "Navigate to any position on stage"
+    name: "Cross-Platform Jumps"
+    description: "Navigate to distant targets (requires jumping)"
     type: "navigation"
     navigation:
       min_dist: 5.0
-      max_dist: 12.0
-      fall_penalty: -6.0
+      max_dist: 10.0
+      fall_penalty: -15.0  # Balanced penalty (same as 0b)
       time_limit_seconds: 90
       multi_target: 1
     opponents:
       constant_agent: 1.0
 
   "0d":
-    name: "Multi-Target Navigation"
-    description: "Navigate to 3 sequential targets"
+    name: "Full Stage Navigation"
+    description: "Navigate to multiple targets anywhere on stage"
     type: "navigation"
     navigation:
       min_dist: 1.0
-      max_dist: 12.0
-      fall_penalty: -7.0
+      max_dist: 15.0
+      fall_penalty: -30.0  # Aggressive: near-zero falls goal
       time_limit_seconds: 60
       multi_target: 3
     opponents:
@@ -85,11 +85,11 @@ phases:
 
   "0e":
     name: "Speed Navigation"
-    description: "Navigate quickly under time pressure"
+    description: "Fast navigation under time pressure"
     type: "navigation"
     navigation:
       min_dist: 1.0
-      max_dist: 12.0
+      max_dist: 15.0
       fall_penalty: -8.0
       time_limit_seconds: 30
       multi_target: 3
@@ -130,8 +130,12 @@ phases:
       knockout: 2.0
       edge_penalty: -1.0
     opponents:
-      random_agent: 0.6
-      self_play: 0.4
+      random_agent: 0.45
+      self_play: 0.35
+      edge_guard_agent: 0.05
+      weapon_hunter_agent: 0.05
+      recovery_punish_agent: 0.05
+      noisy_based_agent: 0.05
 
   3:
     name: "Learn to Dominate"
@@ -147,11 +151,15 @@ phases:
       knockout: 6.0           # KO bonus
       edge_penalty: -1.5      # Increased to reduce SDs
     opponents:
-      random_agent: 0.28      # 28% random (40% of 70%)
-      based_agent: 0.21       # 21% based (30% of 70%)
-      constant_agent: 0.14    # 14% constant (20% of 70%)
-      clockwork_agent: 0.07   # 7% clockwork (10% of 70%)
-      self_play: 0.30         # 30% self-play
+      random_agent: 0.20
+      based_agent: 0.18
+      constant_agent: 0.08
+      clockwork_agent: 0.06
+      self_play: 0.28
+      edge_guard_agent: 0.06
+      weapon_hunter_agent: 0.06
+      recovery_punish_agent: 0.04
+      noisy_based_agent: 0.04
 
   4:
     name: "Pure Competition"
@@ -168,10 +176,14 @@ phases:
       edge_penalty: -1.0
       clean_win_bonus: 5.0    # Extra bonus for positive net damage wins
     opponents:
-      based_agent: 0.40       # 40% BasedAgent (main challenge)
-      random_agent: 0.10      # 10% RandomAgent
-      clockwork_agent: 0.10   # 10% ClockworkAgent
-      self_play: 0.40         # 40% Self-play
+      based_agent: 0.28
+      random_agent: 0.08
+      clockwork_agent: 0.08
+      self_play: 0.32
+      edge_guard_agent: 0.06
+      weapon_hunter_agent: 0.06
+      recovery_punish_agent: 0.06
+      noisy_based_agent: 0.06
 
 # ============================================================================
 # Neural network architecture
@@ -198,7 +210,7 @@ ppo_settings:
   # Entropy coefficient (encourages exploration)
   ent_coef: 0.01
   
-  # For navigation phases, use higher entropy
+  # For navigation phases, use higher entropy for exploration
   nav_ent_coef: 0.1
   
   # Batch settings
@@ -215,7 +227,7 @@ ppo_settings:
   
   # Set to "0" for new training, or filename to resume
   # Examples: "phase1_final", "phase4_final.zip", "nav_0a_final"
-  model_checkpoint: "0"
+  model_checkpoint: "nav_0c_interrupted.zip"  # Resume from 0c with end-on-fall
 
 # ============================================================================
 # Environment settings
@@ -224,7 +236,7 @@ environment_settings:
   max_timesteps: 5400       # Max steps per episode (90 seconds at 60fps)
   render_mode: null
   resolution: "LOW"         # LOW, MEDIUM, HIGH
-  n_envs: 32                # Parallel environments (32 for GPU, 8 for CPU)
+  n_envs: 48                # Parallel environments (Increased for 72-core CPU)
 
 # ============================================================================
 # Self-play settings
