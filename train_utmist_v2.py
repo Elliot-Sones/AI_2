@@ -1333,6 +1333,8 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
 # TRAINING FUNCTIONS
 # ============================================================================
 
+
+# Navigation Training
 def run_navigation_training(params: dict, phase_config: PhaseConfig):
     """Run navigation training for Phase 0."""
     print(f"\n🧭 Starting Navigation Training - {phase_config.name}")
@@ -1381,6 +1383,10 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
         if os.path.exists(checkpoint_path) or os.path.exists(checkpoint_path + ".zip"):
             print(f"📂 Loading checkpoint: {checkpoint_path}")
             agent = PPO.load(checkpoint_path, env=vec_env, device=device)
+            # IMPORTANT: Override entropy coefficient from config (checkpoint may have old value)
+            new_ent_coef = ppo.get("nav_ent_coef", 0.1)
+            agent.ent_coef = new_ent_coef
+            print(f"🔧 Applied entropy coefficient: {new_ent_coef}")
         else:
             print(f"⚠️ Checkpoint not found: {checkpoint_path}, creating new agent")
             model_checkpoint = "0"
@@ -1463,6 +1469,7 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     vec_env.close()
 
 
+# Combat Training
 def run_combat_training(params: dict, phase_config: PhaseConfig):
     """Run combat training for Phases 1-4."""
     global GLOBAL_REWARD_MANAGER
@@ -1656,7 +1663,7 @@ def main(cfg_file: str):
     phase_key = params.get("curriculum", {}).get("phase", 1)
     
     print("\n" + "=" * 70)
-    print("🎮 UTMIST AI^2 Training Script v2 - Config-Driven Edition")
+    print("🎮 UTMIST AI^2 Training Script v2 ")
     print("=" * 70)
     print(f"📄 Config: {cfg_file}")
     

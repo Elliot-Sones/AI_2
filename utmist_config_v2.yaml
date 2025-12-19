@@ -22,7 +22,7 @@ folders:
 # CURRICULUM CONTROL - CHANGE THIS TO SWITCH PHASES
 # ============================================================================
 curriculum:
-  phase: "0c"  # Resume from trained model with end-on-fall
+  phase: "0d"  # Full stage navigation (1-15 units, 3 targets)
 
 # ============================================================================
 # PHASE DEFINITIONS - All reward weights and opponent mixes
@@ -210,8 +210,8 @@ ppo_settings:
   # Entropy coefficient (encourages exploration)
   ent_coef: 0.01
   
-  # For navigation phases, use higher entropy for exploration
-  nav_ent_coef: 0.1
+  # For navigation phases, use lower entropy to reduce accidental falls
+  nav_ent_coef: 0.05
   
   # Batch settings
   batch_size: 8192
@@ -227,7 +227,7 @@ ppo_settings:
   
   # Set to "0" for new training, or filename to resume
   # Examples: "phase1_final", "phase4_final.zip", "nav_0a_final"
-  model_checkpoint: "nav_0c_interrupted.zip"  # Resume from 0c with end-on-fall
+  model_checkpoint: "nav_0c_20251219_082313.zip"  # Best 0c model
 
 # ============================================================================
 # Environment settings

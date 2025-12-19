@@ -13,7 +13,12 @@ sys.path.insert(0, 'UTMIST-AI2-main')
 import argparse
 import yaml
 import numpy as np
+import torch
+from functools import partial
 from environment.environment import CameraResolution, WarehouseBrawl
+from environment.agent import (
+    SelfPlayWarehouseBrawl, OpponentsCfg, RewardManager, ConstantAgent, RewTerm
+)
 from train_utmist_v2 import (
     Float32Wrapper, OpponentHistoryWrapper, FrozenOpponentWrapper, 
     PhaseConfig, linear_schedule
@@ -22,65 +27,39 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecVideoRecorder
 import os
 
-import gymnasium as gym
-
-class ActionAdapterWrapper(gym.Wrapper):
-    """
-    Adapts multi-agent environment (WarehouseBrawl) to single-agent PPO interface.
-    1. Input: Scalar action -> Dict {0: action, 1: dummy}
-    2. Output: List obs -> Scalar obs[0]
-    3. Output: Dict reward -> Scalar reward[0]
-    """
-    def step(self, action):
-        if not isinstance(action, dict):
-            action_dict = {0: action, 1: np.zeros(10, dtype=np.float32)}
-        else:
-            action_dict = action
-            
-        obs, reward, terminated, truncated, info = self.env.step(action_dict)
-        
-        # Adapt Observation (List/Dict -> Single)
-        if isinstance(obs, (list, dict)):
-            my_obs = obs[0]
-        else:
-            my_obs = obs
-            
-        # Adapt Reward (Dict -> Single)
-        if isinstance(reward, dict):
-            my_reward = reward[0]
-        else:
-            my_reward = reward
-            
-        return my_obs, my_reward, terminated, truncated, info
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        # Adapt Observation on reset
-        if isinstance(obs, (list, dict)):
-            return obs[0], info
-        return obs, info
 
 def make_nav_env(phase_config, render=True):
-    """Create single navigation environment"""
+    """Create single navigation environment - EXACTLY MATCHING TRAINING"""
     def _init():
-        # train_mode=True prevents window opening (headless friendly)
-        env = WarehouseBrawl(
-            resolution=CameraResolution.LOW, 
-            train_mode=not render
+        # NULL reward function (navigation uses custom rewards)
+        def null_reward_func(env, **kwargs):
+            return torch.tensor([0.0, 0.0])
+        
+        reward_manager = RewardManager(
+            reward_functions={"null": RewTerm(func=null_reward_func, weight=0.0)},
+            signal_subscriptions={}
         )
-        # FORCE render_mode for VecVideoRecorder
+        
+        opponent_cfg = OpponentsCfg(
+            opponents={'constant_agent': (1.0, partial(ConstantAgent))}
+        )
+        
+        # USE SelfPlayWarehouseBrawl - SAME AS TRAINING!
+        env = SelfPlayWarehouseBrawl(
+            opponent_cfg=opponent_cfg,
+            save_handler=None,
+            resolution=CameraResolution.LOW,
+            reward_manager=reward_manager
+        )
+        
+        # Set render mode for VecVideoRecorder
         env.render_mode = "rgb_array"
-        # Ensure metadata is present
         if not hasattr(env, 'metadata'):
             env.metadata = {'render_modes': ['rgb_array'], 'render_fps': 30}
         
+        # Apply SAME wrappers as training
         env = Float32Wrapper(env)
-        
-        # Adapter converts Multi-Agent -> Single Agent interface
-        env = ActionAdapterWrapper(env)
-        
-        # FrozenOpponentWrapper works on Single Agent interface (expects scalar reward/obs)
-        env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=True)
+        env = FrozenOpponentWrapper(env, nav_config=phase_config.navigation, debug_logs=False)
         env = OpponentHistoryWrapper(env, zero_history=True)
         return env
     return _init

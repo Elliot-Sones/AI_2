@@ -59,6 +59,13 @@ class FrameStack:
 
 def run_navigation_game(model, phase_config, game_num, save_video=True):
     """Run a single navigation game with frozen opponent."""
+    # CRITICAL: Seed randomness per game to ensure varied positions
+    import random
+    import time
+    seed = int(time.time() * 1000) % (2**32) + game_num
+    np.random.seed(seed)
+    random.seed(seed)
+    
     # Create environment MATCHING training setup exactly
     def null_reward_func(env, **kwargs):
         return torch.tensor([0.0, 0.0])
