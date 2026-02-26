@@ -26,16 +26,19 @@ The training system uses **PPO (Proximal Policy Optimization)** from Stable Base
 
 ```
 AI_2/
-├── train_utmist_v2.py      # Main training script
-├── utmist_config_v2.yaml   # All configuration in one place
-├── watch_games.py          # Watch/record trained agent
-├── eval_10_games.py        # Evaluate against opponents
+├── train.py             # Main training script
+├── config.yaml          # All configuration in one place
+├── setup_vast.sh        # Vast.ai GPU setup script
+├── watch_games.py       # Watch/record trained agent
+├── eval_10_games.py     # Evaluate against opponents
+├── play_vs_agent.py     # Play against your agent
+├── images/              # Visualizations
 └── results/
-    └── ppo_utmist_v2/
-        ├── model/          # Saved models & checkpoints
-        ├── videos/         # Demo videos
-        ├── tb/             # TensorBoard logs (combat)
-        └── tb_nav/         # TensorBoard logs (navigation)
+    └── ppo_utmist/
+        ├── model/       # Saved models & checkpoints
+        ├── videos/      # Demo videos
+        ├── tb/          # TensorBoard logs (combat)
+        └── tb_nav/      # TensorBoard logs (navigation)
 ```
 
 ---
@@ -98,7 +101,7 @@ The agent uses a rolling buffer of the **last 60 opponent actions** appended to 
 
 ## Configuration
 
-All settings are in `utmist_config_v2.yaml`. Here's what each section does:
+All settings are in `config.yaml`. Here's what each section does:
 
 ### Curriculum Control
 
@@ -151,15 +154,15 @@ opponent_history:
 
 ```bash
 # Train current phase (from config)
-python train_utmist_v2.py
+python train.py
 
 # Use custom config file
-python train_utmist_v2.py --cfgFile my_config.yaml
+python train.py --cfgFile my_config.yaml
 ```
 
 ### Switching Phases
 
-1. Edit `utmist_config_v2.yaml`:
+1. Edit `config.yaml`:
    ```yaml
    curriculum:
      phase: "0b"  # Change from "0a" to "0b"
@@ -168,7 +171,7 @@ python train_utmist_v2.py --cfgFile my_config.yaml
 
 ### Resuming Training
 
-1. Edit `utmist_config_v2.yaml`:
+1. Edit `config.yaml`:
    ```yaml
    ppo_settings:
      model_checkpoint: "nav_0a_final"  # or "phase1_final"
@@ -270,7 +273,7 @@ rewards:
 ### Video Location
 
 ```
-./results/ppo_utmist_v2/videos/
+./results/ppo_utmist/videos/
 ```
 
 ### Manual Recording
@@ -310,7 +313,7 @@ python watch_games.py --opponent based --games 10 --no-video
 - The agent might be too aggressive - reduce `aggression` reward
 
 **Model not improving**
-- Check TensorBoard: `tensorboard --logdir ./results/ppo_utmist_v2/tb`
+- Check TensorBoard: `tensorboard --logdir ./results/ppo_utmist/tb`
 - Try adjusting learning rate
 - Ensure opponent mix includes enough easy opponents
 
@@ -318,13 +321,13 @@ python watch_games.py --opponent based --games 10 --no-video
 
 ```bash
 # Monitor training with TensorBoard
-tensorboard --logdir ./results/ppo_utmist_v2/tb
+tensorboard --logdir ./results/ppo_utmist/tb
 
 # Quick evaluation
-python eval_10_games.py --model ./results/ppo_utmist_v2/model/phase4_final.zip
+python eval_10_games.py --model ./results/ppo_utmist/model/phase4_final.zip
 
 # Watch specific model
-python watch_games.py --model ./results/ppo_utmist_v2/model/nav_0a_final.zip --opponent constant
+python watch_games.py --model ./results/ppo_utmist/model/nav_0a_final.zip --opponent constant
 ```
 
 ---
@@ -335,7 +338,7 @@ python watch_games.py --model ./results/ppo_utmist_v2/model/nav_0a_final.zip --o
 
 ```bash
 # Edit config: set phase to "0a"
-python train_utmist_v2.py
+python train.py
 # Press Ctrl+C when satisfied
 # Edit config: set phase to "0b", set model_checkpoint to "nav_0a_interrupted" or "nav_0a_final"
 # Repeat for 0c, 0d, 0e
@@ -346,7 +349,7 @@ python train_utmist_v2.py
 ```bash
 # Edit config: set phase to 1
 # Optionally set model_checkpoint to nav_0e_final to transfer navigation skills
-python train_utmist_v2.py
+python train.py
 # Let it run for full time_steps or interrupt when satisfied
 # Progress through phases 2, 3, 4
 ```
@@ -354,6 +357,6 @@ python train_utmist_v2.py
 ### Final Evaluation
 
 ```bash
-python eval_10_games.py --model ./results/ppo_utmist_v2/model/phase4_final.zip
-python watch_games.py --model ./results/ppo_utmist_v2/model/phase4_final.zip --opponent based --games 5
+python eval_10_games.py --model ./results/ppo_utmist/model/phase4_final.zip
+python watch_games.py --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 5
 ```

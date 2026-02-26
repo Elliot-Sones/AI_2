@@ -23,7 +23,7 @@ import pygame
 pygame.init()
 
 # Path to your trained model
-MODEL_PATH = "./results/ppo_utmist_v2/model/phase2_final.zip"
+MODEL_PATH = "./results/ppo_utmist/model/phase2_final.zip"
 
 print("=" * 60)
 print("🎮 PLAY AGAINST YOUR AI AGENT")

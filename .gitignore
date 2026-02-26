@@ -35,19 +35,16 @@ ENV/
 # Mac
 .DS_Store
 
-# Training Results
-# Training Results
+# Training Results — track model .zip files only
 results/*
 !results/ppo_utmist/
 results/ppo_utmist/*
 !results/ppo_utmist/model/
 results/ppo_utmist/model/*
-!results/ppo_utmist/model/ppo_utmist_final.zip
+!results/ppo_utmist/model/*.zip
 
 # Logs
 *.log
-tb.log
-test_output.log
 
 # Assets
 assets.zip

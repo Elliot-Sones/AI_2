@@ -16,7 +16,7 @@ from environment.agent import RandomAgent, BasedAgent, ConstantAgent, ClockworkA
 from stable_baselines3 import PPO
 
 # Config
-MODEL_PATH = "./results/ppo_utmist_v2/model/phase2_final.zip"
+MODEL_PATH = "./results/ppo_utmist/model/phase2_final.zip"
 NUM_GAMES = 10
 FRAME_STACK = 4
 
@@ -56,7 +56,7 @@ opponents_config = {
 
 # Try to add old models
 for phase_name in ["phase1_final", "phase2_final"]:
-    model_path = f"./results/ppo_utmist_v2/model/{phase_name}.zip"
+    model_path = f"./results/ppo_utmist/model/{phase_name}.zip"
     if os.path.exists(model_path):
         opponents_config[phase_name] = ("model", model_path)
 

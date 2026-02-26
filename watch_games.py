@@ -36,7 +36,7 @@ import imageio
 # ============================================================================
 # CONFIGURATION - CHANGE THESE
 # ============================================================================
-MODEL_PATH = "./results/ppo_utmist_v2/model/phase4_final.zip"
+MODEL_PATH = "./results/ppo_utmist/model/phase4_final.zip"
 FRAME_STACK = 4
 OUTPUT_DIR = "./videos"
 # ============================================================================
