@@ -1,0 +1,16 @@
+{
+  "instance_id": 49902188,
+  "label": "ai2-benchmark-4090-20260904b",
+  "status": "resume_requested",
+  "resumed_at_utc_approx": "2026-09-04T22:42:15Z",
+  "stop_deadline_utc": "2026-09-04T23:12:10.501412Z",
+  "maximum_additional_compute_minutes": 30,
+  "quoted_running_rate_usd_per_hour": 0.31666666666666665,
+  "estimated_maximum_running_cost_usd": 0.16,
+  "guard_pid": 16891,
+  "guard_exec_session": 3150,
+  "deletion_authorized": false,
+  "old_source_directory": "/workspace/AI_2/benchmark-20260904b",
+  "new_run_directory": "/workspace/AI_2/animation-cache-20260904",
+  "retention_policy": "Stop after verified result retrieval or at deadline; never destroy/delete without explicit confirmation. Retained disk continues charging."
+}

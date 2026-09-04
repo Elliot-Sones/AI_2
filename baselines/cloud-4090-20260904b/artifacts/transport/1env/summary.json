@@ -1,0 +1,37 @@
+{
+  "label": "cheap_environment_transport_control",
+  "note": "Transport-only control with constant observations and empty infos; no actual physics/game/model work.",
+  "repeats": [
+    {
+      "action_dim": 10,
+      "aggregate_transitions": 65536,
+      "aggregate_warmup_transitions": 4096,
+      "base_obs_shape": [
+        664
+      ],
+      "cheap_env_measured_reset_count": 36,
+      "cheap_env_measured_terminal_resets": 36,
+      "cheap_env_total_reset_count": 40,
+      "cheap_env_total_terminal_resets": 38,
+      "frame_stack": 4,
+      "label": "cheap_environment_transport_control",
+      "n_envs": 1,
+      "note": "Constant preallocated observations and empty infos; no graphics, physics, model, or real game logic, so this is not an exact real-env overhead fraction.",
+      "obs_dim": 664,
+      "repeat": 0,
+      "seconds": 2.1194325238466263,
+      "seed": 42,
+      "stacked_obs_shape": [
+        2656
+      ],
+      "steps_per_second": 30921.484530706646,
+      "vec_env_type": "DummyVecEnv",
+      "vector_reset_calls": 2,
+      "vector_step_calls": 65536,
+      "vector_warmup_step_calls": 4096
+    }
+  ],
+  "steps_per_second_max": 30921.484530706646,
+  "steps_per_second_median": 30921.484530706646,
+  "steps_per_second_min": 30921.484530706646
+}

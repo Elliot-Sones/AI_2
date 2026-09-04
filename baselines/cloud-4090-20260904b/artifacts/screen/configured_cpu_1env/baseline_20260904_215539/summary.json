@@ -1,0 +1,56 @@
+{
+  "by_mode": {
+    "ppo": {
+      "completed_episodes_total": 32,
+      "episodes_per_second_median": 0.37025249072756455,
+      "repeats": 1,
+      "steps_per_second_max": 189.56927525251305,
+      "steps_per_second_median": 189.56927525251305,
+      "steps_per_second_min": 189.56927525251305
+    }
+  },
+  "repeats": [
+    {
+      "aggregate_episodes_per_second": 0.37025249072756455,
+      "completed_episodes": 32,
+      "extra": {
+        "configured_training_budget": 5000000,
+        "device": "cpu",
+        "effective_batch_size": 8192,
+        "episode_wall_note": "Includes automatic resets and any PPO updates between episode steps; incomplete final episodes are excluded from episode means.",
+        "n_steps": 8192,
+        "other_seconds_total": 0.48220440559089184,
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "requested_batch_size": 8192,
+        "rollout_seconds": [
+          26.705337564460933,
+          25.84107525087893
+        ],
+        "rollout_seconds_total": 52.54641281533986,
+        "rollouts": 2,
+        "torch_threads": 1,
+        "update_seconds": [
+          17.090861059725285,
+          16.308029437437654
+        ],
+        "update_seconds_total": 33.39889049716294,
+        "warmup_timesteps": 8192,
+        "warmup_updates_retained": true
+      },
+      "init_seconds": 0.9429859891533852,
+      "mean_episode_steps": 501.40625,
+      "mean_episode_wall_seconds": 2.150569107121555,
+      "measured_steps": 16384,
+      "mode": "ppo",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 0,
+      "requested_steps": 16384,
+      "reset_seconds": null,
+      "seed": 42,
+      "steps_per_second": 189.56927525251305,
+      "total_seconds": 86.4275077180937
+    }
+  ]
+}

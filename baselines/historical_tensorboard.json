@@ -1,0 +1,575 @@
+{
+  "version": 1,
+  "generated_at_utc": "2026-09-04T19:41:48.464101Z",
+  "scope": "historical_baseline",
+  "runs": [
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_1",
+      "run_name": "PPO_1",
+      "event_file": "events.out.tfevents.1764109818.Elliots-MacBook-Air.local.37112.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_1/events.out.tfevents.1764109818.Elliots-MacBook-Air.local.37112.0",
+      "event_file_sha256": "f4a6a7518180e69df572b331b9c8a66fed3a7d462c28d548f95a839cce4e65c9",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 88,
+      "empty_file": true,
+      "scalar_tag_count": 0,
+      "scalar_counts_by_tag": {},
+      "wall_time": {
+        "scalar_start_sec": null,
+        "scalar_end_sec": null,
+        "scalar_start_utc": null,
+        "scalar_end_utc": null,
+        "max_step_seen": null
+      },
+      "series": {
+        "time/fps": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        },
+        "rollout/ep_len_mean": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_2",
+      "run_name": "PPO_2",
+      "event_file": "events.out.tfevents.1764109868.Elliots-MacBook-Air.local.38011.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_2/events.out.tfevents.1764109868.Elliots-MacBook-Air.local.38011.0",
+      "event_file_sha256": "b2a30cc3f3043c683ae21b5a2ac30e3f954f74eb383ff9d992f658c28b189d0d",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 4653,
+      "empty_file": false,
+      "scalar_tag_count": 13,
+      "scalar_counts_by_tag": {
+        "rollout/ep_len_mean": 7,
+        "rollout/ep_rew_mean": 7,
+        "time/fps": 7,
+        "train/approx_kl": 6,
+        "train/clip_fraction": 6,
+        "train/clip_range": 6,
+        "train/entropy_loss": 6,
+        "train/explained_variance": 6,
+        "train/learning_rate": 6,
+        "train/loss": 6,
+        "train/policy_gradient_loss": 6,
+        "train/std": 6,
+        "train/value_loss": 6
+      },
+      "wall_time": {
+        "scalar_start_sec": 1764109879.5165691,
+        "scalar_end_sec": 1764109952.1477408,
+        "scalar_start_utc": "2025-11-25T22:31:19.516569Z",
+        "scalar_end_utc": "2025-11-25T22:32:32.147741Z",
+        "max_step_seen": 28672
+      },
+      "series": {
+        "time/fps": {
+          "count": 7,
+          "span_steps": {
+            "first_step": 4096,
+            "last_step": 28672,
+            "first_wall_time_utc": "2025-11-25T22:31:19.516778Z",
+            "last_wall_time_utc": "2025-11-25T22:32:32.147272Z"
+          },
+          "points": [
+            {
+              "step": 4096,
+              "value": 354.0,
+              "wall_time_sec": 1764109879.516778,
+              "wall_time_utc": "2025-11-25T22:31:19.516778Z"
+            },
+            {
+              "step": 8192,
+              "value": 324.0,
+              "wall_time_sec": 1764109893.231633,
+              "wall_time_utc": "2025-11-25T22:31:33.231633Z"
+            },
+            {
+              "step": 12288,
+              "value": 330.0,
+              "wall_time_sec": 1764109905.139053,
+              "wall_time_utc": "2025-11-25T22:31:45.139053Z"
+            },
+            {
+              "step": 16384,
+              "value": 340.0,
+              "wall_time_sec": 1764109916.1378958,
+              "wall_time_utc": "2025-11-25T22:31:56.137896Z"
+            },
+            {
+              "step": 20480,
+              "value": 338.0,
+              "wall_time_sec": 1764109928.4709098,
+              "wall_time_utc": "2025-11-25T22:32:08.470910Z"
+            },
+            {
+              "step": 24576,
+              "value": 338.0,
+              "wall_time_sec": 1764109940.673919,
+              "wall_time_utc": "2025-11-25T22:32:20.673919Z"
+            },
+            {
+              "step": 28672,
+              "value": 340.0,
+              "wall_time_sec": 1764109952.1472719,
+              "wall_time_utc": "2025-11-25T22:32:32.147272Z"
+            }
+          ]
+        },
+        "rollout/ep_len_mean": {
+          "count": 7,
+          "span_steps": {
+            "first_step": 4096,
+            "last_step": 28672,
+            "first_wall_time_utc": "2025-11-25T22:31:19.516569Z",
+            "last_wall_time_utc": "2025-11-25T22:32:32.147149Z"
+          },
+          "points": [
+            {
+              "step": 4096,
+              "value": 1776.5,
+              "wall_time_sec": 1764109879.5165691,
+              "wall_time_utc": "2025-11-25T22:31:19.516569Z"
+            },
+            {
+              "step": 8192,
+              "value": 1280.6666259765625,
+              "wall_time_sec": 1764109893.2315352,
+              "wall_time_utc": "2025-11-25T22:31:33.231535Z"
+            },
+            {
+              "step": 12288,
+              "value": 1307.22216796875,
+              "wall_time_sec": 1764109905.138933,
+              "wall_time_utc": "2025-11-25T22:31:45.138933Z"
+            },
+            {
+              "step": 16384,
+              "value": 1399.54541015625,
+              "wall_time_sec": 1764109916.137794,
+              "wall_time_utc": "2025-11-25T22:31:56.137794Z"
+            },
+            {
+              "step": 20480,
+              "value": 1307.6666259765625,
+              "wall_time_sec": 1764109928.470819,
+              "wall_time_utc": "2025-11-25T22:32:08.470819Z"
+            },
+            {
+              "step": 24576,
+              "value": 1255.73681640625,
+              "wall_time_sec": 1764109940.67381,
+              "wall_time_utc": "2025-11-25T22:32:20.673810Z"
+            },
+            {
+              "step": 28672,
+              "value": 1284.8095703125,
+              "wall_time_sec": 1764109952.147149,
+              "wall_time_utc": "2025-11-25T22:32:32.147149Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_3",
+      "run_name": "PPO_3",
+      "event_file": "events.out.tfevents.1764110705.Elliots-MacBook-Air.local.38719.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_3/events.out.tfevents.1764110705.Elliots-MacBook-Air.local.38719.0",
+      "event_file_sha256": "566ffb0222b6f1252df0b0e82bce5f5882d7bb5c4cb68081eed6b67c0c850c16",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 88,
+      "empty_file": true,
+      "scalar_tag_count": 0,
+      "scalar_counts_by_tag": {},
+      "wall_time": {
+        "scalar_start_sec": null,
+        "scalar_end_sec": null,
+        "scalar_start_utc": null,
+        "scalar_end_utc": null,
+        "max_step_seen": null
+      },
+      "series": {
+        "time/fps": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        },
+        "rollout/ep_len_mean": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_4",
+      "run_name": "PPO_4",
+      "event_file": "events.out.tfevents.1764110728.Elliots-MacBook-Air.local.39231.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_4/events.out.tfevents.1764110728.Elliots-MacBook-Air.local.39231.0",
+      "event_file_sha256": "802bc2a7001b08b3b0e138435ba46123a6b60a74773cffab7cf7a6ff60011adb",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 88,
+      "empty_file": true,
+      "scalar_tag_count": 0,
+      "scalar_counts_by_tag": {},
+      "wall_time": {
+        "scalar_start_sec": null,
+        "scalar_end_sec": null,
+        "scalar_start_utc": null,
+        "scalar_end_utc": null,
+        "max_step_seen": null
+      },
+      "series": {
+        "time/fps": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        },
+        "rollout/ep_len_mean": {
+          "count": 0,
+          "span_steps": null,
+          "points": []
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_5",
+      "run_name": "PPO_5",
+      "event_file": "events.out.tfevents.1764111139.Elliots-MacBook-Air.local.42000.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_5/events.out.tfevents.1764111139.Elliots-MacBook-Air.local.42000.0",
+      "event_file_sha256": "3690835ea74ffb72eca66aa2b1648143831c869678da6ae14fbe2febc4fac814",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 1730,
+      "empty_file": false,
+      "scalar_tag_count": 13,
+      "scalar_counts_by_tag": {
+        "rollout/ep_len_mean": 3,
+        "rollout/ep_rew_mean": 3,
+        "time/fps": 3,
+        "train/approx_kl": 2,
+        "train/clip_fraction": 2,
+        "train/clip_range": 2,
+        "train/entropy_loss": 2,
+        "train/explained_variance": 2,
+        "train/learning_rate": 2,
+        "train/loss": 2,
+        "train/policy_gradient_loss": 2,
+        "train/std": 2,
+        "train/value_loss": 2
+      },
+      "wall_time": {
+        "scalar_start_sec": 1764111157.599781,
+        "scalar_end_sec": 1764111198.9731672,
+        "scalar_start_utc": "2025-11-25T22:52:37.599781Z",
+        "scalar_end_utc": "2025-11-25T22:53:18.973167Z",
+        "max_step_seen": 49152
+      },
+      "series": {
+        "time/fps": {
+          "count": 3,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 49152,
+            "first_wall_time_utc": "2025-11-25T22:52:37.599983Z",
+            "last_wall_time_utc": "2025-11-25T22:53:18.970271Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 882.0,
+              "wall_time_sec": 1764111157.5999832,
+              "wall_time_utc": "2025-11-25T22:52:37.599983Z"
+            },
+            {
+              "step": 32768,
+              "value": 802.0,
+              "wall_time_sec": 1764111179.860984,
+              "wall_time_utc": "2025-11-25T22:52:59.860984Z"
+            },
+            {
+              "step": 49152,
+              "value": 819.0,
+              "wall_time_sec": 1764111198.9702709,
+              "wall_time_utc": "2025-11-25T22:53:18.970271Z"
+            }
+          ]
+        },
+        "rollout/ep_len_mean": {
+          "count": 3,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 49152,
+            "first_wall_time_utc": "2025-11-25T22:52:37.599781Z",
+            "last_wall_time_utc": "2025-11-25T22:53:18.970160Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 1513.75,
+              "wall_time_sec": 1764111157.599781,
+              "wall_time_utc": "2025-11-25T22:52:37.599781Z"
+            },
+            {
+              "step": 32768,
+              "value": 1395.050048828125,
+              "wall_time_sec": 1764111179.8608708,
+              "wall_time_utc": "2025-11-25T22:52:59.860871Z"
+            },
+            {
+              "step": 49152,
+              "value": 1448.78125,
+              "wall_time_sec": 1764111198.9701602,
+              "wall_time_utc": "2025-11-25T22:53:18.970160Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_6",
+      "run_name": "PPO_6",
+      "event_file": "events.out.tfevents.1764111347.Elliots-MacBook-Air.local.42514.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_6/events.out.tfevents.1764111347.Elliots-MacBook-Air.local.42514.0",
+      "event_file_sha256": "33064fad3768ce0f3a845e4c2ade74d1f2af7feab5e90a6872f3a696b45aef52",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 1730,
+      "empty_file": false,
+      "scalar_tag_count": 13,
+      "scalar_counts_by_tag": {
+        "rollout/ep_len_mean": 3,
+        "rollout/ep_rew_mean": 3,
+        "time/fps": 3,
+        "train/approx_kl": 2,
+        "train/clip_fraction": 2,
+        "train/clip_range": 2,
+        "train/entropy_loss": 2,
+        "train/explained_variance": 2,
+        "train/learning_rate": 2,
+        "train/loss": 2,
+        "train/policy_gradient_loss": 2,
+        "train/std": 2,
+        "train/value_loss": 2
+      },
+      "wall_time": {
+        "scalar_start_sec": 1764111367.216458,
+        "scalar_end_sec": 1764111409.140416,
+        "scalar_start_utc": "2025-11-25T22:56:07.216458Z",
+        "scalar_end_utc": "2025-11-25T22:56:49.140416Z",
+        "max_step_seen": 49152
+      },
+      "series": {
+        "time/fps": {
+          "count": 3,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 49152,
+            "first_wall_time_utc": "2025-11-25T22:56:07.216553Z",
+            "last_wall_time_utc": "2025-11-25T22:56:49.139174Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 804.0,
+              "wall_time_sec": 1764111367.216553,
+              "wall_time_utc": "2025-11-25T22:56:07.216553Z"
+            },
+            {
+              "step": 32768,
+              "value": 836.0,
+              "wall_time_sec": 1764111386.004939,
+              "wall_time_utc": "2025-11-25T22:56:26.004939Z"
+            },
+            {
+              "step": 49152,
+              "value": 789.0,
+              "wall_time_sec": 1764111409.139174,
+              "wall_time_utc": "2025-11-25T22:56:49.139174Z"
+            }
+          ]
+        },
+        "rollout/ep_len_mean": {
+          "count": 3,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 49152,
+            "first_wall_time_utc": "2025-11-25T22:56:07.216458Z",
+            "last_wall_time_utc": "2025-11-25T22:56:49.139057Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 1251.54541015625,
+              "wall_time_sec": 1764111367.216458,
+              "wall_time_utc": "2025-11-25T22:56:07.216458Z"
+            },
+            {
+              "step": 32768,
+              "value": 1357.550048828125,
+              "wall_time_sec": 1764111386.00478,
+              "wall_time_utc": "2025-11-25T22:56:26.004780Z"
+            },
+            {
+              "step": 49152,
+              "value": 1437.3636474609375,
+              "wall_time_sec": 1764111409.139057,
+              "wall_time_utc": "2025-11-25T22:56:49.139057Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "run_dir": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_7",
+      "run_name": "PPO_7",
+      "event_file": "events.out.tfevents.1764111750.Elliots-MacBook-Air.local.43391.0",
+      "event_file_relpath": "UTMIST-AI2-main/results/ppo_utmist/tb/PPO_7/events.out.tfevents.1764111750.Elliots-MacBook-Air.local.43391.0",
+      "event_file_sha256": "a9a2c782a161c474a214c2a85962d68a39b6c0a67c66a1bef5f9c5ba12876713",
+      "hostname": "Elliots-MacBook-Air.local",
+      "platform": "nov2025_macos",
+      "size_bytes": 254,
+      "empty_file": false,
+      "scalar_tag_count": 3,
+      "scalar_counts_by_tag": {
+        "rollout/ep_len_mean": 1,
+        "rollout/ep_rew_mean": 1,
+        "time/fps": 1
+      },
+      "wall_time": {
+        "scalar_start_sec": 1764111774.2300549,
+        "scalar_end_sec": 1764111774.230904,
+        "scalar_start_utc": "2025-11-25T23:02:54.230055Z",
+        "scalar_end_utc": "2025-11-25T23:02:54.230904Z",
+        "max_step_seen": 16384
+      },
+      "series": {
+        "time/fps": {
+          "count": 1,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 16384,
+            "first_wall_time_utc": "2025-11-25T23:02:54.230904Z",
+            "last_wall_time_utc": "2025-11-25T23:02:54.230904Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 676.0,
+              "wall_time_sec": 1764111774.230904,
+              "wall_time_utc": "2025-11-25T23:02:54.230904Z"
+            }
+          ]
+        },
+        "rollout/ep_len_mean": {
+          "count": 1,
+          "span_steps": {
+            "first_step": 16384,
+            "last_step": 16384,
+            "first_wall_time_utc": "2025-11-25T23:02:54.230055Z",
+            "last_wall_time_utc": "2025-11-25T23:02:54.230055Z"
+          },
+          "points": [
+            {
+              "step": 16384,
+              "value": 1451.5,
+              "wall_time_sec": 1764111774.2300549,
+              "wall_time_utc": "2025-11-25T23:02:54.230055Z"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "artifact": "results/ppo_utmist/model/phase1_final.zip",
+      "artifact_relpath": "results/ppo_utmist/model/phase1_final.zip",
+      "artifact_sha256": "e6972af4c6773df26e81f4919bcde713332bfc6982951e4a4b4ae5239a66c44d",
+      "source": "ubuntu_cuda",
+      "has_system_info": true,
+      "system_info": {
+        "os_line": "- OS: Linux-5.15.0-161-generic-x86_64-with-glibc2.39 # 171-Ubuntu SMP Sat Oct 11 08:17:01 UTC 2025",
+        "python": "3.12.3",
+        "stable_baselines3": "2.5.0",
+        "pytorch": "2.4.1+cu121",
+        "gpu_enabled": "True",
+        "numpy": "2.1.1"
+      },
+      "num_timesteps": 2168640,
+      "target_timesteps": 10000000,
+      "seed": null,
+      "start_time_ns": 1765863500572504795
+    },
+    {
+      "artifact": "results/ppo_utmist/model/phase2_final.zip",
+      "artifact_relpath": "results/ppo_utmist/model/phase2_final.zip",
+      "artifact_sha256": "ec7fdeb298679adfbe4f19bd8893fbe0e71887cd6f00964575eb94de45b1b555",
+      "source": "ubuntu_cuda",
+      "has_system_info": true,
+      "system_info": {
+        "os_line": "- OS: Linux-5.15.0-161-generic-x86_64-with-glibc2.39 # 171-Ubuntu SMP Sat Oct 11 08:17:01 UTC 2025",
+        "python": "3.12.3",
+        "stable_baselines3": "2.5.0",
+        "pytorch": "2.4.1+cu121",
+        "gpu_enabled": "True",
+        "numpy": "2.1.1"
+      },
+      "num_timesteps": 3247424,
+      "target_timesteps": 30000000,
+      "seed": null,
+      "start_time_ns": 1765865004904805416
+    },
+    {
+      "artifact": "results/ppo_utmist/model/phase3_final.zip",
+      "artifact_relpath": "results/ppo_utmist/model/phase3_final.zip",
+      "artifact_sha256": "830e10f996edc2d8968c0366f8eeed66840cf73b7fd2f3178f7f8b17cabcca10",
+      "source": "ubuntu_cuda",
+      "has_system_info": true,
+      "system_info": {
+        "os_line": "- OS: Linux-5.15.0-161-generic-x86_64-with-glibc2.39 # 171-Ubuntu SMP Sat Oct 11 08:17:01 UTC 2025",
+        "python": "3.12.3",
+        "stable_baselines3": "2.5.0",
+        "pytorch": "2.4.1+cu121",
+        "gpu_enabled": "True",
+        "numpy": "2.1.1"
+      },
+      "num_timesteps": 1804608,
+      "target_timesteps": 30000000,
+      "seed": null,
+      "start_time_ns": 1765869984820865793
+    },
+    {
+      "artifact": "results/ppo_utmist/model/phase4_final.zip",
+      "artifact_relpath": "results/ppo_utmist/model/phase4_final.zip",
+      "artifact_sha256": "428a618fed453515d68f333e0cd05e8f7b439389992540dee31053409b5ad07d",
+      "source": "ubuntu_cuda",
+      "has_system_info": true,
+      "system_info": {
+        "os_line": "- OS: Linux-5.15.0-161-generic-x86_64-with-glibc2.39 # 171-Ubuntu SMP Sat Oct 11 08:17:01 UTC 2025",
+        "python": "3.12.12",
+        "stable_baselines3": "2.5.0",
+        "pytorch": "2.4.1+cu121",
+        "gpu_enabled": "True",
+        "numpy": "2.1.1"
+      },
+      "num_timesteps": 1112704,
+      "target_timesteps": 30000000,
+      "seed": null,
+      "start_time_ns": 1766077309938915601
+    }
+  ],
+  "notes": {
+    "provenance": "Nov2025 MacBook Air event logs were logged from local training; checkpoints are later Ubuntu CUDA final artifacts.",
+    "no_unpickle": true
+  }
+}

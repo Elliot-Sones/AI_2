@@ -9,7 +9,7 @@ from enum import Enum, auto
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, MISSING
 from collections import defaultdict
-from functools import partial
+from functools import partial, lru_cache
 from typing import Tuple, Any
 from tqdm import tqdm
 
@@ -43,6 +43,21 @@ def _get_asset_path(relative_path: str) -> str:
     """Resolve asset paths relative to the environment module directory."""
     env_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(env_dir, relative_path.replace('environment/', '', 1))
+
+@lru_cache(maxsize=128)
+def _load_animation_assets(canonical_path: str, mtime_ns: int, size: int):
+    frames = []
+    frame_durations = []
+
+    with Image.open(canonical_path) as gif:
+        for frame in ImageSequence.Iterator(gif):
+            pygame_frame = pygame.image.fromstring(frame.convert("RGBA").tobytes(), frame.size, "RGBA")
+            frames.append(pygame_frame)
+
+            duration = frame.info.get('duration', 100)  # Default 100ms if missing
+            frame_durations.append(duration)
+
+    return tuple(frames), tuple(frame_durations)
 
 # ### MalachiteEnv Class
 
@@ -3197,40 +3212,11 @@ class AnimationSprite2D(GameObject):
 
 
     def load_animation(self, file_path):
-        # Load GIF and extract frames
-        gif = Image.open(file_path)
-        frames = []
-        frame_durations = []  # Store frame durations in milliseconds
-        total_duration = 0
-
-        # get file name without extension
-        file_name = os.path.splitext(os.path.basename(file_path))[0]
-
-
-        for frame in ImageSequence.Iterator(gif):
-            # Convert and scale frame
-
-            pygame_frame = pygame.image.fromstring(frame.convert("RGBA").tobytes(), frame.size, "RGBA")
-
-            # if self.agent_id == 1:
-            #     # Convert the pygame surface to a numpy array.
-            #     frame_array = pygame.surfarray.array3d(pygame_frame).transpose(1, 0, 2)  # shape (H, W, 3)
-
-            #     # Remap colors using our mapping.
-            #     new_frame_array = self.remap_colors(frame_array, self.color_mapping)
-
-            #     # Optionally, create a new pygame surface from the new_frame_array.
-            #     # (If you need to convert back to a surface, note that pygame expects (width, height).)
-            #     pygame_frame = pygame.surfarray.make_surface(new_frame_array.transpose(1, 0, 2))
-            #scaled_frame = pygame.transform.scale(pygame_frame, (int(frame.width * scale), int(frame.height * scale)))
-            frames.append(pygame_frame)
-
-            # Extract frame duration
-            duration = frame.info.get('duration', 100)  # Default 100ms if missing
-            frame_durations.append(duration)
-            total_duration += duration
-
-        gif.close()
+        canonical_path = os.path.realpath(file_path)
+        stat = os.stat(canonical_path)
+        cached_frames, cached_durations = _load_animation_assets(canonical_path, stat.st_mtime_ns, stat.st_size)
+        frames = list(cached_frames)
+        frame_durations = list(cached_durations)
 
         # Compute how many game steps each GIF frame should last
         frames_per_step = [max(1, round((duration / 1000) * self.ENV_FPS)) for duration in frame_durations]

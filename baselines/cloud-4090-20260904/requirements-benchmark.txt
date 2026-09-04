@@ -1,0 +1,21 @@
+# CUDA Torch 2.4.1 comes from the pinned official container image.
+# Core game/learner versions match the local baseline.
+numpy==2.1.1
+gymnasium==1.0.0
+stable_baselines3==2.5.0
+sb3_contrib==2.3.0
+pygame==2.6.1
+pymunk==6.2.1
+opencv-python==4.11.0.86
+scikit-image==0.25.1
+scikit-video==1.1.11
+scipy==1.13.1
+PyYAML==6.0.3
+imageio==2.37.4
+Pillow==12.3.0
+matplotlib==3.11.1
+gdown==6.1.1
+ipython==9.17.1
+tensorboard==2.21.0
+psutil==7.2.2
+pytest

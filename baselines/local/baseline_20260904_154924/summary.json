@@ -1,0 +1,336 @@
+{
+  "by_mode": {
+    "ppo": {
+      "completed_episodes_total": 22,
+      "episodes_per_second_median": 2.8755713575739255,
+      "repeats": 3,
+      "steps_per_second_max": 1313.202969162231,
+      "steps_per_second_median": 1261.9650300667283,
+      "steps_per_second_min": 1137.645666774814
+    },
+    "raw": {
+      "completed_episodes_total": 24,
+      "episodes_per_second_median": 5.333209186888287,
+      "repeats": 3,
+      "steps_per_second_max": 7115.406919467116,
+      "steps_per_second_median": 6666.5114836103585,
+      "steps_per_second_min": 6183.757942307936
+    },
+    "wrapped": {
+      "completed_episodes_total": 75,
+      "episodes_per_second_median": 6.155487677475984,
+      "repeats": 3,
+      "steps_per_second_max": 3032.540179315078,
+      "steps_per_second_median": 2367.495260567686,
+      "steps_per_second_min": 2145.9763961824447
+    }
+  },
+  "repeats": [
+    {
+      "aggregate_episodes_per_second": 5.333209186888287,
+      "completed_episodes": 8,
+      "extra": {
+        "action_seed": 42,
+        "action_sha256": "35ce2d7c9e0a71637e9556a523ccb38fa2676053480b733b62ed947b86f6e5e9",
+        "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+        "initial_reset_seconds": 0.26376612501917407,
+        "max_timesteps": 9000,
+        "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.8905622500169557,
+      "mean_episode_steps": 1102.75,
+      "mean_episode_wall_seconds": 0.057597573002567515,
+      "measured_steps": 10000,
+      "mode": "raw",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 0,
+      "requested_steps": 10000,
+      "reset_seconds": 0.9806804989930242,
+      "seed": 42,
+      "steps_per_second": 6666.5114836103585,
+      "total_seconds": 1.5000349170004483
+    },
+    {
+      "aggregate_episodes_per_second": 5.761826340698649,
+      "completed_episodes": 19,
+      "extra": {
+        "action_seed": 42,
+        "action_sha256": "ad7737186b5591bb4c4c7cb37cb24f5f4358634c98fa9e04dc7695d258c9cec9",
+        "episode_wall_note": "Vector episode wall time includes automatic terminal reset; reset cost is not measured separately.",
+        "frame_stack": 4,
+        "initial_reset_seconds": 0.26253629196435213,
+        "opponent_history": {
+          "action_dim": 10,
+          "enabled": true,
+          "history_length": 60
+        },
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.13673991701216437,
+      "mean_episode_steps": 519.3684210526316,
+      "mean_episode_wall_seconds": 0.17294383552660675,
+      "measured_steps": 10000,
+      "mode": "wrapped",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 0,
+      "requested_steps": 10000,
+      "reset_seconds": null,
+      "seed": 42,
+      "steps_per_second": 3032.540179315078,
+      "total_seconds": 3.2975655419868417
+    },
+    {
+      "aggregate_episodes_per_second": 3.332946289379337,
+      "completed_episodes": 9,
+      "extra": {
+        "configured_training_budget": 5000000,
+        "device": "cpu",
+        "effective_batch_size": 1024,
+        "episode_wall_note": "Includes automatic resets and any PPO updates between episode steps; incomplete final episodes are excluded from episode means.",
+        "n_steps": 1024,
+        "other_seconds_total": 0.13410679399385117,
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "requested_batch_size": 1024,
+        "rollout_seconds": [
+          0.6551922079815995,
+          0.5882013749796897,
+          0.7974445410072803
+        ],
+        "rollout_seconds_total": 2.0408381239685696,
+        "rollouts": 3,
+        "torch_threads": 1,
+        "update_seconds": [
+          0.17469174999860115,
+          0.17777508302242495,
+          0.17290179102565162
+        ],
+        "update_seconds_total": 0.5253686240466777,
+        "warmup_timesteps": 1024,
+        "warmup_updates_retained": true
+      },
+      "init_seconds": 0.2676876670157071,
+      "mean_episode_steps": 313.55555555555554,
+      "mean_episode_wall_seconds": 0.2585721157762843,
+      "measured_steps": 3072,
+      "mode": "ppo",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 0,
+      "requested_steps": 3072,
+      "reset_seconds": null,
+      "seed": 42,
+      "steps_per_second": 1137.645666774814,
+      "total_seconds": 2.7003135420090985
+    },
+    {
+      "aggregate_episodes_per_second": 4.980784843626981,
+      "completed_episodes": 7,
+      "extra": {
+        "action_seed": 43,
+        "action_sha256": "c0f4718a7f385524e9bfc137a16bb55a35c943f6454686db3bb09aaecbef893e",
+        "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+        "initial_reset_seconds": 0.2425387499970384,
+        "max_timesteps": 9000,
+        "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.12560650001978502,
+      "mean_episode_steps": 1272.2857142857142,
+      "mean_episode_wall_seconds": 0.06947281557118654,
+      "measured_steps": 10000,
+      "mode": "raw",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 1,
+      "requested_steps": 10000,
+      "reset_seconds": 0.862564417970134,
+      "seed": 43,
+      "steps_per_second": 7115.406919467116,
+      "total_seconds": 1.4054009999963455
+    },
+    {
+      "aggregate_episodes_per_second": 6.155487677475984,
+      "completed_episodes": 26,
+      "extra": {
+        "action_seed": 43,
+        "action_sha256": "f8033771c96c43bb9b099598096605c4c2e52c1eabb52261fc052cac53d69fdb",
+        "episode_wall_note": "Vector episode wall time includes automatic terminal reset; reset cost is not measured separately.",
+        "frame_stack": 4,
+        "initial_reset_seconds": 0.2474831669824198,
+        "opponent_history": {
+          "action_dim": 10,
+          "enabled": true,
+          "history_length": 60
+        },
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.13120574998902157,
+      "mean_episode_steps": 381.8076923076923,
+      "mean_episode_wall_seconds": 0.16221295834559266,
+      "measured_steps": 10000,
+      "mode": "wrapped",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 1,
+      "requested_steps": 10000,
+      "reset_seconds": null,
+      "seed": 43,
+      "steps_per_second": 2367.495260567686,
+      "total_seconds": 4.223873291979544
+    },
+    {
+      "aggregate_episodes_per_second": 2.5648495491449825,
+      "completed_episodes": 6,
+      "extra": {
+        "configured_training_budget": 5000000,
+        "device": "cpu",
+        "effective_batch_size": 1024,
+        "episode_wall_note": "Includes automatic resets and any PPO updates between episode steps; incomplete final episodes are excluded from episode means.",
+        "n_steps": 1024,
+        "other_seconds_total": 0.12253250001231208,
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "requested_batch_size": 1024,
+        "rollout_seconds": [
+          0.5588706249836832,
+          0.42295887498767115,
+          0.6815222919976804
+        ],
+        "rollout_seconds_total": 1.6633517919690348,
+        "rollouts": 3,
+        "torch_threads": 1,
+        "update_seconds": [
+          0.19525587500538677,
+          0.17732033299398609,
+          0.18085800000699237
+        ],
+        "update_seconds_total": 0.5534342080063652,
+        "warmup_timesteps": 1024,
+        "warmup_updates_retained": true
+      },
+      "init_seconds": 0.07359466701745987,
+      "mean_episode_steps": 465.6666666666667,
+      "mean_episode_wall_seconds": 0.32707473599778797,
+      "measured_steps": 3072,
+      "mode": "ppo",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 1,
+      "requested_steps": 3072,
+      "reset_seconds": null,
+      "seed": 43,
+      "steps_per_second": 1313.202969162231,
+      "total_seconds": 2.339318499987712
+    },
+    {
+      "aggregate_episodes_per_second": 5.565382148077142,
+      "completed_episodes": 9,
+      "extra": {
+        "action_seed": 44,
+        "action_sha256": "69508287916099cd5c8be8c14c715cd0f951981dc2296456757572564922ee37",
+        "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+        "initial_reset_seconds": 0.26864608298637904,
+        "max_timesteps": 9000,
+        "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.12525116599863395,
+      "mean_episode_steps": 1109.3333333333333,
+      "mean_episode_wall_seconds": 0.057361189773978874,
+      "measured_steps": 10000,
+      "mode": "raw",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 2,
+      "requested_steps": 10000,
+      "reset_seconds": 1.1002065419743303,
+      "seed": 44,
+      "steps_per_second": 6183.757942307936,
+      "total_seconds": 1.617139625013806
+    },
+    {
+      "aggregate_episodes_per_second": 6.437929188547334,
+      "completed_episodes": 30,
+      "extra": {
+        "action_seed": 44,
+        "action_sha256": "479f7939c0190ace8271f19c818ad95333c2eb153ff4d10e1c27e0eb266270a9",
+        "episode_wall_note": "Vector episode wall time includes automatic terminal reset; reset cost is not measured separately.",
+        "frame_stack": 4,
+        "initial_reset_seconds": 0.2528757079853676,
+        "opponent_history": {
+          "action_dim": 10,
+          "enabled": true,
+          "history_length": 60
+        },
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "warmup_steps": 100
+      },
+      "init_seconds": 0.12838020900380798,
+      "mean_episode_steps": 318.2,
+      "mean_episode_wall_seconds": 0.15389132636676853,
+      "measured_steps": 10000,
+      "mode": "wrapped",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 2,
+      "requested_steps": 10000,
+      "reset_seconds": null,
+      "seed": 44,
+      "steps_per_second": 2145.9763961824447,
+      "total_seconds": 4.659883500018623
+    },
+    {
+      "aggregate_episodes_per_second": 2.8755713575739255,
+      "completed_episodes": 7,
+      "extra": {
+        "configured_training_budget": 5000000,
+        "device": "cpu",
+        "effective_batch_size": 1024,
+        "episode_wall_note": "Includes automatic resets and any PPO updates between episode steps; incomplete final episodes are excluded from episode means.",
+        "n_steps": 1024,
+        "other_seconds_total": 0.12290054195909761,
+        "phase": "0d",
+        "phase_name": "Full Stage Navigation",
+        "requested_batch_size": 1024,
+        "rollout_seconds": [
+          0.4297367920225952,
+          0.5765712500142399,
+          0.7667161249846686
+        ],
+        "rollout_seconds_total": 1.7730241670215037,
+        "rollouts": 3,
+        "torch_threads": 1,
+        "update_seconds": [
+          0.1839617080113385,
+          0.1766422080108896,
+          0.17777020801440813
+        ],
+        "update_seconds_total": 0.5383741240366362,
+        "warmup_timesteps": 1024,
+        "warmup_updates_retained": true
+      },
+      "init_seconds": 0.07537249999586493,
+      "mean_episode_steps": 414.2857142857143,
+      "mean_episode_wall_seconds": 0.2982504642859567,
+      "measured_steps": 3072,
+      "mode": "ppo",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 2,
+      "requested_steps": 3072,
+      "reset_seconds": null,
+      "seed": 44,
+      "steps_per_second": 1261.9650300667283,
+      "total_seconds": 2.4342988330172375
+    }
+  ]
+}

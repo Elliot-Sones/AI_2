@@ -1,0 +1,10 @@
+env_index,episode_steps,info,mode,repeat,termination,wall_seconds
+0,329,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -34.756953, ""l"": 329, ""t"": 1.302733}, ""TimeLimit.truncated"": false}",ppo,0,done,0.20942520798416808
+0,88,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_reached"": 1, ""episode"": {""r"": 18.493587, ""l"": 88, ""t"": 1.445331}, ""TimeLimit.truncated"": true}",ppo,0,done,0.14178808400174603
+0,362,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_reached"": 1, ""episode"": {""r"": 21.960281, ""l"": 362, ""t"": 1.678874}, ""TimeLimit.truncated"": true}",ppo,0,done,0.235233415995026
+0,276,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -48.869164, ""l"": 276, ""t"": 2.052907}, ""TimeLimit.truncated"": false}",ppo,0,done,0.37511591700604185
+0,391,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -43.317777, ""l"": 391, ""t"": 2.282252}, ""TimeLimit.truncated"": false}",ppo,0,done,0.23559641701285727
+0,639,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -49.776141, ""l"": 639, ""t"": 2.81965}, ""TimeLimit.truncated"": false}",ppo,0,done,0.5288707499857992
+0,352,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -34.433478, ""l"": 352, ""t"": 3.035613}, ""TimeLimit.truncated"": false}",ppo,0,done,0.2192638750129845
+0,222,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -49.072985, ""l"": 222, ""t"": 3.247166}, ""TimeLimit.truncated"": false}",ppo,0,done,0.2139385000045877
+0,163,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -32.312981, ""l"": 163, ""t"": 3.418439}, ""TimeLimit.truncated"": false}",ppo,0,done,0.16791687498334795

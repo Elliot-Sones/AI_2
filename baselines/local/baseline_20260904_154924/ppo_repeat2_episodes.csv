@@ -1,0 +1,8 @@
+env_index,episode_steps,info,mode,repeat,termination,wall_seconds
+0,832,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -36.106335, ""l"": 832, ""t"": 1.330862}, ""TimeLimit.truncated"": false}",ppo,2,done,0.37704704198404215
+0,696,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -38.295122, ""l"": 696, ""t"": 1.8713}, ""TimeLimit.truncated"": false}",ppo,2,done,0.5373164580087177
+0,126,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -43.157517, ""l"": 126, ""t"": 2.031641}, ""TimeLimit.truncated"": false}",ppo,2,done,0.16018033400177956
+0,470,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -40.294999, ""l"": 470, ""t"": 2.471089}, ""TimeLimit.truncated"": false}",ppo,2,done,0.43693379100295715
+0,391,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -26.027596, ""l"": 391, ""t"": 2.699564}, ""TimeLimit.truncated"": false}",ppo,2,done,0.22955824999371544
+0,208,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -49.517632, ""l"": 208, ""t"": 2.875821}, ""TimeLimit.truncated"": false}",ppo,2,done,0.17635012499522418
+0,177,"{""opponent_action"": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ""nav_fall"": 1, ""episode"": {""r"": -34.469679, ""l"": 177, ""t"": 3.04735}, ""TimeLimit.truncated"": false}",ppo,2,done,0.17036725001526065

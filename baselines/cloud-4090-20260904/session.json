@@ -1,0 +1,29 @@
+{
+  "instance_id": 49901108,
+  "offer_id": 45786460,
+  "label": "ai2-benchmark-4090-20260904",
+  "created_at_utc": "2026-09-04T21:29:51Z",
+  "deadline_utc": "2026-09-04T22:29:40Z",
+  "budget_usd": 1.0,
+  "hourly_compute_and_30gb_disk_usd": 0.31666666666666665,
+  "transfer_in_usd_per_gb": 0.0026041666666666665,
+  "transfer_out_usd_per_gb": 0.00390625,
+  "image": "pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime",
+  "status": "destroyed_after_upload_approval_block",
+  "absence_verified_at_utc": "2026-09-04T21:38:28Z",
+  "absence_verification": "vastai show instances --raw returned []",
+  "source_uploaded": false,
+  "cloud_benchmarks_run": false,
+  "blocker": "Security reviewer requires explicit approval to upload repository source/configuration to external Vast.ai host. Upload was rejected before execution.",
+  "cleanup_guard": "Local guard PID 48714 cancelled after verified destruction",
+  "hardware_verified": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "vram_mib": 24564,
+    "torch_version": "2.4.1+cu121",
+    "cuda_tensor_operation_passed": true,
+    "cpu_quota_equivalents": 23.04
+  },
+  "remote_directory": "/workspace/AI_2/benchmark-20260904",
+  "scope": "Benchmark and diagnostic runs only; no game optimization",
+  "teardown": "Download and verify outputs, then destroy exact instance; one-hour safety ceiling"
+}

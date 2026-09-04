@@ -1,0 +1,2664 @@
+{
+  "episodes": [
+    {
+      "env_index": 7,
+      "episode_steps": 161,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 161,
+          "r": -51.614814,
+          "t": 16.901629
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 1.1251921625807881
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 183,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 183,
+          "r": -43.605975,
+          "t": 17.513902
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 1.7447507586330175
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 274,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 274,
+          "r": -41.573167,
+          "t": 18.390909
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 2.651789026334882
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 295,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 295,
+          "r": -42.720384,
+          "t": 18.684184
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.230872241780162
+    },
+    {
+      "env_index": 3,
+      "episode_steps": 302,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 302,
+          "r": -46.465007,
+          "t": 19.672761
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.787941450253129
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 408,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 408,
+          "r": -48.898413,
+          "t": 20.368842
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.714941325597465
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 419,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 419,
+          "r": -32.147213,
+          "t": 19.6354
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.223966923542321
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 422,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 422,
+          "r": -50.81103,
+          "t": 21.514903
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.740877475589514
+    },
+    {
+      "env_index": 13,
+      "episode_steps": 426,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 426,
+          "r": -51.951232,
+          "t": 21.789757
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.287862536497414
+    },
+    {
+      "env_index": 2,
+      "episode_steps": 533,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 533,
+          "r": -30.088807,
+          "t": 25.350608
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 9.585561298765242
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 561,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 561,
+          "r": -62.613759,
+          "t": 25.835473
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 10.22939173411578
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 397,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 397,
+          "r": -43.143447,
+          "t": 26.596905
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 9.04274941328913
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 584,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 584,
+          "r": -17.30423,
+          "t": 26.715194
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 11.344975211657584
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 306,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 306,
+          "r": -42.470683,
+          "t": 27.358057
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 8.689017688855529
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 202,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 202,
+          "r": -43.33037,
+          "t": 28.077995
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 7.724937909282744
+    },
+    {
+      "env_index": 13,
+      "episode_steps": 264,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 264,
+          "r": -53.182758,
+          "t": 28.807884
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.954254827462137
+    },
+    {
+      "env_index": 2,
+      "episode_steps": 185,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 185,
+          "r": -46.762901,
+          "t": 29.634983
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.265859812498093
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 564,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 564,
+          "r": -43.204063,
+          "t": 30.163279
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 13.346692240796983
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 387,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 387,
+          "r": -46.499265,
+          "t": 29.736518
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 10.09324097353965
+    },
+    {
+      "env_index": 2,
+      "episode_steps": 102,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 102,
+          "r": -45.040637,
+          "t": 31.648212
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 2.009169322438538
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 601,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 601,
+          "r": -24.030415,
+          "t": 32.355472
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 13.930077963508666
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 890,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 890,
+          "r": -47.163214,
+          "t": 32.228362
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 17.137138407677412
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 338,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 338,
+          "r": -44.21061,
+          "t": 33.285644
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.911041702143848
+    },
+    {
+      "env_index": 3,
+      "episode_steps": 643,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 643,
+          "r": -32.530099,
+          "t": 34.226408
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 14.524916088208556
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 149,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 149,
+          "r": -49.260319,
+          "t": 33.233813
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.5086277602240443
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 89,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 89,
+          "r": -44.574222,
+          "t": 35.105967
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 2.761202816851437
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 261,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 261,
+          "r": -46.234051,
+          "t": 35.761387
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.513486180454493
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 182,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 182,
+          "r": -35.644386,
+          "t": 38.387606
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.201812935061753
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 516,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 516,
+          "r": -29.20419,
+          "t": 39.382637
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 12.618263944983482
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 533,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 533,
+          "r": -37.072097,
+          "t": 40.310668
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 13.749602532945573
+    },
+    {
+      "env_index": 5,
+      "episode_steps": 1118,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 1118,
+          "r": -61.606437,
+          "t": 40.072471
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 28.130080320872366
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 611,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 611,
+          "r": -37.498422,
+          "t": 44.464662
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 18.59003360196948
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 595,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 595,
+          "r": -42.558195,
+          "t": 45.075905
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 16.99273186735809
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 816,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 816,
+          "r": -46.319989,
+          "t": 45.864782
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 24.316656280308962
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 290,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 290,
+          "r": -25.802469,
+          "t": 44.951504
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 11.710723696276546
+    },
+    {
+      "env_index": 12,
+      "episode_steps": 1318,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 1318,
+          "r": -27.484238,
+          "t": 46.833683
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 31.34961728937924
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 162,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 162,
+          "r": -49.240886,
+          "t": 47.572216
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.1051332727074623
+    },
+    {
+      "env_index": 14,
+      "episode_steps": 1384,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 1384,
+          "r": -46.526895,
+          "t": 48.125465
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 32.63870109897107
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 289,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 289,
+          "r": -31.258577,
+          "t": 48.990056
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 8.634860875084996
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 343,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 343,
+          "r": -48.904725,
+          "t": 48.801912
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 10.394053744152188
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 488,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 488,
+          "r": -51.453188,
+          "t": 49.724625
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 16.432838493026793
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 224,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 224,
+          "r": -38.535162,
+          "t": 50.386764
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.369742201641202
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 490,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 490,
+          "r": -33.516861,
+          "t": 51.176211
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 16.062241777777672
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 513,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 513,
+          "r": -40.170129,
+          "t": 51.98166
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 16.216438095085323
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 293,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 293,
+          "r": -48.816691,
+          "t": 52.638479
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.792167253792286
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 461,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 461,
+          "r": -37.655657,
+          "t": 53.227537
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 13.86136603821069
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 138,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 138,
+          "r": -47.366277,
+          "t": 53.768746
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.043189849704504
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 199,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 199,
+          "r": -55.923994,
+          "t": 54.692127
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.299194505438209
+    },
+    {
+      "env_index": 12,
+      "episode_steps": 348,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 348,
+          "r": -51.458519,
+          "t": 55.304392
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 8.465977230109274
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 148,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 148,
+          "r": -38.118265,
+          "t": 56.159264
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.5325886784121394
+    },
+    {
+      "env_index": 3,
+      "episode_steps": 836,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 836,
+          "r": -50.623709,
+          "t": 57.18795
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 22.99257129523903
+    },
+    {
+      "env_index": 2,
+      "episode_steps": 974,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 974,
+          "r": -36.448198,
+          "t": 57.631424
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 26.026706436648965
+    },
+    {
+      "env_index": 5,
+      "episode_steps": 723,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 723,
+          "r": -29.664978,
+          "t": 57.6731
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 15.638091149739921
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 417,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 417,
+          "r": -45.479672,
+          "t": 60.138248
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 8.946822280064225
+    },
+    {
+      "env_index": 13,
+      "episode_steps": 1234,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 1234,
+          "r": -25.758611,
+          "t": 60.585395
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 31.767440813593566
+    },
+    {
+      "env_index": 14,
+      "episode_steps": 572,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 572,
+          "r": -22.867601,
+          "t": 61.093347
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 12.990149727091193
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 365,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 365,
+          "r": -41.819873,
+          "t": 61.941546
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 7.186578230001032
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 676,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 676,
+          "r": -28.097109,
+          "t": 62.639889
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 15.058555726893246
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 795,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 795,
+          "r": -38.054014,
+          "t": 62.014442
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 17.078385517932475
+    },
+    {
+      "env_index": 12,
+      "episode_steps": 380,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 380,
+          "r": -49.480016,
+          "t": 63.634391
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 8.32953697629273
+    },
+    {
+      "env_index": 14,
+      "episode_steps": 100,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 100,
+          "r": -45.173531,
+          "t": 64.548753
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.4298271695151925
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 526,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 526,
+          "r": -20.558537,
+          "t": 65.108098
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 11.874289341270924
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 601,
+      "info": {
+        "TimeLimit.truncated": true,
+        "episode": {
+          "l": 601,
+          "r": 24.189618,
+          "t": 66.035972
+        },
+        "nav_reached": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 14.019092603586614
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 143,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 143,
+          "r": -43.638287,
+          "t": 66.570329
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.936315981671214
+    },
+    {
+      "env_index": 13,
+      "episode_steps": 285,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 285,
+          "r": -34.925813,
+          "t": 67.197814
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.630664427764714
+    },
+    {
+      "env_index": 2,
+      "episode_steps": 435,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 435,
+          "r": -41.873979,
+          "t": 67.993532
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 10.494113294407725
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 683,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 683,
+          "r": -31.109343,
+          "t": 68.399208
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 14.653419881127775
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 850,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 850,
+          "r": -42.670083,
+          "t": 69.251892
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 20.2968745008111
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 844,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 844,
+          "r": -33.777691,
+          "t": 69.068011
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 20.23802299518138
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 107,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 107,
+          "r": -48.96996,
+          "t": 70.082589
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.5098377903923392
+    },
+    {
+      "env_index": 12,
+      "episode_steps": 245,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 245,
+          "r": -38.639524,
+          "t": 70.596458
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.917637609876692
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 236,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 236,
+          "r": -44.550723,
+          "t": 71.544021
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.562610337510705
+    },
+    {
+      "env_index": 3,
+      "episode_steps": 618,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 618,
+          "r": -66.72211,
+          "t": 72.420008
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 15.20341950468719
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 530,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 530,
+          "r": -46.86911,
+          "t": 72.749851
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 12.637743248604238
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 439,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 439,
+          "r": -41.657919,
+          "t": 73.252653
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 11.316329842433333
+    },
+    {
+      "env_index": 7,
+      "episode_steps": 166,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 166,
+          "r": -40.050672,
+          "t": 74.186677
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 2.64260480646044
+    },
+    {
+      "env_index": 9,
+      "episode_steps": 275,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 275,
+          "r": -41.982226,
+          "t": 74.692612
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.604221788235009
+    },
+    {
+      "env_index": 4,
+      "episode_steps": 360,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 360,
+          "r": -44.45701,
+          "t": 76.07264
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 6.7875070460140705
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 223,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 223,
+          "r": -27.807474,
+          "t": 76.560144
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.8099311012774706
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 691,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 691,
+          "r": -37.789914,
+          "t": 77.344862
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 12.206048646010458
+    },
+    {
+      "env_index": 6,
+      "episode_steps": 425,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 425,
+          "r": -38.282184,
+          "t": 78.600438
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 5.366838175803423
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 627,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 627,
+          "r": -36.95186,
+          "t": 78.69441
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 9.6184834074229
+    },
+    {
+      "env_index": 8,
+      "episode_steps": 298,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 298,
+          "r": -38.38078,
+          "t": 79.993068
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.426353166811168
+    },
+    {
+      "env_index": 1,
+      "episode_steps": 681,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 681,
+          "r": -45.241139,
+          "t": 80.187581
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 11.832735838368535
+    },
+    {
+      "env_index": 13,
+      "episode_steps": 771,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 771,
+          "r": -28.790437,
+          "t": 81.061745
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 13.86453364789486
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1308,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 1308,
+          "r": -30.085601,
+          "t": 81.817474
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 25.62677236367017
+    },
+    {
+      "env_index": 10,
+      "episode_steps": 217,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 217,
+          "r": -47.019602,
+          "t": 81.972415
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 4.625517947599292
+    },
+    {
+      "env_index": 11,
+      "episode_steps": 117,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 117,
+          "r": -46.669149,
+          "t": 82.134807
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 3.4219515742734075
+    },
+    {
+      "env_index": 15,
+      "episode_steps": 974,
+      "info": {
+        "TimeLimit.truncated": false,
+        "episode": {
+          "l": 974,
+          "r": -24.997236,
+          "t": 81.936831
+        },
+        "nav_fall": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 19.913345127366483
+    },
+    {
+      "env_index": 14,
+      "episode_steps": 970,
+      "info": {
+        "TimeLimit.truncated": true,
+        "episode": {
+          "l": 970,
+          "r": 19.18431,
+          "t": 83.545339
+        },
+        "nav_reached": 1,
+        "opponent_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mode": "ppo",
+      "repeat": 2,
+      "termination": "done",
+      "wall_seconds": 19.001175489276648
+    }
+  ],
+  "result": {
+    "aggregate_episodes_per_second": 1.28305243372835,
+    "completed_episodes": 90,
+    "extra": {
+      "configured_training_budget": 5000000,
+      "device": "cuda",
+      "effective_batch_size": 8192,
+      "episode_wall_note": "Includes automatic resets and any PPO updates between episode steps; incomplete final episodes are excluded from episode means.",
+      "n_steps": 512,
+      "other_seconds_total": 1.5703401314094663,
+      "phase": "0d",
+      "phase_name": "Full Stage Navigation",
+      "requested_batch_size": 8192,
+      "rollout_seconds": [
+        6.695587006397545,
+        11.160074645653367,
+        14.24701082892716,
+        10.921050477772951,
+        10.63191381841898,
+        8.713677526451647
+      ],
+      "rollout_seconds_total": 62.36931430362165,
+      "rollouts": 6,
+      "torch_threads": 1,
+      "update_seconds": [
+        2.305048191919923,
+        2.4755120696499944,
+        0.3574127946048975,
+        0.38885915745049715,
+        0.36388116236776114,
+        0.3148559024557471
+      ],
+      "update_seconds_total": 6.20556927844882,
+      "warmup_timesteps": 8192,
+      "warmup_updates_retained": true
+    },
+    "init_seconds": 0.2560162674635649,
+    "mean_episode_steps": 479.1333333333333,
+    "mean_episode_wall_seconds": 10.867462307162997,
+    "measured_steps": 49152,
+    "mode": "ppo",
+    "n_envs": 16,
+    "partial_episodes": 16,
+    "repeat": 2,
+    "requested_steps": 49152,
+    "reset_seconds": null,
+    "seed": 44,
+    "steps_per_second": 700.7177024735096,
+    "total_seconds": 70.14522371347994
+  }
+}
