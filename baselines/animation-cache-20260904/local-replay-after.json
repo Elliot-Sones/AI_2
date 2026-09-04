@@ -1,0 +1,33 @@
+{
+  "source_root": "/Users/elliot18/Projects/ml-research/AI_2",
+  "environment_sha256": "1bc31afc1319613c7d7f81a3280e87c2a036ca3c97801bc1579c766c5c39077e",
+  "results": [
+    {
+      "seed": 42,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "35ce2d7c9e0a71637e9556a523ccb38fa2676053480b733b62ed947b86f6e5e9",
+      "trajectory_sha256": "f23750d864d82c06e73462926dda7f5db6e0edca869aa66dbe77d8aa873acf01"
+    },
+    {
+      "seed": 43,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "c0f4718a7f385524e9bfc137a16bb55a35c943f6454686db3bb09aaecbef893e",
+      "trajectory_sha256": "dda9dcb2106362fb77ccd12b151f24f1bfb26df3101639cd4784eb504a3dcd22"
+    },
+    {
+      "seed": 44,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "69508287916099cd5c8be8c14c715cd0f951981dc2296456757572564922ee37",
+      "trajectory_sha256": "86437726d2823a273aff922a950f86f1586f5b060dd0ccd2b010e44f144ce322"
+    }
+  ]
+}

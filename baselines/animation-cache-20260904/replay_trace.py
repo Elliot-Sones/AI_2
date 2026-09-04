@@ -46,11 +46,13 @@ def main():
                 record(transition)
                 record([
                     {"weapon": p.weapon, "stocks": p.stocks, "damage": p.damage,
+                     "pickup_lock_until": getattr(p, "pickup_lock_until", None),
                      "position": list(p.body.position), "velocity": list(p.body.velocity)}
                     for p in env.players
                 ])
                 record([
-                    {"id": obj.id, "kind": type(obj).__name__, "pickup_ready": obj.flag,
+                    {"id": obj.id, "kind": type(obj).__name__,
+                     "pickup_ready": getattr(obj, "flag", None),
                      "spawn_frame": obj.last_spawn_frame,
                      "spawn_steps": obj.vfx._steps("spawn") if obj.vfx else None,
                      "position": obj.world_pos,
