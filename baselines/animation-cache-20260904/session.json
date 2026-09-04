@@ -1,7 +1,12 @@
 {
   "instance_id": 49902188,
   "label": "ai2-benchmark-4090-20260904b",
-  "status": "resume_requested",
+  "status": "original_code_controls_running_local_tests_passed_upload_review",
+  "local_tests_passed": 17,
+  "ssh_host": "38.246.237.140",
+  "ssh_port": 32422,
+  "before_remote_pid": 385,
+  "original_environment_sha256": "e6aacc4e80f817f6b4895184cef7be7b8eecdd5ba23eecbd442fd7fcb12e1b25",
   "resumed_at_utc_approx": "2026-09-04T22:42:15Z",
   "stop_deadline_utc": "2026-09-04T23:12:10.501412Z",
   "maximum_additional_compute_minutes": 30,
