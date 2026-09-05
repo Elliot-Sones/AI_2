@@ -263,3 +263,24 @@ opponent_history:
   enabled: true             # Set to false to disable and use original obs
   history_length: 60        # ~2 seconds of opponent actions at 30fps
   action_dim: 10            # Size of UTMIST action space
+
+# ============================================================================
+# Experiment tracking (Weights & Biases)
+# A run starts automatically when a W&B login exists (~/.netrc or
+# WANDB_API_KEY). Without a login, training runs untracked. Set
+# WANDB_MODE=offline when there is no network, then `wandb sync` later.
+#
+# Run description: set WANDB_NOTES (what this run is for) and WANDB_TAGS
+# in the environment, or fill in notes/tags below. WANDB_NAME names the run
+# and WANDB_RUN_GROUP groups runs (use the cloud run id).
+# The run record is written to <results>/wandb_run.json.
+# ============================================================================
+wandb:
+  enabled: true
+  project: "utmist-ai2"
+  entity: null              # null = your default W&B entity
+  group: null               # WANDB_RUN_GROUP overrides
+  tags: []                  # WANDB_TAGS adds more
+  notes: null               # WANDB_NOTES overrides
+  upload_checkpoints: true  # model checkpoints as versioned W&B artifacts
+  upload_videos: true       # demo videos embedded in the run page

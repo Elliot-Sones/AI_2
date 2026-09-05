@@ -1,0 +1,86 @@
+{
+  "episodes": [
+    {
+      "env_index": 0,
+      "episode_steps": 1072,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.0578164589824155
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1529,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.08005970899830572
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1608,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.08792687498498708
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 952,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.04955187498126179
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1219,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.06690233299741521
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1155,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.06224049997399561
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1371,
+      "mode": "raw",
+      "repeat": 1,
+      "termination": "terminated",
+      "wall_seconds": 0.07531341598951258
+    }
+  ],
+  "result": {
+    "aggregate_episodes_per_second": 5.031690514152879,
+    "completed_episodes": 7,
+    "extra": {
+      "action_seed": 43,
+      "action_sha256": "c0f4718a7f385524e9bfc137a16bb55a35c943f6454686db3bb09aaecbef893e",
+      "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+      "initial_reset_seconds": 0.24303483401308767,
+      "max_timesteps": 9000,
+      "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+      "warmup_steps": 100
+    },
+    "init_seconds": 0.12790204098564573,
+    "mean_episode_steps": 1272.2857142857142,
+    "mean_episode_wall_seconds": 0.06854445241541336,
+    "measured_steps": 10000,
+    "mode": "raw",
+    "n_envs": 1,
+    "partial_episodes": 1,
+    "repeat": 1,
+    "requested_steps": 10000,
+    "reset_seconds": 0.8545995419844985,
+    "seed": 43,
+    "steps_per_second": 7188.1293059326845,
+    "total_seconds": 1.3911825419927482
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "source_root": "/workspace/AI_2/benchmark-20260904b",
+  "environment_sha256": "e6aacc4e80f817f6b4895184cef7be7b8eecdd5ba23eecbd442fd7fcb12e1b25",
+  "results": [
+    {
+      "seed": 42,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "35ce2d7c9e0a71637e9556a523ccb38fa2676053480b733b62ed947b86f6e5e9",
+      "trajectory_sha256": "e90157cf51f75a89bf70fe094f5c5e257967f7f0c8eed4a8270352f52625112f"
+    },
+    {
+      "seed": 43,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "c0f4718a7f385524e9bfc137a16bb55a35c943f6454686db3bb09aaecbef893e",
+      "trajectory_sha256": "c82bc6d95a497ac6dc7db0d885b9cef96f37794a9b5fa9e03f4a3440ebcfbaeb"
+    },
+    {
+      "seed": 44,
+      "steps": 10000,
+      "resets": 20,
+      "terminations": 0,
+      "truncations": 0,
+      "action_sha256": "69508287916099cd5c8be8c14c715cd0f951981dc2296456757572564922ee37",
+      "trajectory_sha256": "207cf2c2da2582e5cfba610a5cbfc2c2e386d4b44d87e629a2c2dc166cb3dd0f"
+    }
+  ]
+}

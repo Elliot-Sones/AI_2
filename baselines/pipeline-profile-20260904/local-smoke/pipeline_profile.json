@@ -1,0 +1,575 @@
+{
+  "result": {
+    "batch_size": 16,
+    "configured_training_budget": 5000000,
+    "device": "cpu",
+    "epochs": 1,
+    "label": "ppo_pipeline_profile",
+    "measured_timesteps": 32,
+    "measured_transitions_requested": 32,
+    "n_envs": 1,
+    "n_steps": 16,
+    "phase": "0d",
+    "phase_name": "Full Stage Navigation",
+    "pipeline": {
+      "env_step_events": [
+        [
+          216481.028350625,
+          216481.028723291
+        ],
+        [
+          216481.029063875,
+          216481.029287666
+        ],
+        [
+          216481.029547458,
+          216481.02977125
+        ],
+        [
+          216481.030005666,
+          216481.030184083
+        ],
+        [
+          216481.030388333,
+          216481.03053875
+        ],
+        [
+          216481.030732,
+          216481.030879333
+        ],
+        [
+          216481.031066708,
+          216481.031195
+        ],
+        [
+          216481.031385333,
+          216481.031567791
+        ],
+        [
+          216481.031768125,
+          216481.031905916
+        ],
+        [
+          216481.032115333,
+          216481.032276041
+        ],
+        [
+          216481.032485375,
+          216481.032610833
+        ],
+        [
+          216481.032785958,
+          216481.032912541
+        ],
+        [
+          216481.033088416,
+          216481.033224416
+        ],
+        [
+          216481.03340775,
+          216481.03352575
+        ],
+        [
+          216481.033701375,
+          216481.033893708
+        ],
+        [
+          216481.034077208,
+          216481.034206333
+        ],
+        [
+          216481.039431166,
+          216481.039665166
+        ],
+        [
+          216481.03989375,
+          216481.040046125
+        ],
+        [
+          216481.040240333,
+          216481.040373083
+        ],
+        [
+          216481.040557291,
+          216481.040678666
+        ],
+        [
+          216481.04086025,
+          216481.040993791
+        ],
+        [
+          216481.041174958,
+          216481.041296083
+        ],
+        [
+          216481.041472041,
+          216481.04163425
+        ],
+        [
+          216481.041815708,
+          216481.041933291
+        ],
+        [
+          216481.042110791,
+          216481.04223675
+        ],
+        [
+          216481.042408,
+          216481.042519
+        ],
+        [
+          216481.042695666,
+          216481.0428145
+        ],
+        [
+          216481.042988166,
+          216481.043103416
+        ],
+        [
+          216481.043272041,
+          216481.043387125
+        ],
+        [
+          216481.0435565,
+          216481.043668625
+        ],
+        [
+          216481.043841291,
+          216481.043964833
+        ],
+        [
+          216481.044131166,
+          216481.044238875
+        ]
+      ],
+      "envelope_seconds": 0.022604208992561325,
+      "n_envs": 1,
+      "notes": [
+        "Stage timings are exclusive within instrumented collect_rollouts nesting.",
+        "Residual is measured envelope minus instrumented rollout stages and PPO train; it contains Python loop overhead, logger/progress work, and any uninstrumented SB3 code.",
+        "env_step is parent critical-path wall time. Worker process CPU timings, when present, are reported separately and must not be summed into parent wall time.",
+        "No per-stage CUDA synchronization is inserted. GPU stages are natural enqueue/copy-wait timings; action copy and buffer transfer stages may include pending GPU work."
+      ],
+      "ppo_train_seconds_total": 0.009237749996827915,
+      "residual_seconds": 0.001957242959178984,
+      "rollout_records": [
+        {
+          "index": 0,
+          "seconds": 0.0065300829883199185,
+          "transitions": 16,
+          "transitions_per_second": 2450.198570005698,
+          "vector_cycles": 16,
+          "vector_cycles_per_second": 2450.198570005698
+        },
+        {
+          "index": 1,
+          "seconds": 0.0052856249967589974,
+          "transitions": 16,
+          "transitions_per_second": 3027.0781619601785,
+          "vector_cycles": 16,
+          "vector_cycles_per_second": 3027.0781619601785
+        }
+      ],
+      "rollouts": 2,
+      "stage_exclusive_seconds_total": 0.011409216036554426,
+      "stages": {
+        "actions_gpu_to_cpu": {
+          "count": 32,
+          "exclusive_seconds": 6.562497583217919e-05,
+          "inclusive_seconds": 6.562497583217919e-05,
+          "mean_exclusive_seconds": 2.0507804947555996e-06,
+          "mean_inclusive_seconds": 2.0507804947555996e-06
+        },
+        "buffer_add": {
+          "count": 32,
+          "exclusive_seconds": 0.0002841720124706626,
+          "inclusive_seconds": 0.0002841720124706626,
+          "mean_exclusive_seconds": 8.880375389708206e-06,
+          "mean_inclusive_seconds": 8.880375389708206e-06
+        },
+        "callback": {
+          "count": 66,
+          "exclusive_seconds": 9.14210977498442e-05,
+          "inclusive_seconds": 9.14210977498442e-05,
+          "mean_exclusive_seconds": 1.385168147724912e-06,
+          "mean_inclusive_seconds": 1.385168147724912e-06
+        },
+        "callback_rollout_end": {
+          "count": 2,
+          "exclusive_seconds": 1.3750104699283838e-06,
+          "inclusive_seconds": 1.3750104699283838e-06,
+          "mean_exclusive_seconds": 6.875052349641919e-07,
+          "mean_inclusive_seconds": 6.875052349641919e-07
+        },
+        "callback_rollout_start": {
+          "count": 2,
+          "exclusive_seconds": 3.6249984987080097e-06,
+          "inclusive_seconds": 3.6249984987080097e-06,
+          "mean_exclusive_seconds": 1.8124992493540049e-06,
+          "mean_inclusive_seconds": 1.8124992493540049e-06
+        },
+        "clip_actions": {
+          "count": 32,
+          "exclusive_seconds": 0.00025099999038502574,
+          "inclusive_seconds": 0.00025099999038502574,
+          "mean_exclusive_seconds": 7.843749699532054e-06,
+          "mean_inclusive_seconds": 7.843749699532054e-06
+        },
+        "compute_returns_advantage": {
+          "count": 2,
+          "exclusive_seconds": 9.445799514651299e-05,
+          "inclusive_seconds": 9.445799514651299e-05,
+          "mean_exclusive_seconds": 4.722899757325649e-05,
+          "mean_inclusive_seconds": 4.722899757325649e-05
+        },
+        "env_step": {
+          "count": 32,
+          "exclusive_seconds": 0.0048376250779256225,
+          "inclusive_seconds": 0.0048376250779256225,
+          "mean_exclusive_seconds": 0.0001511757836851757,
+          "mean_inclusive_seconds": 0.0001511757836851757
+        },
+        "final_value": {
+          "count": 2,
+          "exclusive_seconds": 9.21249738894403e-05,
+          "inclusive_seconds": 9.21249738894403e-05,
+          "mean_exclusive_seconds": 4.606248694472015e-05,
+          "mean_inclusive_seconds": 4.606248694472015e-05
+        },
+        "info": {
+          "count": 32,
+          "exclusive_seconds": 1.9000988686457276e-05,
+          "inclusive_seconds": 1.9000988686457276e-05,
+          "mean_exclusive_seconds": 5.937808964517899e-07,
+          "mean_inclusive_seconds": 5.937808964517899e-07
+        },
+        "observations_to_tensor": {
+          "count": 32,
+          "exclusive_seconds": 9.24610358197242e-05,
+          "inclusive_seconds": 9.24610358197242e-05,
+          "mean_exclusive_seconds": 2.8894073693663813e-06,
+          "mean_inclusive_seconds": 2.8894073693663813e-06
+        },
+        "policy_forward": {
+          "count": 32,
+          "exclusive_seconds": 0.005576327879680321,
+          "inclusive_seconds": 0.005668788915500045,
+          "mean_exclusive_seconds": 0.00017426024624001002,
+          "mean_inclusive_seconds": 0.0001771496536093764
+        }
+      },
+      "transitions": 32,
+      "transitions_per_second": 1415.6655519567473,
+      "vector_cycle_count": 32,
+      "vector_cycles_per_rollout_expected": 16,
+      "vector_cycles_per_second": 1415.6655519567473
+    },
+    "profile_path": null,
+    "profile_top_cumulative": [],
+    "progress_total_timesteps": [
+      5000000,
+      5000000,
+      5000000
+    ],
+    "requested_batch_size": 16,
+    "rollout_transitions": 16,
+    "rollouts": 2,
+    "seed": 42,
+    "source": {
+      "git": {
+        "branch": "main",
+        "commit": "7e3eaaaab23ac9ee914233487e3ad6c163f45430",
+        "dirty": true,
+        "status_short": "M BASELINE.md\n M baselines/animation-cache-20260904/run_after.sh\n M baselines/animation-cache-20260904/session.json\n M docs/superpowers/plans/2026-09-04-animation-asset-cache.md\n?? baselines/animation-cache-20260904/README.md\n?? baselines/animation-cache-20260904/artifacts/after-requirements-freeze.txt\n?? baselines/animation-cache-20260904/artifacts/after.exit\n?? baselines/animation-cache-20260904/artifacts/after/\n?? baselines/animation-cache-20260904/artifacts/diagnostics/\n?? baselines/animation-cache-20260904/artifacts/parity/\n?? baselines/animation-cache-20260904/isolated-repeat/\n?? baselines/animation-cache-20260904/local-after/\n?? baselines/animation-cache-20260904/local-before/\n?? baselines/animation-cache-20260904/local-diagnostics-after/\n?? baselines/animation-cache-20260904/local-diagnostics-before/\n?? baselines/animation-cache-20260904/local-profile-after/\n?? baselines/animation-cache-20260904/local-replay-before.json\n?? baselines/animation-cache-20260904/run_local.sh\n?? baselines/pipeline-profile-20260904/"
+      },
+      "package_versions": {
+        "Pillow": "12.3.0",
+        "PyYAML": "6.0.3",
+        "gymnasium": "1.0.0",
+        "matplotlib": "3.11.1",
+        "numpy": "2.1.1",
+        "pygame": "2.6.1",
+        "pymunk": "6.2.1",
+        "scikit-image": "0.25.1",
+        "stable_baselines3": "2.5.0",
+        "tensorboard": "2.21.0",
+        "torch": "2.4.1"
+      },
+      "repo_root": "/Users/elliot18/Projects/ml-research/AI_2",
+      "sb3_collect_rollouts_file": "/tmp/ai2-baseline.XWm6Cd/venv/lib/python3.11/site-packages/stable_baselines3/common/on_policy_algorithm.py",
+      "source_hashes": {
+        "UTMIST-AI2-main/environment/agent.py": "615a352cabf8c4dded097bda0c04efb9dccee8325a13bf70912f14472b950272",
+        "UTMIST-AI2-main/environment/constants.py": "7e7fe9f92108e2846e954c9e8b825d21377e01803004fe7ee5f655e54a1f1978",
+        "UTMIST-AI2-main/environment/environment.py": "1bc31afc1319613c7d7f81a3280e87c2a036ca3c97801bc1579c766c5c39077e",
+        "UTMIST-AI2-main/environment/hammer_attacks/": "24e46410abbcf0e02951a107b21bffc938b8da076121ed7b63e953f46de45cda",
+        "UTMIST-AI2-main/environment/spear_attacks/": "3cfb0ae7c24f7302e6bd0147a71b725805c044499e86968dc3a7b1e895c65713",
+        "UTMIST-AI2-main/environment/unarmed_attacks/": "593a4e657bd87e9cb0ec842c374e8117b40177d96461922707706464109e6e1c",
+        "benchmark_training.py": "8b3420f7fd062606b77c072c530ee3c11d87ec558b123955e3bea4be5eede254",
+        "config.yaml": "2c1d6848089360b00853cb9f3e7313c21186fb84a8bb027815688740780a5b2a",
+        "positions.json": "144d877be92f35bce14d4d084dc7300b2abe4f3a99af94c546a2f2c6c7b2a5d8",
+        "train.py": "adc6928f1cf1931b340c7950e4b23e36cfc63ed353d0240e96e7a0aa74379355"
+      }
+    },
+    "torch_profile_path": null,
+    "torch_threads": 1,
+    "warmup_transitions": 16,
+    "worker_measurement_start": [
+      0
+    ],
+    "worker_rows": [
+      {
+        "components": {
+          "game.floor_check": {
+            "count": 188,
+            "exclusive_seconds": 0.0004344490880612284,
+            "inclusive_seconds": 0.0004344490880612284
+          },
+          "game.native_physics_with_callbacks": {
+            "count": 32,
+            "exclusive_seconds": 0.00023657988640479743,
+            "inclusive_seconds": 0.00023657988640479743
+          },
+          "game.observation": {
+            "count": 66,
+            "exclusive_seconds": 0.00017040502279996872,
+            "inclusive_seconds": 0.000895537988981232
+          },
+          "game.player_input": {
+            "count": 64,
+            "exclusive_seconds": 0.00026079590315930545,
+            "inclusive_seconds": 0.00026079590315930545
+          },
+          "game.player_observation": {
+            "count": 132,
+            "exclusive_seconds": 0.0004516828921623528,
+            "inclusive_seconds": 0.0007251329661812633
+          },
+          "game.player_physics_state": {
+            "count": 64,
+            "exclusive_seconds": 0.0007459190965164453,
+            "inclusive_seconds": 0.0009069181105587631
+          },
+          "game.reset": {
+            "count": 1,
+            "exclusive_seconds": 0.0009317910007666796,
+            "inclusive_seconds": 0.000979041011305526
+          },
+          "game.step": {
+            "count": 32,
+            "exclusive_seconds": 0.00038200622657313943,
+            "inclusive_seconds": 0.002771296043647453
+          },
+          "game.weapon_pickups": {
+            "count": 32,
+            "exclusive_seconds": 2.925007720477879e-05,
+            "inclusive_seconds": 2.925007720477879e-05
+          },
+          "game.weapon_update": {
+            "count": 32,
+            "exclusive_seconds": 0.00010745786130428314,
+            "inclusive_seconds": 0.00010745786130428314
+          },
+          "worker.env_reset": {
+            "count": 1,
+            "exclusive_seconds": 2.4170149117708206e-06,
+            "inclusive_seconds": 0.0011515420046634972
+          },
+          "worker.env_step": {
+            "count": 32,
+            "exclusive_seconds": 3.292105975560844e-05,
+            "inclusive_seconds": 0.004101876023923978
+          },
+          "wrapper.base_reward": {
+            "count": 32,
+            "exclusive_seconds": 6.300097447820008e-05,
+            "inclusive_seconds": 6.300097447820008e-05
+          },
+          "wrapper.constant_opponent": {
+            "count": 32,
+            "exclusive_seconds": 0.0007036629831418395,
+            "inclusive_seconds": 0.0007036629831418395
+          },
+          "wrapper.float32_observation": {
+            "count": 33,
+            "exclusive_seconds": 2.0995998056605458e-05,
+            "inclusive_seconds": 2.0995998056605458e-05
+          },
+          "wrapper.history_augmentation": {
+            "count": 33,
+            "exclusive_seconds": 0.00024395404034294188,
+            "inclusive_seconds": 0.00024395404034294188
+          },
+          "wrapper.history_step": {
+            "count": 32,
+            "exclusive_seconds": 3.913193359039724e-05,
+            "inclusive_seconds": 0.004047208960400894
+          },
+          "wrapper.monitor_reset": {
+            "count": 1,
+            "exclusive_seconds": 1.575000351294875e-05,
+            "inclusive_seconds": 0.0011491249897517264
+          },
+          "wrapper.monitor_step": {
+            "count": 32,
+            "exclusive_seconds": 2.1746003767475486e-05,
+            "inclusive_seconds": 0.00406895496416837
+          },
+          "wrapper.navigation_reset": {
+            "count": 1,
+            "exclusive_seconds": 0.00012187601532787085,
+            "inclusive_seconds": 0.001120250002713874
+          },
+          "wrapper.navigation_reward_and_end_checks": {
+            "count": 32,
+            "exclusive_seconds": 0.0001595400390215218,
+            "inclusive_seconds": 0.003777247969992459
+          },
+          "wrapper.selfplay_reset": {
+            "count": 1,
+            "exclusive_seconds": 1.5999976312741637e-05,
+            "inclusive_seconds": 0.0009950409876182675
+          },
+          "wrapper.selfplay_step": {
+            "count": 32,
+            "exclusive_seconds": 6.208493141457438e-05,
+            "inclusive_seconds": 0.003600044932682067
+          }
+        },
+        "step_events": [
+          [
+            216481.028357833,
+            216481.0286785
+          ],
+          [
+            216481.029067708,
+            216481.029253458
+          ],
+          [
+            216481.029550541,
+            216481.029738291
+          ],
+          [
+            216481.030008083,
+            216481.0301605
+          ],
+          [
+            216481.030390083,
+            216481.030517708
+          ],
+          [
+            216481.030733708,
+            216481.030858875
+          ],
+          [
+            216481.031068166,
+            216481.031175916
+          ],
+          [
+            216481.031387041,
+            216481.031548
+          ],
+          [
+            216481.031769916,
+            216481.031885125
+          ],
+          [
+            216481.032117708,
+            216481.032253916
+          ],
+          [
+            216481.032487041,
+            216481.0325915
+          ],
+          [
+            216481.032787541,
+            216481.032893833
+          ],
+          [
+            216481.033089875,
+            216481.03320475
+          ],
+          [
+            216481.03340925,
+            216481.033506041
+          ],
+          [
+            216481.033703041,
+            216481.033875416
+          ],
+          [
+            216481.03407875,
+            216481.03418875
+          ],
+          [
+            216481.039436708,
+            216481.039630125
+          ],
+          [
+            216481.039895958,
+            216481.040022916
+          ],
+          [
+            216481.040242291,
+            216481.040352333
+          ],
+          [
+            216481.040558875,
+            216481.040659625
+          ],
+          [
+            216481.040861833,
+            216481.040974875
+          ],
+          [
+            216481.0411765,
+            216481.041277666
+          ],
+          [
+            216481.041473458,
+            216481.041614666
+          ],
+          [
+            216481.041817166,
+            216481.04191525
+          ],
+          [
+            216481.042112291,
+            216481.042219416
+          ],
+          [
+            216481.042409458,
+            216481.04250225
+          ],
+          [
+            216481.042697333,
+            216481.042797083
+          ],
+          [
+            216481.042989708,
+            216481.04308625
+          ],
+          [
+            216481.0432735,
+            216481.04337
+          ],
+          [
+            216481.043558125,
+            216481.043651541
+          ],
+          [
+            216481.043842708,
+            216481.043948375
+          ],
+          [
+            216481.044132666,
+            216481.044222083
+          ]
+        ],
+        "timing_note": "Inclusive rows nest. Exclusive rows omit nested spans. Worker elapsed work overlaps parent env wait and other workers.",
+        "worker_index": 0
+      }
+    ],
+    "worker_timing_active": true,
+    "worker_timing_requested": true
+  }
+}

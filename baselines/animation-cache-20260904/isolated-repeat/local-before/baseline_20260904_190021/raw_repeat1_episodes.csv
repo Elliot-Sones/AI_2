@@ -1,0 +1,8 @@
+env_index,episode_steps,mode,repeat,termination,wall_seconds
+0,1072,raw,1,terminated,0.0578164589824155
+0,1529,raw,1,terminated,0.08005970899830572
+0,1608,raw,1,terminated,0.08792687498498708
+0,952,raw,1,terminated,0.04955187498126179
+0,1219,raw,1,terminated,0.06690233299741521
+0,1155,raw,1,terminated,0.06224049997399561
+0,1371,raw,1,terminated,0.07531341598951258

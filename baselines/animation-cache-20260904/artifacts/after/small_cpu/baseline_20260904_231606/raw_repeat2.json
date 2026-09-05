@@ -1,0 +1,102 @@
+{
+  "episodes": [
+    {
+      "env_index": 0,
+      "episode_steps": 1275,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.24180590268224478
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1630,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.3125492259860039
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 873,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.16588723752647638
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1144,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.22198921628296375
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1098,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.21650557592511177
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 797,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.15486619248986244
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1410,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.2696063695475459
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 907,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.17322026565670967
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 850,
+      "mode": "raw",
+      "repeat": 2,
+      "termination": "terminated",
+      "wall_seconds": 0.15521227102726698
+    }
+  ],
+  "result": {
+    "aggregate_episodes_per_second": 4.6467381113526915,
+    "completed_episodes": 9,
+    "extra": {
+      "action_seed": 44,
+      "action_sha256": "69508287916099cd5c8be8c14c715cd0f951981dc2296456757572564922ee37",
+      "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+      "initial_reset_seconds": 0.004917471669614315,
+      "max_timesteps": 9000,
+      "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+      "warmup_steps": 100
+    },
+    "init_seconds": 0.007627981714904308,
+    "mean_episode_steps": 1109.3333333333333,
+    "mean_episode_wall_seconds": 0.21240469523602062,
+    "measured_steps": 10000,
+    "mode": "raw",
+    "n_envs": 1,
+    "partial_episodes": 1,
+    "repeat": 2,
+    "requested_steps": 10000,
+    "reset_seconds": 0.022753591649234295,
+    "seed": 44,
+    "steps_per_second": 5163.042345947435,
+    "total_seconds": 1.9368425300344825
+  }
+}

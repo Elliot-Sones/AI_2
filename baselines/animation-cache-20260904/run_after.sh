@@ -10,7 +10,7 @@ test "$(cat artifacts/before.exit)" = 0
 timeout 180 "$PY" -m unittest discover -s tests > artifacts/tests.log 2>&1
 timeout 180 "$PY" replay_trace.py --source-root /workspace/AI_2/benchmark-20260904b --output artifacts/parity/before.json > artifacts/parity/before.log 2>&1
 timeout 180 "$PY" replay_trace.py --source-root /workspace/AI_2/animation-cache-20260904 --output artifacts/parity/after.json > artifacts/parity/after.log 2>&1
-"$PY" -c 'import json; a=json.load(open("artifacts/parity/before.json")); b=json.load(open("artifacts/parity/after.json")); assert a["results"] == b["results"], "Gameplay replay differs"; print("Identical 30000-step replay across 3 seeds including forced/natural resets and weapon pickup timing")' > artifacts/parity/verification.log
+"$PY" -c 'import json; a=json.load(open("artifacts/parity/before.json")); b=json.load(open("artifacts/parity/after.json")); assert a["results"] == b["results"], "Gameplay replay differs"; print("Identical 30000-step replay across 3 seeds including forced resets, boundary flags and weapon pickup state")' > artifacts/parity/verification.log
 for n in 8 16; do
   date -u +%FT%TZ
   printf 'START after_cuda_%senv\n' "$n"

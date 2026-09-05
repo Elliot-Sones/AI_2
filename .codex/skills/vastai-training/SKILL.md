@@ -1,6 +1,6 @@
 ---
 name: vastai-training
-description: Manage Vast.ai GPU instances for this AI_2 repository's reinforcement-learning benchmarks and training. Use for GPU offer searches, instance setup, code upload, remote benchmarking, training, monitoring, result retrieval, and teardown.
+description: Manage Vast.ai GPU instances for this AI_2 repository's reinforcement-learning benchmarks and training. Use for GPU offer searches, instance setup, code upload, remote benchmarking, training, Weights & Biases dashboards and run descriptions, monitoring, result retrieval, and teardown.
 ---
 
 # Vast.ai training for AI_2
@@ -44,6 +44,9 @@ setup, upload, or training. Installing this skill alone authorizes no rental.
 - `UTMIST-AI2-main/requirements.txt` and `setup_vast.sh`: dependency/setup
   references. Inspect before using the setup script; its CUDA installation
   choices may not match the selected image.
+- `tracking.py`, `monitor.py`, and the `wandb` section of `config.yaml`:
+  Weights & Biases run creation, run descriptions, checkpoint and video
+  upload, and the instance monitor. `tests/test_tracking.py` shows the contract.
 
 The game simulation runs on the CPU even when PPO uses CUDA. Compare offers
 using CPU allocation/performance, RAM, disk performance, GPU, reliability,
@@ -85,7 +88,97 @@ and record its installed versions rather than blindly copying a Mac runtime.
 Verify CPU allocation, RAM, `nvidia-smi`, Torch's CUDA availability, and an actual
 CUDA tensor operation. Run an environment reset/step and a tiny benchmark before
 the sustained workload. Use `SDL_VIDEODRIVER=dummy` and `SDL_AUDIODRIVER=dummy`.
-No W&B account or external training dataset is required by this project.
+No external training dataset is required by this project.
+
+Weights & Biases is required for every cloud run. Install `wandb` in the remote
+environment, then copy the local login into the remote `~/.netrc` without
+printing it:
+
+```sh
+python - <<'EOF' | ssh -p <port> root@<host> 'umask 077; cat >> ~/.netrc'
+import netrc
+host = "api.wandb.ai"
+login, _, password = netrc.netrc().authenticators(host)
+print(f"machine {host}\n  login {login}\n  password {password}")
+EOF
+ssh -p <port> root@<host> 'cd <run-dir> && python -c "import wandb; print(wandb.Api().default_entity)"'
+```
+
+The second command must print the entity name. If the instance has no
+outbound network, set `WANDB_MODE=offline` for every command below and sync
+the run directories at retrieval time.
+
+## Experiment tracking and run descriptions (Weights & Biases)
+
+Every cloud run must be visible on the W&B dashboard with a description of
+what it is for. Three mechanisms make this hold without relying on memory.
+
+1. **Instance monitor.** Right after the runtime is verified, start one
+   monitor run per instance and keep it running until teardown. It logs GPU
+   utilization, GPU memory, power, CPU, and RAM for the whole instance
+   lifetime, whatever script is using the GPU (benchmarks included).
+
+   ```sh
+   cd <run-dir> && nohup python monitor.py --name <instance-label> \
+     --group <run-id> --record <run-dir>/monitor_run.json \
+     > <run-dir>/monitor.log 2>&1 &
+   echo $!   # record this PID with the instance
+   ```
+
+   Confirm `monitor_run.json` contains a `url` before proceeding, and report
+   that URL at handoff.
+
+2. **Training runs describe themselves.** `train.py` starts a W&B run per
+   phase (TensorBoard scalars, config, checkpoints as artifacts, demo videos)
+   and writes `<results>/wandb_run.json` (default `results/ppo_utmist/`) plus
+   a history in `wandb_runs.jsonl`. Before launching, set the environment:
+
+   ```sh
+   export WANDB_RUN_GROUP=<run-id>
+   export WANDB_NAME=<run-id>-phase<phase>
+   export WANDB_TAGS=vast,<gpu-model>,phase-<phase>
+   export WANDB_NOTES="$(cat <<'EOF'
+   Goal: <one sentence: the question this run answers>
+   Change: <what differs from the previous run: config keys, code, checkpoint>
+   Expect: <the metric and value that counts as success, and by when>
+   Setup: instance <id>, <gpu>, <n_envs> envs, phase <phase>, checkpoint <name>, commit <sha>
+   EOF
+   )"
+   ```
+
+   Write the notes yourself, in full sentences, from the actual config and
+   the previous run's outcome. Never leave template placeholders. A run
+   started without `WANDB_NOTES` is tagged `notes-missing` and must be fixed
+   with `append-notes` before handoff.
+
+3. **Outcome is appended when the run ends.** `train.py` appends a one-line
+   completion note automatically. After the run, add the real result:
+
+   ```sh
+   python tracking.py append-notes --run <results>/wandb_run.json --text "$(cat <<'EOF'
+   Outcome: <steps completed, steps/s, final win rates or reach rate, SD rate>
+   Verdict: <did Expect hold? what to change next>
+   EOF
+   )"
+   ```
+
+   `python tracking.py info --run <results>/wandb_run.json` prints the record.
+   Pass a run path such as `entity/project/id` instead of a file to fetch a
+   remote run, including its state.
+
+Benchmarks (`benchmark_training.py`) do not create W&B runs. The monitor run
+covers their GPU and CPU usage. Attach the benchmark summary and the headline
+numbers to the monitor run:
+
+```sh
+python tracking.py upload-file --run <run-dir>/monitor_run.json --file <output>/baseline_*/summary.json
+python tracking.py append-notes --run <run-dir>/monitor_run.json --text "Benchmark: <mode, envs, device> -> <steps/s>"
+```
+
+Without outbound network, run everything with `WANDB_MODE=offline` and, at
+retrieval time, run `wandb sync <run-dir>/wandb/offline-run-*` from a machine
+that has the login. Never print or copy the API key into logs, configs, or
+notes.
 
 ## Benchmark before optimizing
 
@@ -129,6 +222,12 @@ long jobs in a persistent terminal or `nohup`, recording the PID, log path,
 exit status, and exact command. Confirm that steps advance and expected output
 files appear; a background PID alone does not establish successful training.
 
+Confirm the training run's W&B URL appears in the log (`📈 W&B run:`) and in
+`<results>/wandb_run.json`; a run that starts untracked on a cloud instance is
+a setup failure, not an acceptable outcome. Use the W&B pages (training run
+and monitor run) as the dashboard; `nvidia-smi` and log tails remain the
+ground truth when the dashboard lags.
+
 Monitor the selected process, recent log output, CPU/GPU utilization, memory,
 and output timestamps. Report aggregate steps/s, episode lengths/wall times
 where actually recorded, rollout/update timing for benchmarks, and gameplay
@@ -150,6 +249,12 @@ results folder). Keep remote run IDs separate from existing local results.
 Verify transfer completeness using file sizes/hashes and inspect the result
 files before claiming completion. Report hardware and workload differences when
 comparing cloud measurements with the local baseline.
+
+Close out the dashboard before teardown: append the outcome notes to every
+training run and to the monitor run, stop the monitor with `kill -TERM <pid>`
+and confirm its log ends cleanly, sync any offline run directories, and check
+that no run is left in state `running` (`python tracking.py info --run
+<entity/project/id>`). List every run URL in the handoff report.
 
 Destroy only the resolved instance when the user has authorized destruction or
 an applicable auto-teardown condition. First verify required results are safely
