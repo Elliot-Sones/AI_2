@@ -9,6 +9,11 @@ Measured results: [local baseline](baselines/local/README.md) and
 The cloud study includes a matched small-model test, CPU/CUDA environment
 scaling, longer repeats, and reset/animation profiling.
 
+Follow-up: [animation cache before/after](baselines/animation-cache-20260904/README.md)
+measures 2.59x faster small-model PPO on the local CPU, and 3.06x/4.18x faster
+configured-model CUDA PPO with 8/16 environments on the same 4090 host. Gameplay
+traces match. Both comparisons are complete; the retained instance is stopped.
+
 ## Measurements
 
 1. **Raw game:** replay seeded random inputs for both fighters without rendering.

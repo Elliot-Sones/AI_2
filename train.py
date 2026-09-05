@@ -28,6 +28,8 @@ from environment.agent import (
 )
 from environment.environment import WarehouseBrawl
 
+import tracking  # Weights & Biases helpers; every call is a no-op when tracking is off
+
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -696,7 +698,16 @@ class SelfPlayCallback(BaseCallback):
         return True
 
 
-class LimitedCheckpointCallback(CheckpointCallback):
+class ArtifactCheckpointCallback(CheckpointCallback):
+    """CheckpointCallback that also uploads each saved checkpoint to W&B."""
+    def _on_step(self) -> bool:
+        result = super()._on_step()
+        if self.n_calls % self.save_freq == 0:
+            tracking.log_checkpoint(self._checkpoint_path(extension="zip"), step=self.num_timesteps)
+        return result
+
+
+class LimitedCheckpointCallback(ArtifactCheckpointCallback):
     """Keeps only the last N checkpoints."""
     def __init__(self, save_freq, save_path, name_prefix="rl_model", max_keep=5, verbose=0):
         super().__init__(save_freq, save_path, name_prefix, verbose)
@@ -881,7 +892,8 @@ class EvaluationCallback(BaseCallback):
             "ClockworkAgent": ClockworkAgent(),
             "BasedAgent": BasedAgent(),
         }
-        
+        eval_rows = []
+
         for opponent_name, opponent in test_opponents.items():
             wins, losses, draws = 0, 0, 0
             total_damage_dealt = 0
@@ -939,7 +951,12 @@ class EvaluationCallback(BaseCallback):
             
             print(f"  vs {opponent_name}: {win_rate:.0f}% ({wins}W/{losses}L/{draws}D) | Avg Dmg: {avg_dealt:.0f}")
             self.logger.record(f"eval/{opponent_name}/win_rate", win_rate)
-        
+            eval_rows.append({
+                "opponent": opponent_name, "win_rate": win_rate, "wins": wins,
+                "losses": losses, "draws": draws, "avg_damage": avg_dealt,
+            })
+
+        tracking.log_eval_table(eval_rows, step=self.num_timesteps)
         print("=" * 50 + "\n")
 
 
@@ -1072,6 +1089,10 @@ class VideoRecordingCallback(BaseCallback):
                 video_path=video_path,
                 opponent_type="random",
                 frame_stack=self.frame_stack
+            )
+            tracking.log_video(
+                video_path, step=self.num_timesteps,
+                caption=f"phase {self.phase_key} @ {self.num_timesteps:,} steps vs RandomAgent",
             )
         except Exception as e:
             if self.verbose:
@@ -1369,6 +1390,15 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     
     # PPO settings
     ppo = params.get("ppo_settings", {})
+
+    # Experiment tracking: after the env workers exist, before SB3 opens TensorBoard
+    tracking.init_run(
+        params, phase_key=phase_config.phase_key, kind="navigation",
+        results_dir=os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"]),
+        config_path=params.get("config_path"),
+        extra_config={"n_envs": n_envs, "device": str(device), "checkpoint": ppo.get("model_checkpoint", "0")},
+    )
+
     lr_config = ppo.get("learning_rate", [3e-4, 1e-6])
     learning_rate = linear_schedule(lr_config[0], lr_config[1]) if isinstance(lr_config, list) else lr_config
     
@@ -1415,7 +1445,7 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
         )
     
     # Callbacks
-    checkpoint_callback = CheckpointCallback(
+    checkpoint_callback = ArtifactCheckpointCallback(
         save_freq=500000 // n_envs,
         save_path=checkpoint_folder,
         name_prefix=f"nav_{phase_config.phase_key}"
@@ -1431,6 +1461,9 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
         agent.save(interrupt_path)
         print(f"💾 Model saved to: {interrupt_path}")
         print("💡 Use 'python watch_navigation.py' to view agent behavior")
+        tracking.log_checkpoint(interrupt_path, step=agent.num_timesteps, aliases=["interrupted"])
+        tracking.append_notes(f"Outcome: interrupted at {agent.num_timesteps:,} steps. Model saved to {interrupt_path}.")
+        tracking.finish()
         
         # Safe exit
         try:
@@ -1452,6 +1485,7 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
     final_path = os.path.join(model_folder, f"nav_{phase_config.phase_key}_final.zip")
     agent.save(final_path)
     print(f"✅ Navigation training complete! Model saved to: {final_path}")
+    tracking.log_checkpoint(final_path, step=agent.num_timesteps, aliases=["final", f"nav-{phase_config.phase_key}"])
     
     # Record final demo video
     video_folder = os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "videos")
@@ -1463,8 +1497,14 @@ def run_navigation_training(params: dict, phase_config: PhaseConfig):
             opponent_type="constant",  # Frozen opponent for nav
             frame_stack=params.get("frame_stack", 4)
         )
+        tracking.log_video(video_path, step=agent.num_timesteps,
+                           caption=f"nav {phase_config.phase_key} final vs frozen opponent")
     except Exception as e:
         print(f"⚠️ Final video recording failed: {e}")
+
+    tracking.log_summary(final_timesteps=agent.num_timesteps, final_model=final_path)
+    tracking.append_notes(f"Outcome: completed {agent.num_timesteps:,} steps. Final model {final_path}.")
+    tracking.finish()
     
     vec_env.close()
 
@@ -1516,6 +1556,15 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         print(f"📚 Frame stacking: {frame_stack} frames")
         env = VecFrameStack(env, n_stack=frame_stack)
     
+    # Experiment tracking: after the env workers exist, before SB3 opens TensorBoard
+    tracking.init_run(
+        params, phase_key=phase_config.phase_key, kind="combat",
+        results_dir=os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"]),
+        config_path=params.get("config_path"),
+        extra_config={"n_envs": n_envs, "device": str(device), "checkpoint": ppo.get("model_checkpoint", "0"),
+                      "opponents": dict(phase_config.opponents), "rewards": dict(phase_config.rewards)},
+    )
+
     # PPO Settings
     lr_config = ppo.get("learning_rate", [3e-4, 1e-6])
     learning_rate = linear_schedule(lr_config[0], lr_config[1]) if isinstance(lr_config, list) else lr_config
@@ -1622,6 +1671,7 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
     print(f"💾 Checkpoints: {os.path.join(model_folder, 'checkpoints')}")
     print("=" * 70 + "\n")
     
+    interrupted = False
     try:
         agent.learn(
             total_timesteps=total_timesteps,
@@ -1630,11 +1680,20 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         )
     except KeyboardInterrupt:
         print("\n⚠️ Training interrupted by user.")
+        interrupted = True
+    except Exception as e:
+        tracking.append_notes(f"Outcome: crashed at {agent.num_timesteps:,} steps: {e!r}")
+        tracking.finish(exit_code=1)
+        raise
     
     # Save final model
     final_path = os.path.join(model_folder, f"phase{phase_config.phase_key}_final")
     agent.save(final_path)
     print(f"\n✅ Model saved to {final_path}")
+    tracking.log_checkpoint(
+        final_path + ".zip", step=agent.num_timesteps,
+        aliases=["final", f"phase-{phase_config.phase_key}"] + (["interrupted"] if interrupted else []),
+    )
     
     # Print final stats
     if GLOBAL_REWARD_MANAGER:
@@ -1646,7 +1705,18 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         net = GLOBAL_REWARD_MANAGER.total_damage_dealt - GLOBAL_REWARD_MANAGER.total_damage_received
         print(f"Net Damage:            {net:+.0f}")
         print("=" * 70)
+        tracking.log_summary(
+            total_damage_dealt=GLOBAL_REWARD_MANAGER.total_damage_dealt,
+            total_damage_received=GLOBAL_REWARD_MANAGER.total_damage_received,
+            net_damage=net,
+        )
     
+    tracking.log_summary(final_timesteps=agent.num_timesteps, final_model=final_path + ".zip")
+    tracking.append_notes(
+        f"Outcome: {'interrupted' if interrupted else 'completed'} at {agent.num_timesteps:,} steps. "
+        f"Final model {final_path}.zip."
+    )
+    tracking.finish()
     env.close()
 
 
@@ -1658,7 +1728,8 @@ def main(cfg_file: str):
     # Load configuration
     with open(cfg_file, 'r') as f:
         params = yaml.safe_load(f)
-    
+    params["config_path"] = os.path.abspath(cfg_file)  # attached to the W&B run
+
     # Get phase from config
     phase_key = params.get("curriculum", {}).get("phase", 1)
     

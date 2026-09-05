@@ -48,3 +48,7 @@ results/ppo_utmist/model/*
 
 # Assets
 assets.zip
+
+# Weights & Biases local run files
+wandb/
+monitor_run.json

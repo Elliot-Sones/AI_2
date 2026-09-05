@@ -32,7 +32,7 @@ cd UTMIST-AI2-main
 pip install -r requirements.txt
 
 # Install extra dependencies
-pip install shimmy>=0.2.1 tensorboard tqdm
+pip install "shimmy>=0.2.1" tensorboard tqdm wandb
 
 echo "✅ Setup Complete!"
 echo ""
