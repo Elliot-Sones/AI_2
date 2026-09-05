@@ -1,0 +1,37 @@
+{
+  "instance_id": 49902188,
+  "deletion_authorized": false,
+  "started_unix": 1788573157.727516,
+  "started_utc": "2026-09-05T01:52:37.727516+00:00",
+  "maximum_seconds": 600,
+  "stop_request_deadline_unix": 1788573697.727516,
+  "quoted_running_rate": 0.31666666666666665,
+  "initial": {
+    "id": 49902188,
+    "actual_status": "exited",
+    "cur_state": "stopped",
+    "intended_status": "stopped",
+    "dph_total": 0.31666666666666665,
+    "storage_cost": 0.39999999999999997,
+    "ssh_host": "ssh1.vast.ai",
+    "ssh_port": 22188,
+    "public_ipaddr": "38.246.237.140",
+    "ports": null
+  },
+  "status": "stopped_verified_not_deleted",
+  "last_provider_state": {
+    "id": 49902188,
+    "actual_status": "exited",
+    "cur_state": "stopped",
+    "intended_status": "stopped",
+    "dph_total": 0.31666666666666665,
+    "storage_cost": 0.39999999999999997,
+    "ssh_host": "ssh1.vast.ai",
+    "ssh_port": 22188,
+    "public_ipaddr": "38.246.237.140",
+    "ports": null
+  },
+  "stopped_unix": 1788573196.744714,
+  "elapsed_seconds": 39.01719808578491,
+  "estimated_running_cost_usd": 0.0034320683501384876
+}
