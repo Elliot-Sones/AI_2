@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worlds on the Chip</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F2F4F7; --panel:#FFFFFF; --ink:#1B2230; --ink-2:#4A5568; --ink-3:#7B8794;
+  --line:#D5DBE4; --line-soft:#E6EAF0;
+  --cpu:#B8701A; --cpu-soft:#F7E7CF; --cpu-ink:#7A4A0E;
+  --gpu:#0E8577; --gpu-soft:#D4EEEA; --gpu-ink:#0A5A50;
+  --warn:#B23A3A; --warn-soft:#F6DCDC;
+  --idle:#E9ECF1;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,sans-serif;
+  --disp:'IBM Plex Sans Condensed','IBM Plex Sans',system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141821; --panel:#1C2230; --ink:#E8ECF2; --ink-2:#B4BCC9; --ink-3:#7F8A9A;
+    --line:#333B4A; --line-soft:#262D3A;
+    --cpu:#E0A052; --cpu-soft:#3A2C16; --cpu-ink:#F2C98A;
+    --gpu:#3FC1AE; --gpu-soft:#12332F; --gpu-ink:#8FE3D5;
+    --warn:#E07070; --warn-soft:#3A1E1E;
+    --idle:#232A37;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141821; --panel:#1C2230; --ink:#E8ECF2; --ink-2:#B4BCC9; --ink-3:#7F8A9A;
+  --line:#333B4A; --line-soft:#262D3A;
+  --cpu:#E0A052; --cpu-soft:#3A2C16; --cpu-ink:#F2C98A;
+  --gpu:#3FC1AE; --gpu-soft:#12332F; --gpu-ink:#8FE3D5;
+  --warn:#E07070; --warn-soft:#3A1E1E;
+  --idle:#232A37;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55;margin:0}
+.wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+h1,h2,h3{font-family:var(--disp);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:2.4rem;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.5rem;font-weight:600;margin-top:56px;padding-top:20px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;font-weight:600;margin-top:28px}
+p{margin:14px 0;max-width:66ch}
+.lede{font-size:1.1rem;color:var(--ink-2);max-width:60ch}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px}
+.answer{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--gpu);padding:16px 20px;margin:24px 0;border-radius:4px}
+.answer p{margin:8px 0}
+.answer strong{font-family:var(--disp);font-size:1.05rem}
+code{font-family:var(--mono);font-size:.88em;background:var(--line-soft);padding:1px 5px;border-radius:3px}
+pre{font-family:var(--mono);font-size:.82rem;line-height:1.5;background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:4px;overflow-x:auto;margin:14px 0}
+.band{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px 20px;margin:20px 0;overflow-x:auto}
+.band .cap{font-family:var(--mono);font-size:.72rem;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+svg text{font-family:var(--sans);fill:var(--ink)}
+svg .mono{font-family:var(--mono)}
+svg .dim{fill:var(--ink-3)}
+svg .cpu{fill:var(--cpu-soft);stroke:var(--cpu)}
+svg .gpu{fill:var(--gpu-soft);stroke:var(--gpu)}
+svg .idle{fill:var(--idle);stroke:var(--line)}
+svg .lbl{font-size:12px}
+svg .sm{font-size:11px}
+.key{display:flex;gap:18px;flex-wrap:wrap;font-size:.85rem;color:var(--ink-2);margin:10px 0 0}
+.key span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px;border:1px solid}
+.key .k-cpu::before{background:var(--cpu-soft);border-color:var(--cpu)}
+.key .k-gpu::before{background:var(--gpu-soft);border-color:var(--gpu)}
+.key .k-idle::before{background:var(--idle);border-color:var(--line)}
+.key .k-warn::before{background:var(--warn-soft);border-color:var(--warn)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;margin:14px 0;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+td:first-child{white-space:nowrap}
+ul{padding-left:20px;max-width:66ch}li{margin:6px 0}
+.controls{display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:.9rem;margin-bottom:12px}
+.controls label{display:flex;gap:8px;align-items:center}
+.controls input[type=range]{width:180px;accent-color:var(--gpu)}
+.controls output{font-family:var(--mono);min-width:5ch}
+button{font-family:var(--sans);font-size:.85rem;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:6px 12px;border-radius:4px;cursor:pointer}
+button:hover{border-color:var(--gpu)}button:focus-visible{outline:2px solid var(--gpu);outline-offset:2px}
+.lanes{display:grid;grid-template-columns:repeat(32,1fr);gap:3px;margin:8px 0}
+.lane{height:22px;border-radius:2px;border:1px solid var(--line);background:var(--idle);font-family:var(--mono);font-size:9px;display:flex;align-items:center;justify-content:center;color:var(--ink-3)}
+.lane.on{background:var(--gpu-soft);border-color:var(--gpu);color:var(--gpu-ink)}
+.lane.off{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.rowlbl{font-family:var(--mono);font-size:.75rem;color:var(--ink-3);margin-top:8px}
+.stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.stat div{border:1px solid var(--line);border-radius:4px;padding:10px 12px}
+.stat b{display:block;font-family:var(--disp);font-size:1.4rem;font-weight:600;font-variant-numeric:tabular-nums}
+.stat small{color:var(--ink-3);font-size:.78rem}
+.note{font-size:.88rem;color:var(--ink-2);border-left:2px solid var(--line);padding-left:12px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<div class="eyebrow">AI_2 · native simulator design · 6 Sep 2026</div>
+<h1>Worlds on the Chip</h1>
+<p class="lede">What the GPU-resident simulator proposal actually means at the hardware level: where the speedup comes from, what "parallel" means for a game, and how thousands of games sit on one graphics card.</p>
+
+<div class="answer">
+<p><strong>What is this document?</strong> A design for the next experiment, not a result. It proposes rewriting the game simulation so the games themselves run as CUDA code on the GPU, next to the model. Nothing has been built yet beyond a small moving-platform prototype.</p>
+<p><strong>Is the speedup from putting more environments on the GPU?</strong> Partly, but that is not the main thing. The main win is that each tick stops paying for two things it pays for now: the CPU running Python game logic, and the CPU and GPU handing data back and forth. Once a tick is cheap, you can also run many more worlds. Both matter, in that order.</p>
+<p><strong>How does it run on the chip?</strong> One kernel launch advances every world by one tick at the same time. Each world is handled by a GPU thread (or a small group of them). Thousands of threads execute the same tick function on different worlds' numbers in lockstep.</p>
+</div>
+
+<h2>1. Where the time goes today</h2>
+<p>Every training step today is a round trip. The picture below is one tick for a batch of 256 environments. Read it left to right as wall-clock time.</p>
+
+<div class="band">
+<div class="cap">One tick today · 256 environments · time flows right</div>
+<svg viewBox="0 0 700 170" width="700" height="170" role="img" aria-label="Timeline of one tick in the current CPU-hosted loop">
+  <text x="0" y="22" class="lbl dim">CPU workers</text>
+  <text x="0" y="82" class="lbl dim">PCIe bus</text>
+  <text x="0" y="142" class="lbl dim">GPU</text>
+  <rect x="110" y="8" width="150" height="26" rx="3" class="cpu"/>
+  <text x="185" y="25" text-anchor="middle" class="sm">step 256 games in Python</text>
+  <rect x="260" y="8" width="70" height="26" rx="3" class="cpu"/>
+  <text x="295" y="25" text-anchor="middle" class="sm">pack obs</text>
+  <rect x="330" y="68" width="40" height="26" rx="3" class="cpu"/>
+  <text x="350" y="85" text-anchor="middle" class="sm">obs ↑</text>
+  <rect x="370" y="128" width="90" height="26" rx="3" class="gpu"/>
+  <text x="415" y="145" text-anchor="middle" class="sm">model forward</text>
+  <rect x="460" y="68" width="40" height="26" rx="3" class="cpu"/>
+  <text x="480" y="85" text-anchor="middle" class="sm">act ↓</text>
+  <rect x="500" y="8" width="70" height="26" rx="3" class="cpu"/>
+  <text x="535" y="25" text-anchor="middle" class="sm">scatter acts</text>
+  <rect x="570" y="8" width="120" height="26" rx="3" class="cpu" opacity=".45"/>
+  <text x="630" y="25" text-anchor="middle" class="sm">next tick…</text>
+  <rect x="110" y="128" width="260" height="26" rx="3" class="idle"/>
+  <text x="240" y="145" text-anchor="middle" class="sm dim">GPU waiting</text>
+  <rect x="460" y="128" width="230" height="26" rx="3" class="idle"/>
+  <text x="575" y="145" text-anchor="middle" class="sm dim">GPU waiting</text>
+</svg>
+<div class="key"><span class="k-cpu">CPU work or transfer</span><span class="k-gpu">GPU work</span><span class="k-idle">idle</span></div>
+</div>
+
+<p>The GPU is busy for one narrow slice. The rest of the tick, it waits for the CPU to finish Python, Pymunk, and process-to-process messaging, then for the observations to cross the bus. Adding more environments on the CPU side stretches the amber blocks. It does not shrink the grey ones.</p>
+<p>That is why the current 256-environment run sits near 17,772 steps per second. The number is set mostly by how fast the CPU can produce observations, not by the GPU.</p>
+
+<h2>2. What changes with a GPU-resident simulator</h2>
+<p>Same tick, same batch, but the game-step code is a CUDA kernel and the state never leaves VRAM.</p>
+
+<div class="band">
+<div class="cap">One tick, GPU-resident · 256 or more worlds · same time scale</div>
+<svg viewBox="0 0 700 170" width="700" height="170" role="img" aria-label="Timeline of one tick in the GPU-resident loop">
+  <text x="0" y="22" class="lbl dim">CPU</text>
+  <text x="0" y="82" class="lbl dim">PCIe bus</text>
+  <text x="0" y="142" class="lbl dim">GPU</text>
+  <rect x="110" y="8" width="30" height="26" rx="3" class="cpu"/>
+  <text x="125" y="25" text-anchor="middle" class="sm">launch</text>
+  <rect x="140" y="8" width="550" height="26" rx="3" class="idle"/>
+  <text x="415" y="25" text-anchor="middle" class="sm dim">CPU mostly free (logging, checkpoints, orchestration)</text>
+  <rect x="110" y="68" width="580" height="26" rx="3" class="idle"/>
+  <text x="400" y="85" text-anchor="middle" class="sm dim">nothing crosses the bus during the tick</text>
+  <rect x="110" y="128" width="90" height="26" rx="3" class="gpu"/>
+  <text x="155" y="145" text-anchor="middle" class="sm">model forward</text>
+  <rect x="200" y="128" width="60" height="26" rx="3" class="gpu"/>
+  <text x="230" y="145" text-anchor="middle" class="sm">step kernel</text>
+  <rect x="260" y="128" width="40" height="26" rx="3" class="gpu"/>
+  <text x="280" y="145" text-anchor="middle" class="sm">store</text>
+  <rect x="300" y="128" width="90" height="26" rx="3" class="gpu"/>
+  <text x="345" y="145" text-anchor="middle" class="sm">model forward</text>
+  <rect x="390" y="128" width="60" height="26" rx="3" class="gpu"/>
+  <text x="420" y="145" text-anchor="middle" class="sm">step kernel</text>
+  <rect x="450" y="128" width="40" height="26" rx="3" class="gpu"/>
+  <text x="470" y="145" text-anchor="middle" class="sm">store</text>
+  <rect x="490" y="128" width="200" height="26" rx="3" class="gpu" opacity=".45"/>
+  <text x="590" y="145" text-anchor="middle" class="sm">… next ticks</text>
+</svg>
+<div class="key"><span class="k-cpu">CPU work</span><span class="k-gpu">GPU work</span><span class="k-idle">idle</span></div>
+</div>
+
+<p>Two things happened. The amber blocks are gone because the game logic is now a GPU kernel. The bus transfers are gone because the observation tensor the model reads is the same buffer the step kernel wrote. Ticks now sit back to back on the GPU.</p>
+
+<h3>So where does the speedup come from, precisely?</h3>
+<table>
+<tr><th>Source</th><th>What it removes</th><th>Depends on more worlds?</th></tr>
+<tr><td>No Python per tick</td><td>Interpreter overhead, object allocation, Pymunk call boundaries, worker-process messaging</td><td>No. Applies at 256 worlds.</td></tr>
+<tr><td>No bus round trip</td><td>Two PCIe copies per tick plus the synchronisation stalls around them</td><td>No. Applies at 256 worlds.</td></tr>
+<tr><td>One kernel steps all worlds</td><td>The cost of a tick barely grows as you add worlds, until the chip is full</td><td>Yes. This is the part that scales.</td></tr>
+</table>
+<p>So the honest answer to "are we just putting more environments on the GPU" is: first we make one tick cheap for the batch size we already use. Then, because a GPU tick for 4,096 worlds costs about the same as for 256, we can raise the world count almost for free. The design doc treats those as separate measurements, which is why it fixes 256 worlds for the first comparison.</p>
+
+<h2>3. How it actually runs on the chip</h2>
+<p>A GPU is not one fast processor. It is many slow ones that all run the same instruction at once. On a typical training card:</p>
+<ul>
+<li>The chip has on the order of 100 to 130 <strong>streaming multiprocessors</strong> (SMs). Each is an independent little processor.</li>
+<li>Each SM runs threads in groups of 32 called <strong>warps</strong>. All 32 threads in a warp execute the same instruction on the same clock, each on its own data.</li>
+<li>Each SM can hold many warps at once, typically up to 64, and swaps between them whenever one is waiting on memory.</li>
+</ul>
+<p>The simulator's step is written once, as a function that advances one world by one tick. CUDA then runs that function on every world in parallel. The simplest mapping is <strong>one thread per world</strong>: thread 0 advances world 0, thread 1 advances world 1, and so on.</p>
+
+<div class="band">
+<div class="cap">One tick as a kernel launch · one thread per world</div>
+<pre>step_kernel&lt;&lt;&lt;blocks, 256 threads&gt;&gt;&gt;(state, actions, obs_out, reward_out);
+
+__global__ void step_kernel(WorldState s, Actions a, Obs o, Reward r) {
+    int w = blockIdx.x * blockDim.x + threadIdx.x;   // which world am I?
+    if (w &gt;= NUM_WORLDS) return;
+
+    read_controller(s, a, w);      // decode held / newly pressed buttons
+    move_platforms(s, w);          // moving-platform path + reversal
+    apply_player_physics(s, w);    // gravity, run, jump, dodge state
+    resolve_contacts(s, w);        // the hard part: landing, sides, undersides
+    update_curriculum(s, r, w);    // target hold, fall, success, timeout
+    write_observation(s, o, w);    // 64 values into obs_out[w]
+    if (episode_done(s, w)) reset_world(s, w);   // only this world
+}</pre>
+</div>
+
+<p>The function body reads like the ordinary game loop. What is parallel is not the inside of the function. It is that the same function runs for every value of <code>w</code> simultaneously. World 17 cannot skip ahead of itself, but it never has to wait for world 18.</p>
+
+<h3>Why the state becomes flat arrays</h3>
+<p>Thread <code>w</code> needs to find its world's data by arithmetic, not by following Python object pointers. So the state becomes buffers indexed by world:</p>
+<pre>player_position [world][player][xy]     float32
+player_velocity [world][player][xy]     float32
+movement_state  [world][player]         uint8
+platform_position [world][platform][xy] float32
+target_position [world][xy]             float32
+target_hold_ticks [world]               int16
+episode_ticks   [world]                 int16</pre>
+<p>When 32 neighbouring threads read <code>player_position[w]</code> for 32 neighbouring worlds, the memory system fetches one contiguous strip. That is the layout the hardware is built for, and it is the second reason the doc says layout will be chosen by measurement rather than by copying the Python class structure.</p>
+
+<h3>Lockstep and divergence</h3>
+<p>The lockstep rule has a cost. If world 5's player is mid-jump and world 6's player is dodging, the warp cannot run the jump code and the dodge code at the same instant. It runs the jump branch with the dodge threads masked off, then the dodge branch with the jump threads masked off. Lanes that are masked do nothing useful. Try it:</p>
+
+<div class="band">
+<div class="cap">Warp divergence · 32 lanes, one warp, one tick</div>
+<div class="controls">
+<button id="mix">Randomise world states</button>
+<button id="same">All worlds same state</button>
+</div>
+<div id="lanesWrap"></div>
+<div class="stat">
+<div><b id="passes">1</b><small>branch passes this tick</small></div>
+<div><b id="eff">100%</b><small>lanes doing useful work</small></div>
+</div>
+<p class="note" style="margin-top:12px">Red lanes are masked off while another branch runs. Fewer distinct branches per warp means fewer passes. This is why compact state and careful branching matter as much as the language, and why "one thread per world" is a starting point, not a given.</p>
+</div>
+
+<h3>Filling the chip</h3>
+<p>The other question is whether the game step alone even fills the GPU. It does not, at modest world counts. Slide the world count and watch how much of the chip the step kernel touches.</p>
+
+<div class="band">
+<div class="cap">Worlds → threads → SMs · assumes 128 SMs, 64 resident warps per SM, one thread per world</div>
+<div class="controls">
+<label>worlds <input type="range" id="worlds" min="8" max="17" value="8" step="1"><output id="worldsOut">256</output></label>
+</div>
+<div id="smGrid" style="display:grid;grid-template-columns:repeat(32,1fr);gap:3px"></div>
+<div class="stat">
+<div><b id="warps">8</b><small>warps launched</small></div>
+<div><b id="smUsed">8 / 128</b><small>SMs with any work</small></div>
+<div><b id="occ">0.1%</b><small>of resident warp slots</small></div>
+</div>
+<p class="note" style="margin-top:12px">At 256 worlds the step kernel occupies a sliver of the chip. That is fine: the win at 256 is removing the CPU and the bus, not saturating the GPU. The model forward pass is what fills the SMs, and it is already batched. Raising worlds toward 4,096 or beyond is what starts to make the simulator itself use the hardware, and the doc treats that as a second, separate experiment because it also changes trajectory length per rollout.</p>
+</div>
+
+<h2>4. The model and the simulator share the chip</h2>
+<p>Within one tick there are two kernels on the same GPU, in sequence:</p>
+<ol>
+<li><strong>Model forward.</strong> A batched matrix-multiply over all worlds' observations, shape <code>[worlds, 256]</code> in, actions and values out. This is dense, uniform work and already keeps SMs busy.</li>
+<li><strong>Step kernel.</strong> Branchy per-world logic, light on arithmetic, sensitive to memory layout and divergence.</li>
+</ol>
+<p>They do not run at the same time in the initial design; the step needs the actions, and the next forward needs the new observations. So GPU utilisation near 100% is not the goal. The goal is that the sum of the two is much shorter than the current tick, and that no time is spent waiting on the CPU in between.</p>
+<p>PPO's update phase is unchanged. The rollout buffer that the step kernel fills is the same device tensor the learner reads, so the eight training passes also skip the bus.</p>
+
+<h2>5. What could make it not work</h2>
+<ul>
+<li><strong>Collision fidelity.</strong> Pymunk is already native C. Rewriting it in CUDA gives no speedup by itself and risks a player landing in one engine and falling in the other. This is the first gate in the plan.</li>
+<li><strong>Divergence.</strong> If worlds spend most ticks in different branches, the warp runs every branch every tick and the kernel gets slow. Measurement decides the thread mapping.</li>
+<li><strong>Reset correctness.</strong> Each world resets alone, inside the kernel, and the final observation must be saved before the reset overwrites it. A bug here corrupts value targets quietly.</li>
+<li><strong>Silent fallback.</strong> A run that quietly steps on the CPU while claiming to be GPU-native would produce a misleading benchmark. The design requires this to be an explicit error.</li>
+</ul>
+
+<h2>6. One-paragraph version</h2>
+<p>Today the GPU spends most of each tick waiting for the CPU to run Python games and push observations across the bus. The proposal moves the game itself onto the GPU as a kernel that advances every world at once, one thread per world, over flat arrays of numbers. The immediate speedup comes from deleting the CPU work and the bus copies at the batch size we already use. A second, later speedup comes from raising the world count, which costs the GPU almost nothing per extra world until the chip fills. The risk is not speed. It is making thousands of lockstep worlds land on platforms exactly the way the original Pymunk game does.</p>
+</div>
+
+<script>
+(function(){
+  // Warp divergence demo
+  var states=['idle','run','jump','fall','dodge','reset'];
+  var wrap=document.getElementById('lanesWrap');
+  function render(lane){
+    var uniq=[];lane.forEach(function(s){if(uniq.indexOf(s)<0)uniq.push(s)});
+    var html='';
+    uniq.forEach(function(st){
+      html+='<div class="rowlbl">pass: '+st+'</div><div class="lanes">';
+      lane.forEach(function(s,i){html+='<div class="lane '+(s===st?'on':'off')+'">'+i+'</div>'});
+      html+='</div>';
+    });
+    wrap.innerHTML=html;
+    var useful=32; // each lane useful in exactly one pass
+    var total=32*uniq.length;
+    document.getElementById('passes').textContent=uniq.length;
+    document.getElementById('eff').textContent=Math.round(100*useful/total)+'%';
+  }
+  function mix(){var l=[];for(var i=0;i<32;i++)l.push(states[Math.floor(Math.random()*states.length)]);render(l)}
+  function same(){var l=[];for(var i=0;i<32;i++)l.push('run');render(l)}
+  document.getElementById('mix').addEventListener('click',mix);
+  document.getElementById('same').addEventListener('click',same);
+  same();
+
+  // Worlds to SMs
+  var SMS=128, SLOTS=64;
+  var grid=document.getElementById('smGrid');
+  var cells=[];
+  for(var i=0;i<SMS;i++){var d=document.createElement('div');d.className='lane';d.style.height='14px';grid.appendChild(d);cells.push(d)}
+  var range=document.getElementById('worlds');
+  function upd(){
+    var w=Math.pow(2,parseInt(range.value,10));
+    var warps=Math.ceil(w/32);
+    var perSM=Math.ceil(warps/SMS);
+    var used=Math.min(SMS,warps);
+    document.getElementById('worldsOut').textContent=w.toLocaleString();
+    document.getElementById('warps').textContent=warps.toLocaleString();
+    document.getElementById('smUsed').textContent=used+' / '+SMS;
+    document.getElementById('occ').textContent=Math.min(100,(100*warps/(SMS*SLOTS))).toFixed(1)+'%';
+    cells.forEach(function(c,i){
+      c.className='lane'; c.style.opacity='';
+      if(i<used){c.className='lane on'; var share=warps>SMS?Math.min(1,perSM/SLOTS):1/SLOTS; c.style.opacity=(0.25+0.75*share).toFixed(2)}
+    });
+  }
+  range.addEventListener('input',upd);upd();
+})();
+</script>
+</body>
+</html>
