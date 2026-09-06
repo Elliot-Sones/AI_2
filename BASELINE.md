@@ -14,6 +14,12 @@ measures 2.59x faster small-model PPO on the local CPU, and 3.06x/4.18x faster
 configured-model CUDA PPO with 8/16 environments on the same 4090 host. Gameplay
 traces match. Both comparisons are complete; the retained instance is stopped.
 
+Local follow-up: [player observation reuse](baselines/observation-reuse-20260905/README.md)
+halves repeated observation construction. Three matched seeds measured 1.171x
+raw-game throughput, 1.054x small-model PPO and 1.180x configured-network PPO
+on the local CPU. Episode records and gameplay replays match. Gain sizes vary
+between runs; no GPU comparison or learning-quality claim accompanies this change.
+
 ## Measurements
 
 1. **Raw game:** replay seeded random inputs for both fighters without rendering.
