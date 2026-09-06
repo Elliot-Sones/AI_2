@@ -15,5 +15,5 @@ for attempt in {1..30}; do
   sleep 1
 done
 test -s artifacts/monitor_run.json
-"$PY" -m pytest -q baselines/pipeline-profile-20260904/test_probe_pipeline.py baselines/pipeline-profile-20260904/test_worker_guard.py > artifacts/tests.log 2>&1
+"$PY" -m unittest discover -s baselines/pipeline-profile-20260904 -p 'test_*.py' -v > artifacts/tests.log 2>&1
 timeout 180 "$PY" -u baselines/pipeline-profile-20260904/probe_pipeline.py --n-envs 1 --rollouts 2 --output artifacts/natural_1env > artifacts/natural_1env.log 2>&1

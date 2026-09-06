@@ -3,5 +3,18 @@
   "started_unix": 1788623465.511701,
   "deadline_unix": 1788625205.511701,
   "deletion_authorized": false,
-  "status": "created"
+  "status": "stopped_verified_not_deleted",
+  "provider": {
+    "id": 49976003,
+    "actual_status": "exited",
+    "cur_state": "stopped",
+    "intended_status": "stopped",
+    "dph_total": 0.32555555555555554,
+    "storage_cost": 0.19999999999999998,
+    "ssh_host": "ssh6.vast.ai",
+    "ssh_port": 16002,
+    "public_ipaddr": "95.3.33.46",
+    "ports": null
+  },
+  "elapsed_seconds": 1744.0194489955902
 }

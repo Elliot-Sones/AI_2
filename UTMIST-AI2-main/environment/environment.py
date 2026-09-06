@@ -1135,7 +1135,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         truncated = self.steps >= self.max_timesteps
 
         # Collect observations
-        observations = {agent: self.observe(agent) for agent in self.agents}
+        observations = self._observe_all()
         # Inside your Env.step() or game loop, near the end:
      #   print(f"[FRAME {self.steps}] "
       #          f"Player weapon: {self.players[0].weapon} | "
@@ -1170,7 +1170,15 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         self.camera.scale_background(self)
         self._setup()
 
-        return {agent: self.observe(agent) for agent in self.agents}, {}
+        return self._observe_all(), {}
+
+    def _observe_all(self) -> dict[int, np.ndarray]:
+        # Reuse player data only within this snapshot; direct observe() stays fresh.
+        player_obs = [player.get_obs() for player in self.players]
+        return {
+            agent: np.array(player_obs[agent] + player_obs[1 - agent])
+            for agent in self.agents
+        }
 
     def observe(self, agent: int) -> np.ndarray:
         #  lh = LowHigh()

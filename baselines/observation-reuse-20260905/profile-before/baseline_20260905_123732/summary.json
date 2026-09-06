@@ -1,0 +1,41 @@
+{
+  "by_mode": {
+    "raw": {
+      "completed_episodes_total": 8,
+      "episodes_per_second_median": 5.031247452183444,
+      "repeats": 1,
+      "steps_per_second_max": 6289.059315229305,
+      "steps_per_second_median": 6289.059315229305,
+      "steps_per_second_min": 6289.059315229305
+    }
+  },
+  "repeats": [
+    {
+      "aggregate_episodes_per_second": 5.031247452183444,
+      "completed_episodes": 8,
+      "extra": {
+        "action_seed": 42,
+        "action_sha256": "35ce2d7c9e0a71637e9556a523ccb38fa2676053480b733b62ed947b86f6e5e9",
+        "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+        "initial_reset_seconds": 0.002443542005494237,
+        "max_timesteps": 9000,
+        "profile_path": "/Users/elliot18/Projects/ml-research/AI_2/baselines/observation-reuse-20260905/profile-before/baseline_20260905_123732/raw_repeat0.prof",
+        "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+        "warmup_steps": 100
+      },
+      "init_seconds": 1.0659557500039227,
+      "mean_episode_steps": 1102.75,
+      "mean_episode_wall_seconds": 0.174902999868209,
+      "measured_steps": 10000,
+      "mode": "raw",
+      "n_envs": 1,
+      "partial_episodes": 1,
+      "repeat": 0,
+      "requested_steps": 10000,
+      "reset_seconds": 0.009480541048105806,
+      "seed": 42,
+      "steps_per_second": 6289.059315229305,
+      "total_seconds": 1.5900629170064349
+    }
+  ]
+}

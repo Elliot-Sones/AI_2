@@ -1,0 +1,94 @@
+{
+  "episodes": [
+    {
+      "env_index": 0,
+      "episode_steps": 1002,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.14736179198371246
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 758,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.0998671249835752
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1022,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.13746662499033846
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1242,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.168442791007692
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1055,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.15638037500320934
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1050,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.14361749999807216
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1202,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.16175441700033844
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1491,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.20300120799220167
+    }
+  ],
+  "result": {
+    "aggregate_episodes_per_second": 5.793014502774568,
+    "completed_episodes": 8,
+    "extra": {
+      "action_seed": 42,
+      "action_sha256": "35ce2d7c9e0a71637e9556a523ccb38fa2676053480b733b62ed947b86f6e5e9",
+      "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+      "initial_reset_seconds": 0.0030517089762724936,
+      "max_timesteps": 9000,
+      "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+      "warmup_steps": 100
+    },
+    "init_seconds": 1.0748209159937687,
+    "mean_episode_steps": 1102.75,
+    "mean_episode_wall_seconds": 0.15223647911989246,
+    "measured_steps": 10000,
+    "mode": "raw",
+    "n_envs": 1,
+    "partial_episodes": 1,
+    "repeat": 0,
+    "requested_steps": 10000,
+    "reset_seconds": 0.009902499004965648,
+    "seed": 42,
+    "steps_per_second": 7241.268128468209,
+    "total_seconds": 1.3809735839895438
+  }
+}

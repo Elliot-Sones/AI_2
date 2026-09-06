@@ -1,0 +1,776 @@
+{
+  "source_root": "/tmp/ai2-observation-before-fbkldjuj",
+  "files": [
+    {
+      "path": "UTMIST-AI2-main/environment/.DS_Store",
+      "size": 8196,
+      "sha256": "483a2fb12ed050897c39398c86d36fe2692e63da139a41468843971958428c56"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/WarehouseBrawl.py",
+      "size": 16590,
+      "sha256": "463192ebadc5aacc3ed2c06e6cbb98a27971b0c31ff76d997c0e97af5d00c487"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/__init__.py",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/agent.py",
+      "size": 51539,
+      "sha256": "615a352cabf8c4dded097bda0c04efb9dccee8325a13bf70912f14472b950272"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammerdair.gif",
+      "size": 169960,
+      "sha256": "a59a8b4010bf12c72449aed67a561bfc9aaf8f292da4007e3b4f00f91274d345"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammerdlight.gif",
+      "size": 95107,
+      "sha256": "f96b64c1cb53d4d336f901fa20bf7d6ba59059f8b1715b119cef1627665279e1"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammerdsig.gif",
+      "size": 113516,
+      "sha256": "5f78b52d37572e2f362c10066ebb1b20d3fb2d01c79c534da0e04fb5e84cee03"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammergp.gif",
+      "size": 95139,
+      "sha256": "d1b4983cb8f60a7f3d6f6479ffecedef1a0e84b39f9de2766bc3e274995cd454"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammernair.gif",
+      "size": 80076,
+      "sha256": "37f480c9b3582e1765b31e813a260965bc4a2e89699c7c6a2efabc4df9eeb6da"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammernlight.gif",
+      "size": 169480,
+      "sha256": "0ba8eb26bad61e724c550831b4e20d34e9e2f0bdc1cb7f3c54ed5248d0939760"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammernsig.gif",
+      "size": 34351,
+      "sha256": "1eb61606f005a6f71674fc9f4b94946cb05614143cf4984f29a4b7999f1d57df"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammersair.gif",
+      "size": 196114,
+      "sha256": "7ab00ec5c25c40b1dfe11d718d29729a248c763afa44b465372d09a00d8f593d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/hammerslight.gif",
+      "size": 119783,
+      "sha256": "a75d2d042996a2a90d7747b499fac58c6ffa6a6e1ec754d4ecce531c8cd86c4b"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/speardair.gif",
+      "size": 89210,
+      "sha256": "f432528c0f9a41b3d8b2b86eee016e8683768598b157dd7c12237aba9af5a9e3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/speardlight.gif",
+      "size": 201398,
+      "sha256": "d5b5be33fc6209614e669ce503180ea8a4995a3b376276e2749c59022e229d49"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/speardsig.gif",
+      "size": 225011,
+      "sha256": "2cd84d144808f382a12d96687dcf8f5ab9b7ea5e41c31fb5028dca1916205da1"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/speargroundpound.gif",
+      "size": 178594,
+      "sha256": "90e25dc9acf48b59c318b71474116a2d44466a75e9733152edeb8a1772a4a966"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearnair.gif",
+      "size": 168179,
+      "sha256": "01dfbe077dc99abe6bf1219f4651d4b48038b99b07f0b2c819eceea236a84494"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearnlight.gif",
+      "size": 91800,
+      "sha256": "4ceb5010bc7a797f9b81beb49c4b3bb33a2f5bfee2f98886a5dc0b64a29a5c13"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearnlighteffects.gif",
+      "size": 33305,
+      "sha256": "c83933fe5880b8e2c1cdf5390c498536e575699dc1f892452e8f720f1dc6e636"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearnsig.gif",
+      "size": 261085,
+      "sha256": "f7d9480edf8deca1a984e80235174a3d155e9cbd6aac86e0972460a58962c5a1"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearrecovery.gif",
+      "size": 129828,
+      "sha256": "67e7c167caf8f17bef02f9432e8c2b8b632cad25a44299755ca017d25249cd6d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearsair.gif",
+      "size": 69056,
+      "sha256": "09f62b2593bef3d82e1bc89640849346254507ec07a1b0a10fc033a88ac9a410"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearslight.gif",
+      "size": 106662,
+      "sha256": "b20966775ca0770a3a7a6e7ffd4fffcf38d88604924009e3366e01fc93ef23a7"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/spearssig.gif",
+      "size": 221912,
+      "sha256": "7758f9df488eeac9a676c7f644c90864af7fa9b7495d13a026dea89074e81fe1"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddair.gif",
+      "size": 81495,
+      "sha256": "5245ec80d6e54fcee47af88104f970dfca275a3f82e430e8ea63db27e88296f3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddair_end.gif",
+      "size": 23657,
+      "sha256": "17d88661e49a2488e4216c5351928393633b56cbd7158b21733221909e3335f9"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddair_held.gif",
+      "size": 71157,
+      "sha256": "404642d48f3df34d2e0e62a4517793fd21acc01153d1314a7eeae8779349f5cd"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddlight.gif",
+      "size": 41040,
+      "sha256": "920ce0f9f5c5e97ce462ed4e2f0eb4f6adc212b0d60322594436806bbafa8e5b"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddlight_start.gif",
+      "size": 13199,
+      "sha256": "56728b604c40f7ef1c58d6e238b1ff4d040c72edffbdcc7d90390b7218040cd7"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsig.gif",
+      "size": 91130,
+      "sha256": "90dfda83b5cf07d9345722c8df5d5ee9757a453c386ca79d69dcca5fe2e95498"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsig_end.gif",
+      "size": 60141,
+      "sha256": "fbdb25ab07931409e17f64a7c8fa8ee6a4cbd86a8c9be168cae45024e4503216"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsig_held.gif",
+      "size": 43865,
+      "sha256": "aff9c17c97c0f172b0a934ac6cee7d6ed7304786c9cb66835b0bd66f19d505a8"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsigpaper.gif",
+      "size": 33677,
+      "sha256": "f50ba35ac47fa3743a3f83b31cbe7d01b6c5ece8e5ad8b8fcb66f395105572d4"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsigrock.gif",
+      "size": 32274,
+      "sha256": "1aa7934632f50cb5e19ad3dcea3667ef6b9e8f2d2a110b1d39331b47751ab509"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmeddsigscissors.gif",
+      "size": 31480,
+      "sha256": "cbb0e19b58d35275afd686c4e111db1c92a21f42fa2531f734152c5b03577ffc"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedgp.gif",
+      "size": 73790,
+      "sha256": "846c6a4ab321832ac640ea7093332e5c6e5fbf564315415cb58891a82c687bf2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedgp_end.gif",
+      "size": 21449,
+      "sha256": "8a12fb2735a41cb3411a501244eecafd8c3199bcd8f4c95d454ba53eb3eac027"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedgp_held.gif",
+      "size": 33187,
+      "sha256": "22a4d1eb41fc90ccac7cbf2d683e507519220acfdb8b77642ad97c9f91d6fe07"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednlightfinisher.gif",
+      "size": 53122,
+      "sha256": "cc3bf6197f4a36c9e12bda41fa7eeb907254626869fdb93ba40502b80cc79d9d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednlightnofinisher.gif",
+      "size": 33815,
+      "sha256": "a00faa01370ffc1c5d65724d45a20e1da6b7be564de21a7b6ec0653bf4765cbd"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednsig_held.gif",
+      "size": 36611,
+      "sha256": "241fe97a0c268d3e1ee317bc5e93758c501fe9bd2cc675808fbdc854343dd462"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednsig_paper.gif",
+      "size": 28991,
+      "sha256": "ab724246179bd0d836d18348e279473602090159168c944b886843bc7bed327c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednsig_rock.gif",
+      "size": 27371,
+      "sha256": "376c019da1b285b78e784e66602e9939cc7f2bee6ad939f93e783020eb43a18c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmednsig_scissors.gif",
+      "size": 26873,
+      "sha256": "ea618ec0fc047db6f77e7229206d7ba763e9c3c25a4d0239475a7abc0d12e034"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedrecovery.gif",
+      "size": 32022,
+      "sha256": "96199d0b81bd2ceac91fded569c989978d034ce49d90b6814b1c6e99f66663a3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedsair.gif",
+      "size": 26489,
+      "sha256": "08e36c0f1efc4cff8b2081231642c56eb02812323a4aa7da1c72f882799ab65c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedslight.gif",
+      "size": 32827,
+      "sha256": "012933b93ea9d31eaa77f9c711d95115b8545055e27eb9ef668cf87fccce0cba"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedssig.gif",
+      "size": 149383,
+      "sha256": "d044c8cec5a29e2f8ce299aa867e6049cc38f114484545f5ce052c52eb75b970"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedssig_end.gif",
+      "size": 42939,
+      "sha256": "7a84dce5b144c50208be36871e6b2bfdcdd48c8e8c57dfc9b0048179172e561a"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/attacks/unarmedssig_held.gif",
+      "size": 118597,
+      "sha256": "a3e220f13e73917d5ed92a53d52ed94af9363dd5042d96adef74531b1f0241b8"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/effects/gravitycancel.gif",
+      "size": 45024,
+      "sha256": "2a3168a935cc520853aa313126e47bbd453b8d65aad4b418054a027ffe2f2534"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/effects/ground_boom.gif",
+      "size": 22245,
+      "sha256": "4d82e469fdc4fccc90b85c36b5408161c9b538607513674c35819e3b9d18d5a2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/effects/plate.png",
+      "size": 30898,
+      "sha256": "ab908802712219f7c6e2c7fffc5caf4ee051559924ed59794b14b49f3e71736b"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/effects/plate_up.gif",
+      "size": 71991,
+      "sha256": "a2170cff582fecc7a65302e783255228166eb19361d8adee22fdf9f1c7a62ddf"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/effects/side_swoosh.gif",
+      "size": 8568,
+      "sha256": "d37f7c8b853e3694a6b7272ff72fd9e54facb171a22c6d77edf1af8b33e3b68e"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/background.png",
+      "size": 547548,
+      "sha256": "e11a33ad416457796a6844cb63a2aab174a6d56b806b51341500b39765001d63"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/bg.jpg",
+      "size": 22345,
+      "sha256": "633c7759f6f40cd94378f0165cd4beba259d102d75de3032f27059382ebe231d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/dark.png",
+      "size": 542304,
+      "sha256": "5aa20ab50196483cfe078de7c093fc81e3bad83a304b0b8cbc76af10574f664f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/fstage.png",
+      "size": 125483,
+      "sha256": "06097a3d56408782951d1385e444bf419a4348b33aa581dddf748ed12500c153"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/light.png",
+      "size": 547548,
+      "sha256": "e11a33ad416457796a6844cb63a2aab174a6d56b806b51341500b39765001d63"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/old.png",
+      "size": 2500,
+      "sha256": "600f6073ce991f07d7d3847b02d20ae58834914dd105bfb7fed4f181735083c2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/platform.png",
+      "size": 4382,
+      "sha256": "8e32dcbc4edc29e4d72c7da70de6b6b65ee6c7c1846a5a3f6d404590454d8e63"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/skylight.png",
+      "size": 145922,
+      "sha256": "77342c2324df30437d5e540e53281ff2b2cc6e49a594d8f907e740e1c298269f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/map/stage.png",
+      "size": 60481,
+      "sha256": "6263324f0f10a856addca0a572c3312d9cf164379f30f89dc163117eead05336"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/aldown.gif",
+      "size": 19676,
+      "sha256": "6867827058de76dc12de27776bcff767daa6c186f1b4894a8c4552bac5643810"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/algroundpound.png",
+      "size": 49584,
+      "sha256": "f936ad201751f7491ec44f3d2aa4ef6a87ca4c514e7b526bbbd6dfbc9db7c9b8"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/alnsig.gif",
+      "size": 299093,
+      "sha256": "1029528a2a14580966ab2733a14f621a079fce53383d856f8a5658c694d20866"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/alpunch.gif",
+      "size": 183168,
+      "sha256": "6ea51b2102d48ccea90fb6778cce9e132677c3fb6bfbf7b77ef0773024785644"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/alssig.gif",
+      "size": 174755,
+      "sha256": "db58cb22e3d60e2aee7e786308830cdd3250c4cd5cfe01ffead0542f9ddf1596"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/alup.gif",
+      "size": 20964,
+      "sha256": "f864b40a9987bcaa527c3b468af04030dc3f2dc21a4574f361cc0662ecc1262a"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/backdash.gif",
+      "size": 188840,
+      "sha256": "d84ad816fe902eedf0bafa85e817ce55abb42c0fafa95d447643931cf4f489c6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/dodge.gif",
+      "size": 157379,
+      "sha256": "b479c9fa482c6eae1ae746f81a4efba5633a91a02e7210f3a13e6def057c7f0c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/hurt_down.png",
+      "size": 36648,
+      "sha256": "495804a73e0f0f9640fccd0958179d143dbe4fc1fee7aca88041430eb98860b7"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/hurt_up.png",
+      "size": 36741,
+      "sha256": "81b025ef0e1a37421ba8c937c4e9a47654931bae66d87c34d858d4c566193c9d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/idle.gif",
+      "size": 1270569,
+      "sha256": "e1f10d483845f0c1ca6595b7d6bcca520e20e172cf1e9cedc0a1b5dec9c4c1ab"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/into_run.gif",
+      "size": 254421,
+      "sha256": "08b506cb7569a550e7416f989fafb2833d772683fae194d8757a52b648215fe6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/jump.gif",
+      "size": 257918,
+      "sha256": "71cff8e2918751e56dee15d959bd4376d45ce5352545bdaae0189e00ea5149dd"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/run.gif",
+      "size": 29615,
+      "sha256": "9b54072b654256adf23b84a0fcbfc500ecc97ba7fddda35acbad7689f29baea2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/turn.gif",
+      "size": 182793,
+      "sha256": "03cc308089b94118eaf298c5296e647163206c8c1f5d978496243045a40664c5"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/movement/walk.gif",
+      "size": 24689,
+      "sha256": "eb138e3b3bb10e8327ad18f4b1dc79c8d70d68cfb20638323ab483c092a0b332"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/taunt/alhappy.gif",
+      "size": 294409,
+      "sha256": "d73b53e6b691c8993dd83051257dfa63c467fff90c8d61e4dfcbba7eb1cfaa02"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/taunt/alkai.gif",
+      "size": 536356,
+      "sha256": "4b9ed25a541dd1f650dec06cba2a2f378d680f5c02a758ca2acd7c35ac1b39a4"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/player/taunt/altroll.gif",
+      "size": 619967,
+      "sha256": "3ff788f729ddebc94c31742336a833d851ff838325efbe5021dd52ed70390ea9"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/soundtrack.mp3",
+      "size": 1432994,
+      "sha256": "03244006c0df7edf4f82a0ada9f79d5b48690f186b7bd9f483831be5784d50c6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/ui/alicon_alive.png",
+      "size": 68343,
+      "sha256": "bb1d4bfd9d26f325679fe205cb7a7ff975fd2df00a9da4133c9718493bc62927"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/ui/alicon_dead.png",
+      "size": 69165,
+      "sha256": "be7fdb27caf46ff8f9720aca708f83c1304edb373c97f0e63980b1c8072c4090"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/ui/player1ui.png",
+      "size": 496622,
+      "sha256": "f954f25055c7ccf680e8e7a9ff51c8970abaae02797b548c2651499de5c7e23b"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/ui/player2ui.png",
+      "size": 529174,
+      "sha256": "ede20db81d0f967ee405ad3349b5203dfd00738426cfd0cbc68aaddda580e756"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/weapons/Hammer.png",
+      "size": 8206,
+      "sha256": "fb0cd3675a66cf5f9870d5a2c571583b44ca0047b0153cd77cf8f0c572aea792"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/assets/weapons/Spear.png",
+      "size": 3559,
+      "sha256": "55eb282a025f244544c98d5e853c81845dfe1d375edf6ddcd53266dbf4da4ff0"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed DAir.json",
+      "size": 2424,
+      "sha256": "a2b31a8d80298d0bd0099b08470b82ba14f98d3771cb06108bce8590342e7ce9"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed DLight.json",
+      "size": 5713,
+      "sha256": "44b03ec30bdd10f6269de12300813af8079a7faf297ffcf80f89e10b719456be"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed DSig.json",
+      "size": 2540,
+      "sha256": "b3c5ed68e3081a091f18a59386419ee37aa5f592e84e1138ef7a3f06aa1020a2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed Groundpound.json",
+      "size": 2908,
+      "sha256": "412cb33cd372207d93485ea3eeb2d4b6810ab9b858eedd61c7abab0b79f3868a"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed NAir.json",
+      "size": 7440,
+      "sha256": "fe2b92eb897b3fdb05027288da7ea561041f30de560907a8056f37b45d7a7bc3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed NLight.json",
+      "size": 11887,
+      "sha256": "c2ff85e763a1d0212fa987dc1c0496300a9e754fa43ce69ac4930fef9c1950c3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed NSig.json",
+      "size": 1518,
+      "sha256": "53f9e7eaf20cc591fab87b5a5cec672a4e26bd186309256eda6443508384ecb5"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed Recovery.json",
+      "size": 5606,
+      "sha256": "398643970f5e4b9e47cad10b62156874f70032ee8a82a589cc7498af13793d5f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed SAir.json",
+      "size": 3767,
+      "sha256": "576bf8d295ead7e8ee8e83e040c4e83af8faa86c7fd70c0aaba787728d495472"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed SLight.json",
+      "size": 5673,
+      "sha256": "f6adf33d40bc6ff76be863b2e96bf633e7cf413c17b534852b7183723f44ff6e"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/attacks/Unarmed SSig.json",
+      "size": 1802,
+      "sha256": "7b498aac0b74459bba6f9e4a150c20e55805e7be8ce404bd244a0f41748127e2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/constants.py",
+      "size": 115,
+      "sha256": "7e7fe9f92108e2846e954c9e8b825d21377e01803004fe7ee5f655e54a1f1978"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/environment.py",
+      "size": 196888,
+      "sha256": "1bc31afc1319613c7d7f81a3280e87c2a036ca3c97801bc1579c766c5c39077e"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer DAir.json",
+      "size": 5813,
+      "sha256": "464d8cfd5eaa33b9a2b815413ac574048705f506eb0a64c4ed6ec4252501276d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer DLight.json",
+      "size": 2901,
+      "sha256": "97c0021b6b55e01426d03fec6a3407d536aa1fd5dcf36bb9aac321960fcfd01b"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer DSig.json",
+      "size": 6696,
+      "sha256": "de7379dbcbc7edbf730280b277356d45c5f1c0bba226900c34cdd4036955ec97"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer Groundpound.json",
+      "size": 3725,
+      "sha256": "205ec010f0fad1ed7559db6556e6c168f691e9982479abc7416782b0dc891cfe"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer NAir.json",
+      "size": 3707,
+      "sha256": "47d3c55efaf83e41b7b26c0a0e0ce0ee24ec86f93f76f1a0fc9d1c844e630086"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer NLight.json",
+      "size": 5551,
+      "sha256": "a6e3bf6d420560dd6e70014f5dd15bcd9c8334cc6cb3b843c41f9110cef22b63"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer NSig.json",
+      "size": 7395,
+      "sha256": "d4ab8dd46e806fa886524152bd2403fe85787a454353b73561dd945c0b17e1f3"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer Recovery.json",
+      "size": 4599,
+      "sha256": "e0a7fe689bf970b7d31e1bd4850d66540cc86fafc802632302625c3decbd9322"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer SAir.json",
+      "size": 3207,
+      "sha256": "2352f4b13ad02239c335ceea0bf17cf2e275465f4e07ff597b4c76a24ea47ab9"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer SLight.json",
+      "size": 2627,
+      "sha256": "a891069b58fe1761191a9c2091264eeb95340e911de68fd5db4ce620cbc61496"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammer_attacks/Hammer SSig.json",
+      "size": 6038,
+      "sha256": "e7f40c75d0e325b8fcf9c2880bd61f4546e39397a79fc866ee169fcbcae2f55c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammervfx/idle.gif",
+      "size": 3339,
+      "sha256": "788c088e31d712289448006322eb6089c61386bc49a5e388849fccac551bf028"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/hammervfx/spawn.gif",
+      "size": 3339,
+      "sha256": "788c088e31d712289448006322eb6089c61386bc49a5e388849fccac551bf028"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/setup_installs.py",
+      "size": 804,
+      "sha256": "6f3537483d029918371941d57772afee8d44806314e18763cc74f005740c1271"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spawnervfx/despawn.gif",
+      "size": 41015,
+      "sha256": "67383414ca0d8569e3c21d101b28d5746d57e32ecb42b92606d839b735661ce6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spawnervfx/idle.gif",
+      "size": 41015,
+      "sha256": "67383414ca0d8569e3c21d101b28d5746d57e32ecb42b92606d839b735661ce6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spawnervfx/pickup.gif",
+      "size": 41015,
+      "sha256": "67383414ca0d8569e3c21d101b28d5746d57e32ecb42b92606d839b735661ce6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spawnervfx/spawn.gif",
+      "size": 80056,
+      "sha256": "b76d02d162556865d56366d37a9648591a461deab40f989e20671c3263f77de2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear DAir.json",
+      "size": 2748,
+      "sha256": "e504f8e2b350c3dc1c9ff15f4e4852d0fbfe7beccb4ab6f7397599f9efb3a221"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear DLight.json",
+      "size": 8287,
+      "sha256": "07ff9651e2a43b574f002472acc496c3d093cab611a4d631f8e847969504d289"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear DSig.json",
+      "size": 5363,
+      "sha256": "2e2eb8a0a4fd2bf278329551ac584dfa62226f8b172f95a1c84be48a2047c4d4"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear Groundpound.json",
+      "size": 2371,
+      "sha256": "5bb1deb737f41f0bfa1ca07abf47579265cf4fe6b49ee56480d517de2e2bb62f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear NAir.json",
+      "size": 1904,
+      "sha256": "28370cd6ca8956d382b156735dcf0fecaca70ebcc3c46a32882a09ea87854d20"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear NLight.json",
+      "size": 4450,
+      "sha256": "84cbf3fa6c651922c0767a0e374d914eddc2d6b1250971c0997b4bba9a7398ca"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear NSig.json",
+      "size": 4147,
+      "sha256": "06b7aa63abe55da4ab6a2152c3a633fccad3520a2f81680c725ad5e555c46620"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear Recovery.json",
+      "size": 2145,
+      "sha256": "97e9dd218b3db1fa1967b34e4bf9a475297c5b38ca6fa9ce413c74aa0bc3185d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear SAir.json",
+      "size": 2029,
+      "sha256": "0f7d101469c2f46c383b9fde05a82a4008c7980c8578979ec03e1515ea6e69f1"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear SLight.json",
+      "size": 6215,
+      "sha256": "306470e7e013e06fc6d20e08c71a69ceea9c5bb30503528e36738d038935db8c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spear_attacks/Spear SSig.json",
+      "size": 4022,
+      "sha256": "852a41ce82560eb41857115069c8230500710a2fba133c363e9dc2ff23ee9b6c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spearvfx/idle.gif",
+      "size": 3598,
+      "sha256": "c829f4d0aeb1053203410d2c820dc454164e6b9a86558ce5c427ad4d661b3378"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/spearvfx/spawn.gif",
+      "size": 3598,
+      "sha256": "c829f4d0aeb1053203410d2c820dc454164e6b9a86558ce5c427ad4d661b3378"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed DAir.json",
+      "size": 2419,
+      "sha256": "ef5c13d9415b04fd7b6cd03317c2f8981082695f1e75e2acc0fc1c8c9eeeddb6"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed DLight.json",
+      "size": 5933,
+      "sha256": "f0aaf6b07221be627c4fce7f09ce094e6778e199cfc4f553158f62b97c8b848f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed DSig.json",
+      "size": 2660,
+      "sha256": "233bdf4e27bfd00a746b39d9cfd23a9105d3ad8d8e32a5893b52b9f24c65e87f"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed Groundpound.json",
+      "size": 3047,
+      "sha256": "7d5e45f4ad18d0ffedfff9f8786b3066c90c5d69b5012aeffddd69dc00d2c3ca"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed NAir.json",
+      "size": 7567,
+      "sha256": "4f28a49c5106b43372555d0b9238c9d3777a91606940ba41f8816392a4373544"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed NLight.json",
+      "size": 12345,
+      "sha256": "cd685c3a4ec2c9277640c5a3187a6aa4c9687be5a352b3e2d2867c2de360b3b2"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed NSig.json",
+      "size": 1590,
+      "sha256": "49a7964c4a86243ac682dc7b1284f042b2981e859a57308498ae0154fbf6312c"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed Recovery.json",
+      "size": 5717,
+      "sha256": "232e8e54cdee14dab6d3d5317d10fc169ad7c774b2d70cee445a1405c3b6e578"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed SAir.json",
+      "size": 3813,
+      "sha256": "2be99cf405b764351b941e16fb9643527c145d408dce3dc1e53115902d87208d"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed SLight.json",
+      "size": 5892,
+      "sha256": "93853c47ea15ad3b1d90c064b57d3b3c80402de61ea8c94973752982a287d4c7"
+    },
+    {
+      "path": "UTMIST-AI2-main/environment/unarmed_attacks/Unarmed SSig.json",
+      "size": 1886,
+      "sha256": "7e93b7e1f9c101ab3fbca412095ea620a30a7d5b3eae76d84186ce604e4f2c56"
+    },
+    {
+      "path": "assets.zip",
+      "size": 5007311,
+      "sha256": "a7ac768609c549b551f1409584171a177e33f8e1823bde9109f1481664482dee"
+    },
+    {
+      "path": "baselines/configs/small_mlp.yaml",
+      "size": 1279,
+      "sha256": "7738d4c3932ffd1c5d309f0254f64b661d3761d87d0f218687e24786cfc41a2c"
+    },
+    {
+      "path": "benchmark_diagnostics.py",
+      "size": 17156,
+      "sha256": "611ec966c9720f49243f12da034177696f34a6961afbde6f8c96952b17a9ae07"
+    },
+    {
+      "path": "benchmark_training.py",
+      "size": 33605,
+      "sha256": "8b3420f7fd062606b77c072c530ee3c11d87ec558b123955e3bea4be5eede254"
+    },
+    {
+      "path": "config.yaml",
+      "size": 9898,
+      "sha256": "155a73ad621efd9274459d626717b50495cb66d0b5e9bbe64144ba8f6073d88e"
+    },
+    {
+      "path": "positions.json",
+      "size": 514784,
+      "sha256": "144d877be92f35bce14d4d084dc7300b2abe4f3a99af94c546a2f2c6c7b2a5d8"
+    },
+    {
+      "path": "tracking.py",
+      "size": 15217,
+      "sha256": "aedb3bdc3471453cdf149ff827515e075831efca5efeec2985ca4f33ed22c8e7"
+    },
+    {
+      "path": "train.py",
+      "size": 67911,
+      "sha256": "a7a50221e8425d11829e88252f32f950e1693c4a578c042f4748ca88fe364395"
+    }
+  ],
+  "git_commit": "12414651c6f0b41a38f77d6d21ba7767dee1ee88"
+}

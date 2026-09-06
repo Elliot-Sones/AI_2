@@ -1,0 +1,758 @@
+{
+  "episodes": [
+    {
+      "env_index": 0,
+      "episode_steps": 1002,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05098079200251959
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 758,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03924183300114237
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1022,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05465670800185762
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1242,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06477833300596103
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1055,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05682425000122748
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1050,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05385658302111551
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1202,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06333554201410152
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1491,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.08097987499786541
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1778,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09452049998799339
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 547,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.028084042016416788
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 665,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03236541600199416
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 827,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04115241699037142
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1121,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05894545899354853
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1163,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06152725001447834
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1672,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09002116700867191
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1028,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05402054198202677
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1001,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04983995799557306
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1463,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.076360459002899
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 995,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04778691698447801
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1085,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05544295799336396
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1425,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07844145799754187
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1251,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06671404198277742
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1025,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.052970832999562845
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 922,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04699699999764562
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 766,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.039731458004098386
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1203,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.0639485839928966
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1300,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07121520800865255
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1054,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.054592875007074326
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1422,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07416379198548384
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1245,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06229916698066518
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 745,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03731970800436102
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1021,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.056034125009318814
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 903,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.048058707994641736
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1130,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06175137500395067
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 736,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.038586750015383586
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1151,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06193412499851547
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1262,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.0697246250056196
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1018,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.052574000001186505
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 911,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05120583399548195
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 884,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04861445800634101
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 898,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04630295900278725
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1759,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09937466698465869
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1235,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07189454100443982
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 740,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03842691701720469
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1056,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05928533399128355
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1045,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05630654201377183
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 953,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05582775000948459
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 665,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03885170799912885
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 963,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.059573415986960754
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 897,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06249541600118391
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1457,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09893858298892155
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 834,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04877329198643565
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 854,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04356399999232963
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 927,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04975474998354912
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1436,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.08258616598322988
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1269,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06970008299686015
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 908,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05077362500014715
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1346,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07533250001142733
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 633,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.033049624995328486
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 893,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04495020798640326
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1516,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.08459445901098661
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 609,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.031989208975574
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1725,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09306670798105188
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1149,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06275199999799952
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1120,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05836724999244325
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 890,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.046643749985378236
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 760,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.039124917006120086
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1718,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09284879101323895
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 641,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03352654099580832
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 893,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04889529102365486
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1321,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07374483300372958
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 2338,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.1344850420136936
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1057,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05478683300316334
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 706,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03823104201001115
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 729,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04094112498569302
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 932,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04960891598602757
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 657,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.03765308400033973
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 650,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.034607874986249954
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1187,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06320495801628567
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1052,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.057248500001151115
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1836,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.10178562501096167
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1228,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.0658659579930827
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 746,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.04181983400485478
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1757,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.10319087500101887
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 740,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.043110833008540794
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1545,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.09277883399045095
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1132,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06524137500673532
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1418,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.07971775002079085
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 893,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05182824999792501
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 955,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.05629829198005609
+    },
+    {
+      "env_index": 0,
+      "episode_steps": 1090,
+      "mode": "raw",
+      "repeat": 0,
+      "termination": "terminated",
+      "wall_seconds": 0.06219362499541603
+    }
+  ],
+  "result": {
+    "aggregate_episodes_per_second": 16.454860566429602,
+    "completed_episodes": 91,
+    "extra": {
+      "action_seed": 42,
+      "action_sha256": "24b582172bed17e690a3f4f8de9860b52f6bfaf79d8a46c4b6c112132880b26c",
+      "episode_wall_note": "Raw episode wall time excludes reset; total throughput includes natural resets.",
+      "initial_reset_seconds": 0.0017087090236600488,
+      "max_timesteps": 9000,
+      "timing_note": "init_seconds and initial_reset_seconds exclude measured loop; reset_seconds is natural terminal reset cost included inside total_seconds.",
+      "warmup_steps": 100
+    },
+    "init_seconds": 0.8497886669938453,
+    "mean_episode_steps": 1091.1978021978023,
+    "mean_episode_wall_seconds": 0.05953311629607445,
+    "measured_steps": 100000,
+    "mode": "raw",
+    "n_envs": 1,
+    "partial_episodes": 1,
+    "repeat": 0,
+    "requested_steps": 100000,
+    "reset_seconds": 0.0728925839648582,
+    "seed": 42,
+    "steps_per_second": 18082.26435871385,
+    "total_seconds": 5.530280832987046
+  }
+}
