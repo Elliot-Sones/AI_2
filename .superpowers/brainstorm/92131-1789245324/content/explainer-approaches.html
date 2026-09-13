@@ -1,0 +1,60 @@
+<h2>How should a complete beginner learn the training loop?</h2>
+<p class="subtitle">All three use the real measured numbers. The difference is how the story unfolds.</p>
+
+<div class="cards">
+  <div class="card" data-choice="guided-journey" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:22px;background:#101719;color:#e8eee8;min-height:250px">
+      <div style="font:12px monospace;color:#a9dcb0;letter-spacing:1px">RECOMMENDED · A</div>
+      <div style="font:28px Georgia,serif;margin:15px 0">Follow one moment<br>through training</div>
+      <div style="display:grid;grid-template-columns:1fr 34px 1fr;gap:8px;align-items:center;margin-top:24px">
+        <div style="border:1px solid #476256;padding:14px">🎮 64 games<br><small style="color:#a7b8b5">What is happening now?</small></div>
+        <div style="text-align:center;color:#f3c77c">→</div>
+        <div style="border:1px solid #46617e;padding:14px">🧠 One model<br><small style="color:#a7b8b5">Choose the actions</small></div>
+      </div>
+      <div style="height:7px;background:#263235;margin-top:28px"><div style="width:32%;height:100%;background:#a9dcb0"></div></div>
+      <div style="font:11px monospace;color:#a7b8b5;margin-top:8px">STEP 2 OF 7 · Next →</div>
+    </div>
+    <div class="card-body">
+      <h3>Guided journey</h3>
+      <p>Seven plain-language scenes. One Next button advances actions → game → memory → learning, with technical details available on demand.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="control-room" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:22px;background:#111b20;color:#e8eee8;min-height:250px">
+      <div style="font:12px monospace;color:#9fc5fc;letter-spacing:1px">B · LIVE MAP</div>
+      <div style="font:25px Georgia,serif;margin:15px 0">Training control room</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+        <div style="border:1px solid #354447;padding:12px">CPU<br><strong>Coordinate</strong></div>
+        <div style="border:1px solid #354447;padding:12px">GPU<br><strong>Simulate + think</strong></div>
+        <div style="border:1px solid #354447;padding:12px">RAM<br><strong>Instructions</strong></div>
+        <div style="border:1px solid #354447;padding:12px">VRAM<br><strong>Fast workspace</strong></div>
+      </div>
+      <div style="font:11px monospace;color:#f3c77c;margin-top:18px">DRAG TIME ▬▬▬●▬▬▬▬</div>
+    </div>
+    <div class="card-body">
+      <h3>Interactive control room</h3>
+      <p>Everything stays visible while a time scrubber highlights CPU, GPU and memory. Powerful, but denser for a first lesson.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="storybook" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:22px;background:#f0eadb;color:#232621;min-height:250px">
+      <div style="font:12px monospace;color:#735c28;letter-spacing:1px">C · SCROLL STORY</div>
+      <div style="font:27px Georgia,serif;margin:15px 0">A robot learns<br>to play the game</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:24px">
+        <div style="font-size:46px">🤖</div>
+        <div style="border-left:2px solid #967c43;padding-left:14px">It tries an action.<br>The world answers.<br>It remembers.</div>
+      </div>
+      <div style="font:11px monospace;color:#735c28;margin-top:26px">SCROLL TO CONTINUE ↓</div>
+    </div>
+    <div class="card-body">
+      <h3>Illustrated storybook</h3>
+      <p>A long narrative with analogies and diagrams. Easiest to read, but weaker for inspecting exact timing and bottlenecks.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px">
+  <p><strong>My recommendation: A, Guided journey.</strong> It gives a beginner one idea at a time, then reveals the measured CPU/GPU details after the mental model is clear.</p>
+</div>
