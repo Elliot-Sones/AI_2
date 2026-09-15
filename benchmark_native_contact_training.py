@@ -30,6 +30,16 @@ CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6
 CHECKPOINT_BYTES = 102673333
 CHECKPOINT_STEPS = 10059776
 ACTION_HEADS = ('gaussian', 'bernoulli_10')
+ACTION_EXPERIMENT_ARMS = {
+    'G_keep': {'action_head': 'gaussian', 'action_init_strategy': 'keep'},
+    'G_neutral': {'action_head': 'gaussian', 'action_init_strategy': 'neutral'},
+    'B_neutral': {'action_head': 'bernoulli_10', 'action_init_strategy': 'neutral'},
+    'B_projected': {'action_head': 'bernoulli_10', 'action_init_strategy': 'projected'},
+}
+ACTION_AB_ARMS = tuple(ACTION_EXPERIMENT_ARMS)
+PENDING_ACTION_EXPERIMENTS = {
+    'multidiscrete': 'pending separate experiment; excluded from this four-arm Gaussian/Bernoulli run',
+}
 REFERENCE_FILES = ('combat_curriculum.py', 'curriculum_navigation.py', 'curriculum_telemetry.py',
                    'curriculum_evaluation.py', 'evaluate_combat_curriculum.py', 'train_combat_curriculum.py')
 CHECKS = ('original_cpu_exact', 'cpu_cuda_exact', 'learner_update_exact')
@@ -46,6 +56,7 @@ class ContactBenchmarkConfig:
     device: str = 'cuda'
     update_mode: str = 'deferred_metrics'
     action_head: str = 'gaussian'
+    action_ab_arm: str = 'G_keep'
     learning_rate: float = .0001
     clip_range: float = .1
     target_kl: float = .01
@@ -68,8 +79,10 @@ class ContactBenchmarkConfig:
             raise ValueError('simulation and policy require CUDA; no CPU fallback')
         if self.update_mode not in ('sb3', 'deferred_metrics'):
             raise ValueError('unsupported update mode')
-        if self.action_head not in ACTION_HEADS:
-            raise ValueError('unsupported action head')
+        if self.action_ab_arm not in ACTION_EXPERIMENT_ARMS:
+            raise ValueError('unsupported action A/B arm')
+        if self.action_head != ACTION_EXPERIMENT_ARMS[self.action_ab_arm]['action_head']:
+            raise ValueError('action_head and action_ab_arm disagree')
         if (self.learning_rate, self.clip_range, self.target_kl, self.ent_coef, self.gamma, self.gae_lambda) != (
                 .0001, .1, .01, .001, .99, .95):
             raise ValueError('the approved contact PPO settings must not change between arms')
@@ -330,10 +343,16 @@ def action_press_metrics(model):
         'action_head': model.policy.action_head,
         'policy_sample_press_rate_all': float(policy_buttons.float().mean().item()),
         'policy_sample_press_rate_active': float(policy_buttons[..., mask].float().mean().item()),
+        'policy_sample_press_rate_per_button': [float(value) for value in policy_buttons.float().mean(dim=(0, 1)).detach().cpu().tolist()],
         'executed_press_rate_all': float(executed_buttons.float().mean().item()),
         'executed_press_rate_active': float(executed_buttons[..., mask].float().mean().item()),
+        'executed_press_rate_per_button': [float(value) for value in executed_buttons.float().mean(dim=(0, 1)).detach().cpu().tolist()],
         'deterministic_press_rate_all': float(deterministic_executed.float().mean().item()),
         'deterministic_press_rate_active': float(deterministic_executed[..., mask].float().mean().item()),
+        'deterministic_press_rate_per_button': [float(value) for value in deterministic_executed.float().mean(dim=0).detach().cpu().tolist()],
+        'attack_light_sample_rate': float(executed_buttons[..., 7].float().mean().item()),
+        'attack_initiation_proxy': float((executed_buttons[..., 7] & ~torch.roll(executed_buttons[..., 7], shifts=1, dims=0)).float()[1:].mean().item())
+            if executed_buttons.shape[0] > 1 else 0.0,
     }
 
 
@@ -343,7 +362,8 @@ def run_block(args):
         raise FileExistsError('use a new output directory; never overwrite a block')
     cfg = ContactBenchmarkConfig(batch_size=args.batch_size, rollouts=args.rollouts,
                                  seed=args.seed, device=args.device, update_mode=args.update_mode,
-                                 action_head=args.action_head)
+                                 action_head=ACTION_EXPERIMENT_ARMS[args.action_ab_arm]['action_head'],
+                                 action_ab_arm=args.action_ab_arm)
     validate_deadline(args.deadline_unix)
     checkpoint = validate_checkpoint(args.checkpoint)
     preservation = require_checkpoint_preservation(args.checkpoint, getattr(args, 'checkpoint_ack', None))
@@ -365,6 +385,8 @@ def run_block(args):
     rows, raw, model, logger = [], None, None, None
     atomic_json(output / 'manifest.json', {'schema_version': 'ai2.native_contact_training.v1',
         'config': asdict(cfg), 'checkpoint': checkpoint, 'checkpoint_preservation': preservation,
+        'action_experiment_arms': ACTION_EXPERIMENT_ARMS,
+        'pending_action_experiments': PENDING_ACTION_EXPERIMENTS,
         'qualification_sha256': sha256(args.qualification),
         'qualification': proof, 'deadline_unix': args.deadline_unix, 'started_unix': time.time(),
         'hardware': {'device': str(device), 'gpu': torch.cuda.get_device_name(device),
@@ -390,7 +412,7 @@ def run_block(args):
         env = TensorVecEnv(raw, device=device)
         model = NativeCurriculumPPO.load_contact_checkpoint(args.checkpoint, env,
             expected_sha256=CHECKPOINT_SHA256, batch_size=cfg.batch_size,
-            update_mode=cfg.update_mode, joint=True, action_head=cfg.action_head)
+            update_mode=cfg.update_mode, joint=True, action_ab_arm=cfg.action_ab_arm)
         validate_runtime(model, cfg)
         atomic_json(output / 'scenarios.json', raw.backend.scenario_metadata)
         logger = configure(str(output / 'ppo'), ['json', 'csv'])
@@ -480,8 +502,13 @@ def parse_args(argv=None):
     parser.add_argument('--seed', type=int, default=145)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--update-mode', choices=('sb3', 'deferred_metrics'), default='deferred_metrics')
-    parser.add_argument('--action-head', choices=ACTION_HEADS, default='gaussian')
-    return parser.parse_args(argv)
+    parser.add_argument('--action-ab-arm', choices=ACTION_AB_ARMS, default='G_keep')
+    parser.add_argument('--action-head', choices=ACTION_HEADS, help='deprecated; use --action-ab-arm')
+    args = parser.parse_args(argv)
+    if args.action_head is not None and args.action_head != ACTION_EXPERIMENT_ARMS[args.action_ab_arm]['action_head']:
+        parser.error('--action-head disagrees with --action-ab-arm')
+    args.action_head = ACTION_EXPERIMENT_ARMS[args.action_ab_arm]['action_head']
+    return args
 
 
 if __name__ == '__main__':

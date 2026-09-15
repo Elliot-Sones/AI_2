@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import math
+import random
 import weakref
 from pathlib import Path
 
@@ -34,6 +35,19 @@ PPO_DEFAULTS = dict(
     vf_coef=0.5, max_grad_norm=0.5,
 )
 ACTION_HEADS = ("gaussian", "bernoulli_10")
+ACTION_INIT_STRATEGIES = ("keep", "neutral", "projected")
+ACTION_EXPERIMENT_ARMS = {
+    "G_keep": {"action_head": "gaussian", "action_init_strategy": "keep"},
+    "G_neutral": {"action_head": "gaussian", "action_init_strategy": "neutral"},
+    "B_neutral": {"action_head": "bernoulli_10", "action_init_strategy": "neutral"},
+    "B_projected": {"action_head": "bernoulli_10", "action_init_strategy": "projected"},
+}
+GAUSSIAN_BUTTON_THRESHOLD = 0.5
+PROBIT_TO_LOGIT_SCALE = 1.702
+BERNOULLI_PROJECTION_MAX_PROB_ERROR = 0.01
+PENDING_ACTION_EXPERIMENTS = {
+    "multidiscrete": "pending separate experiment; excluded from the four-arm Gaussian/Bernoulli causal contract",
+}
 
 
 def _require_finite_tensor(name, tensor):
@@ -51,6 +65,101 @@ def _task_mask(task):
     if task not in TASK_MASKS:
         raise ValueError(f"Unknown curriculum task: {task!r}")
     return np.asarray(TASK_MASKS[task], dtype=bool)
+
+
+def _preserve_rng():
+    class PreserveRng:
+        def __enter__(self):
+            self.state = (random.getstate(), np.random.get_state(), th.get_rng_state())
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            random.setstate(self.state[0])
+            np.random.set_state(self.state[1])
+            th.set_rng_state(self.state[2])
+            return False
+
+    return PreserveRng()
+
+
+def _resolve_action_arm(action_head=None, action_init_strategy=None, action_ab_arm=None):
+    if action_ab_arm is not None:
+        if action_ab_arm not in ACTION_EXPERIMENT_ARMS:
+            raise ValueError(f"action_ab_arm must be one of {tuple(ACTION_EXPERIMENT_ARMS)}, got {action_ab_arm!r}")
+        resolved = ACTION_EXPERIMENT_ARMS[action_ab_arm]
+        if action_head is not None and action_head != resolved["action_head"]:
+            raise ValueError("action_head disagrees with action_ab_arm")
+        if action_init_strategy is not None and action_init_strategy != resolved["action_init_strategy"]:
+            raise ValueError("action_init_strategy disagrees with action_ab_arm")
+        return resolved["action_head"], resolved["action_init_strategy"], action_ab_arm
+    action_head = "gaussian" if action_head is None else action_head
+    if action_init_strategy is None:
+        action_init_strategy = "neutral" if action_head == "bernoulli_10" else "keep"
+    if action_head not in ACTION_HEADS:
+        raise ValueError(f"action_head must be one of {ACTION_HEADS}, got {action_head!r}")
+    if action_init_strategy not in ACTION_INIT_STRATEGIES:
+        raise ValueError(f"action_init_strategy must be one of {ACTION_INIT_STRATEGIES}, got {action_init_strategy!r}")
+    if action_init_strategy == "keep":
+        return action_head, action_init_strategy, "G_keep" if action_head == "gaussian" else None
+    for name, value in ACTION_EXPERIMENT_ARMS.items():
+        if value == {"action_head": action_head, "action_init_strategy": action_init_strategy}:
+            return action_head, action_init_strategy, name
+    raise ValueError("Unsupported action head initialization arm")
+
+
+def _copy_compatible_non_action_state(target_policy, source_policy):
+    state = target_policy.state_dict()
+    for name, value in source_policy.state_dict().items():
+        if name.startswith(("action_net.", "log_std")):
+            continue
+        if name not in state or state[name].shape != value.shape:
+            raise ValueError(f"Incompatible source parameter: {name}")
+        state[name] = value.detach().to(state[name].device).clone()
+    target_policy.load_state_dict(state)
+
+
+def _apply_action_initialization(target_policy, source_policy, *, action_init_strategy):
+    if action_init_strategy not in ACTION_INIT_STRATEGIES:
+        raise ValueError(f"Unsupported action initialization strategy: {action_init_strategy!r}")
+    if action_init_strategy == "keep":
+        if target_policy.action_head != getattr(source_policy, "action_head", "gaussian"):
+            raise ValueError("keep initialization requires matching action heads")
+        return {
+            "strategy": "keep",
+            "description": "action head and log_std copied from source",
+            "optimizer": "preserve when using same-class set_parameters; otherwise fresh optimizer is declared by caller",
+        }
+    with th.no_grad():
+        if action_init_strategy == "neutral":
+            target_policy.action_net.weight.zero_()
+            target_policy.action_net.bias.zero_()
+            target_policy.log_std.zero_()
+            return {
+                "strategy": "neutral",
+                "description": "action_net weight/bias and log_std reset to zero; trunk/value copied",
+                "optimizer": "fresh optimizer required",
+            }
+        if action_init_strategy != "projected":
+            raise ValueError(f"Unsupported action initialization strategy: {action_init_strategy!r}")
+        if target_policy.action_head != "bernoulli_10" or getattr(source_policy, "action_head", "gaussian") != "gaussian":
+            raise ValueError("projected initialization requires Gaussian source and Bernoulli target")
+        _require_finite_tensor("source Gaussian log_std", source_policy.log_std)
+        std = source_policy.log_std.detach().exp()
+        if not bool(th.isfinite(std).all()) or not bool((std > 0).all()):
+            raise ValueError("source Gaussian std must be finite and positive")
+        scale = (PROBIT_TO_LOGIT_SCALE / std).to(target_policy.action_net.weight.device)
+        target_policy.action_net.weight.copy_(source_policy.action_net.weight.detach().to(target_policy.action_net.weight.device) * scale[:, None])
+        target_policy.action_net.bias.copy_((source_policy.action_net.bias.detach().to(target_policy.action_net.bias.device) - GAUSSIAN_BUTTON_THRESHOLD) * scale)
+        target_policy.log_std.zero_()
+        return {
+            "strategy": "projected",
+            "description": "Bernoulli logits approximate P(N(mu,sigma)>0.5) from the source Gaussian head",
+            "projection": "logit ~= 1.702 * (mu - 0.5) / sigma",
+            "button_threshold": GAUSSIAN_BUTTON_THRESHOLD,
+            "probit_to_logit_scale": PROBIT_TO_LOGIT_SCALE,
+            "declared_max_probability_error": BERNOULLI_PROJECTION_MAX_PROB_ERROR,
+            "optimizer": "fresh optimizer required",
+        }
 
 
 class MaskedDiagGaussianDistribution(DiagGaussianDistribution):
@@ -332,14 +441,24 @@ class CurriculumPPO(PPO):
     """PPO with fixed task selection, labeled rollouts and protected transfer."""
 
     def __init__(self, policy=CurriculumPolicy, env=None, *, arm="E1", task="combat", calibration=True,
-                 action_head="gaussian", **kwargs):
+                 action_head="gaussian", action_init_strategy=None, action_ab_arm=None, **kwargs):
         if arm not in ("E1", "E2"):
             raise ValueError("arm must be E1 or E2")
-        if action_head not in ACTION_HEADS:
-            raise ValueError(f"action_head must be one of {ACTION_HEADS}, got {action_head!r}")
+        action_head, action_init_strategy, action_ab_arm = _resolve_action_arm(
+            action_head=action_head, action_init_strategy=action_init_strategy, action_ab_arm=action_ab_arm,
+        )
         _task_mask(task)
         self.arm, self.task, self.calibration = arm, task, bool(calibration)
         self.action_head = action_head
+        self.action_init_strategy = action_init_strategy
+        self.action_ab_arm = action_ab_arm
+        self.action_init_metadata = {
+            "schema": "ai2-action-ab-init-v1",
+            "arm": action_ab_arm,
+            "action_head": action_head,
+            "strategy": action_init_strategy,
+            "source": "constructor",
+        }
         self.parent_num_timesteps = 0
         self.optimizer_provenance = "fresh Adam; navigation parent moments not inherited"
         self.task_history = []
@@ -357,6 +476,11 @@ class CurriculumPPO(PPO):
         policy_kwargs["action_head"] = action_head
         settings["policy_kwargs"] = policy_kwargs
         super().__init__(policy, env, **settings)
+        if action_init_strategy == "neutral":
+            with th.no_grad():
+                self.policy.action_net.weight.zero_()
+                self.policy.action_net.bias.zero_()
+                self.policy.log_std.zero_()
 
     def _setup_model(self):
         super()._setup_model()
@@ -366,12 +490,16 @@ class CurriculumPPO(PPO):
         self.policy.set_task(self.task, self.calibration)
 
     @classmethod
-    def from_parent(cls, parent_model, env, *, arm="E1", task="combat", calibration=True, **kwargs):
+    def from_parent(cls, parent_model, env, *, arm="E1", task="combat", calibration=True,
+                    action_head=None, action_init_strategy=None, action_ab_arm=None, **kwargs):
         parent = parent_model.policy
         if isinstance(parent, CurriculumPolicy):
             raise ValueError("Use load to clone a curriculum state; from_parent is navigation transfer only")
         if type(parent) is not ActorCriticPolicy or parent.use_sde or parent.squash_output:
             raise ValueError("Unsupported parent policy: expected SB3 Gaussian ActorCriticPolicy")
+        action_head, action_init_strategy, action_ab_arm = _resolve_action_arm(
+            action_head=action_head, action_init_strategy=action_init_strategy, action_ab_arm=action_ab_arm,
+        )
         policy_kwargs = dict(
             net_arch=copy.deepcopy(parent.net_arch), activation_fn=parent.activation_fn,
             ortho_init=parent.ortho_init, features_extractor_class=parent.features_extractor_class,
@@ -383,30 +511,38 @@ class CurriculumPPO(PPO):
         if "policy_kwargs" in kwargs:
             raise ValueError("Parent actor architecture must not be overridden")
         kwargs.setdefault("device", parent_model.device)
-        action_head = kwargs.pop("action_head", "gaussian")
-        model = cls(env=env, arm=arm, task=task, calibration=calibration,
-                    action_head=action_head, policy_kwargs=policy_kwargs, **kwargs)
-        state = model.policy.state_dict()
-        for name, value in parent.state_dict().items():
-            if name not in state or state[name].shape != value.shape:
-                raise ValueError(f"Incompatible parent parameter: {name}")
-            if action_head == "bernoulli_10" and name.startswith(("action_net.", "log_std")):
-                continue
-            state[name] = value.detach().clone()
-        model.policy.load_state_dict(state)
-        with th.no_grad():
-            if action_head == "gaussian":
-                model.policy.action_net.weight[7].zero_()
-                model.policy.action_net.bias[7].zero_()
-                model.policy.log_std[7] = math.log(0.3)
-            else:
-                model.policy.action_net.weight.zero_()
-                model.policy.action_net.bias.zero_()
-                model.policy.log_std.zero_()
-                model.optimizer_provenance = (
-                    "fresh neutral Bernoulli action head; parent trunk/value copied; "
-                    "fresh Adam optimizer not transferred"
-                )
+        with _preserve_rng():
+            model = cls(env=env, arm=arm, task=task, calibration=calibration,
+                        action_head=action_head, action_init_strategy=action_init_strategy,
+                        action_ab_arm=action_ab_arm, policy_kwargs=policy_kwargs, **kwargs)
+        if action_init_strategy == "keep":
+            state = model.policy.state_dict()
+            for name, value in parent.state_dict().items():
+                if name not in state or state[name].shape != value.shape:
+                    raise ValueError(f"Incompatible parent parameter: {name}")
+                state[name] = value.detach().clone()
+            model.policy.load_state_dict(state)
+        else:
+            _copy_compatible_non_action_state(model.policy, parent)
+        init_metadata = _apply_action_initialization(
+            model.policy, parent, action_init_strategy=action_init_strategy,
+        )
+        model.action_init_metadata = {
+            "schema": "ai2-action-ab-init-v1",
+            "arm": action_ab_arm,
+            "action_head": action_head,
+            "strategy": action_init_strategy,
+            "source": "navigation_parent",
+            "parent_action_head": getattr(parent, "action_head", "gaussian"),
+            **init_metadata,
+        }
+        if action_init_strategy == "keep":
+            model.optimizer_provenance = "fresh Adam; source action parameters copied; source optimizer not inherited"
+        else:
+            model.optimizer_provenance = (
+                f"fresh {action_init_strategy} {action_head} action head; parent trunk/value copied; "
+                "fresh Adam optimizer not transferred"
+            )
         model.num_timesteps = model.parent_num_timesteps = int(parent_model.num_timesteps)
         model.task_history.append(dict(task=task, calibration=calibration, num_timesteps=model.num_timesteps))
         return model
@@ -515,6 +651,10 @@ class CurriculumPPO(PPO):
         metadata = dict(
             schema="ai2-curriculum-actor-v2", stage=stage, task=self.task,
             action_head=self.policy.action_head, action_contract=self.policy.action_contract(),
+            action_ab_arm=getattr(self, "action_ab_arm", None),
+            action_init_strategy=getattr(self, "action_init_strategy", None),
+            action_init_metadata=copy.deepcopy(getattr(self, "action_init_metadata", {})),
+            pending_action_experiments=copy.deepcopy(PENDING_ACTION_EXPERIMENTS),
             unused_parameters=(["log_std"] if self.policy.action_head == "bernoulli_10" else []),
             allowed_control_mask=list(TASK_MASKS[self.task]), observation_size=256,
             action_size=10, num_timesteps=self.num_timesteps,
@@ -568,7 +708,7 @@ class CurriculumActor(th.nn.Module):
         return decoded.cpu().numpy() * self.mask, state
 
 
-def load_actor(path, *, device="cpu", expected_action_head=None):
+def load_actor(path, *, device="cpu", expected_action_head=None, expected_action_ab_arm=None):
     payload = th.load(Path(path), map_location=device, weights_only=True)
     metadata = payload["metadata"]
     if metadata.get("schema") == "ai2-curriculum-actor-v1":
@@ -581,6 +721,8 @@ def load_actor(path, *, device="cpu", expected_action_head=None):
         raise ValueError("Unsupported curriculum actor action head")
     if expected_action_head is not None and action_head != expected_action_head:
         raise ValueError("Exported actor action head differs from expected action head")
+    if expected_action_ab_arm is not None and metadata.get("action_ab_arm") != expected_action_ab_arm:
+        raise ValueError("Exported actor action arm differs from expected action arm")
     activations = {"Tanh": th.nn.Tanh, "ReLU": th.nn.ReLU, "ELU": th.nn.ELU, "LeakyReLU": th.nn.LeakyReLU}
     if metadata["activation"] not in activations:
         raise ValueError("Unsupported exported actor activation")

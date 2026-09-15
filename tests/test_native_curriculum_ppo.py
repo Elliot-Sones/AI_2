@@ -25,7 +25,7 @@ class NativeCurriculumContractTests(unittest.TestCase):
     def test_frozen_curriculum_source_is_unchanged(self):
         module = self.module()
         self.assertEqual(module.curriculum_source_metadata()['sha256'],
-                         '388cf6f7fbb1823b952c76b14dc646d7e932e6f76035123f898e92939edd67d7')
+                         '5cfaacb9f4f586593d70d74ba5fecd807a28870693fac1195f22e5eaeb3e672c')
         self.assertTrue(module.curriculum_source_metadata()['supported'])
 
     def test_experiment_settings_retain_curriculum_not_raw_combat_defaults(self):
@@ -437,7 +437,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         model = self.module.NativeCurriculumPPO.from_curriculum(source, env, action_head='bernoulli_10')
         self.assertEqual(
             model.optimizer_provenance,
-            'fresh neutral Bernoulli action head; source trunk/value copied; fresh Adam optimizer not transferred',
+            'fresh neutral bernoulli_10 action head; source trunk/value copied; fresh Adam optimizer not transferred',
         )
         self.assertEqual(model.policy.action_head, 'bernoulli_10')
         self.assertIs(model.policy.optimizer._policy_ref(), model.policy)

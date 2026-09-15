@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import math
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
-import torch as th
-import gymnasium as gym
-from gymnasium import spaces
+
+HAS_POLICY_DEPS = importlib.util.find_spec("torch") is not None and importlib.util.find_spec("gymnasium") is not None
+
+if HAS_POLICY_DEPS:
+    import torch as th
+    import gymnasium as gym
+    from gymnasium import spaces
 
 
+@unittest.skipUnless(HAS_POLICY_DEPS, "torch/gymnasium are not installed in this local contract environment")
 class ActionHeadContractTests(unittest.TestCase):
     def setUp(self):
         import curriculum_ppo as module
@@ -195,7 +201,7 @@ class ActionHeadContractTests(unittest.TestCase):
         self.assertEqual(child.policy.action_head, "bernoulli_10")
         self.assertEqual(
             child.optimizer_provenance,
-            "fresh neutral Bernoulli action head; parent trunk/value copied; fresh Adam optimizer not transferred",
+            "fresh neutral bernoulli_10 action head; parent trunk/value copied; fresh Adam optimizer not transferred",
         )
         th.testing.assert_close(
             child.policy.mlp_extractor.policy_net[0].weight,
@@ -205,6 +211,138 @@ class ActionHeadContractTests(unittest.TestCase):
         )
         th.testing.assert_close(child.policy.action_net.weight, th.zeros_like(child.policy.action_net.weight), rtol=0, atol=0)
         th.testing.assert_close(child.policy.action_net.bias, th.zeros_like(child.policy.action_net.bias), rtol=0, atol=0)
+
+    def test_action_ab_arms_are_explicit_and_do_not_silently_neutralize(self):
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.policies import ActorCriticPolicy
+
+        parent = PPO(
+            ActorCriticPolicy,
+            self.fixture_env(),
+            n_steps=8,
+            batch_size=8,
+            policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+            seed=31,
+        )
+        with th.no_grad():
+            parent.policy.action_net.weight.fill_(0.25)
+            parent.policy.action_net.bias.fill_(0.75)
+            parent.policy.log_std.fill_(math.log(0.3))
+        kept = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="G_keep", n_steps=8, batch_size=8,
+        )
+        neutral = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="G_neutral", n_steps=8, batch_size=8,
+        )
+        projected = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="B_projected", n_steps=8, batch_size=8,
+        )
+
+        self.assertEqual(kept.action_ab_arm, "G_keep")
+        self.assertEqual(neutral.action_ab_arm, "G_neutral")
+        self.assertEqual(projected.action_ab_arm, "B_projected")
+        th.testing.assert_close(kept.policy.action_net.bias, parent.policy.action_net.bias, rtol=0, atol=0)
+        th.testing.assert_close(neutral.policy.action_net.bias, th.zeros_like(neutral.policy.action_net.bias), rtol=0, atol=0)
+        self.assertFalse(th.equal(projected.policy.action_net.bias, th.zeros_like(projected.policy.action_net.bias)))
+        self.assertIn("projected", projected.optimizer_provenance)
+
+    def test_projected_bernoulli_matches_gaussian_deterministic_buttons_and_sample_probabilities(self):
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.policies import ActorCriticPolicy
+
+        parent = PPO(
+            ActorCriticPolicy,
+            self.fixture_env(),
+            n_steps=8,
+            batch_size=8,
+            policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+            seed=37,
+        )
+        with th.no_grad():
+            parent.policy.action_net.weight.zero_()
+            parent.policy.action_net.bias.copy_(th.tensor(
+                [0.1, 0.49, 0.5, 0.5001, 0.8, 0.7, 0.2, 1.0, 0.6, 0.4],
+                dtype=th.float32,
+            ))
+            parent.policy.log_std.fill_(math.log(0.35))
+        child = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="B_projected", n_steps=8, batch_size=8,
+        )
+        observations = th.zeros((5, 256), dtype=th.float32)
+        with th.no_grad():
+            parent_means = parent.policy.action_net(parent.policy.mlp_extractor.policy_net(observations))
+            child_logits = child.policy.action_net(child.policy.mlp_extractor.policy_net(observations))
+        parent_buttons = parent_means > self.module.GAUSSIAN_BUTTON_THRESHOLD
+        child_buttons = child_logits > 0
+        th.testing.assert_close(child_buttons.to(th.float32), parent_buttons.to(th.float32), rtol=0, atol=0)
+        self.assertFalse(bool(child_buttons[0, 2]), "exact threshold boundary must remain unpressed")
+
+        gaussian_probs = th.distributions.Normal(parent_means, parent.policy.log_std.exp()).cdf(
+            parent_means.new_full(parent_means.shape, self.module.GAUSSIAN_BUTTON_THRESHOLD)
+        )
+        gaussian_press_probs = 1 - gaussian_probs
+        bernoulli_press_probs = th.sigmoid(child_logits)
+        max_error = (gaussian_press_probs - bernoulli_press_probs).abs().max().item()
+        self.assertLessEqual(max_error, self.module.BERNOULLI_PROJECTION_MAX_PROB_ERROR)
+
+        child.policy.set_task("combat", calibration=False)
+        actions, _values, log_prob = child.policy(observations, deterministic=False)
+        loss = -log_prob.mean()
+        loss.backward()
+        self.assertTrue(th.isfinite(log_prob).all())
+        _eval_values, eval_log_prob, entropy = child.policy.evaluate_actions(observations, actions)
+        self.assertTrue(th.isfinite(eval_log_prob).all())
+        self.assertTrue(th.isfinite(entropy).all())
+        self.assertTrue(all(parameter.grad is None or th.isfinite(parameter.grad).all()
+                            for parameter in child.policy.parameters()))
+
+    def test_action_arm_metadata_round_trips_and_rejects_mismatch(self):
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.policies import ActorCriticPolicy
+
+        parent = PPO(
+            ActorCriticPolicy,
+            self.fixture_env(),
+            n_steps=8,
+            batch_size=8,
+            policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+            seed=41,
+        )
+        child = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="B_projected", n_steps=8, batch_size=8,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "actor.pt"
+            metadata = child.export_actor(path)
+            self.assertEqual(metadata["action_ab_arm"], "B_projected")
+            _actor, loaded = self.module.load_actor(path, expected_action_head="bernoulli_10",
+                                                    expected_action_ab_arm="B_projected")
+            self.assertEqual(loaded["action_init_metadata"]["strategy"], "projected")
+            with self.assertRaisesRegex(ValueError, "action arm"):
+                self.module.load_actor(path, expected_action_ab_arm="B_neutral")
+
+    def test_from_parent_preserves_caller_rng_state(self):
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.policies import ActorCriticPolicy
+
+        parent = PPO(
+            ActorCriticPolicy,
+            self.fixture_env(),
+            n_steps=8,
+            batch_size=8,
+            policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+            seed=43,
+        )
+        random_state = np.random.get_state()
+        torch_state = th.get_rng_state()
+        _child = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="B_projected", n_steps=8, batch_size=8,
+        )
+        after_random = np.random.get_state()
+        self.assertEqual(random_state[0], after_random[0])
+        np.testing.assert_array_equal(random_state[1], after_random[1])
+        self.assertEqual(random_state[2:], after_random[2:])
+        th.testing.assert_close(th.get_rng_state(), torch_state, rtol=0, atol=0)
 
     def test_bernoulli_normalized_entropy_has_unit_scale_and_gaussian_is_unbounded(self):
         bernoulli = self.policy("bernoulli_10")

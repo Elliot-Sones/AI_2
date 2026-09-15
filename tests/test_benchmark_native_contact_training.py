@@ -1,6 +1,8 @@
 """Contract-only local tests. No local policy construction or CPU training."""
 from dataclasses import replace
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,7 +30,8 @@ class ContactRunnerTests(unittest.TestCase):
         self.assertEqual(large.nominal_optimizer_steps, 8)
         for changes in ({'device': 'cpu'}, {'lanes': 32}, {'n_steps': 128},
                         {'batch_size': 4096}, {'n_epochs': 8}, {'rollouts': 0},
-                        {'seed': -1}, {'action_head': 'factored'}):
+                        {'seed': -1}, {'action_head': 'factored'},
+                        {'action_ab_arm': 'B_projected', 'action_head': 'gaussian'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(small, **changes)
 
@@ -156,6 +159,8 @@ class ContactRunnerTests(unittest.TestCase):
                 m.validate_update_diagnostics(bad, cfg)
 
     def test_action_press_metrics_report_sample_executed_and_deterministic_rates(self):
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('torch is not installed in this local contract environment')
         m = self.subject()
         import torch
         mask = torch.tensor([True, True, True, True, True, False, True, True, False, False])
@@ -182,6 +187,8 @@ class ContactRunnerTests(unittest.TestCase):
         self.assertAlmostEqual(metrics['policy_sample_press_rate_all'], .2)
         self.assertAlmostEqual(metrics['executed_press_rate_all'], .2)
         self.assertAlmostEqual(metrics['deterministic_press_rate_active'], 2 / 7)
+        self.assertEqual(metrics['executed_press_rate_per_button'][7], 1.0)
+        self.assertEqual(metrics['attack_light_sample_rate'], 1.0)
 
     def test_collector_episode_records_are_not_silently_dropped(self):
         m = self.subject()
@@ -198,11 +205,16 @@ class ContactRunnerTests(unittest.TestCase):
         args = m.parse_args(['--checkpoint', 'a.zip', '--frozen-root', 'oracle',
             '--reference-root', 'reference', '--qualification', 'proof.json', '--output', 'out',
             '--deadline-unix', '2000', '--batch-size', '16384', '--rollouts', '8',
-            '--action-head', 'bernoulli_10'])
+            '--action-ab-arm', 'B_projected'])
         self.assertEqual(args.batch_size, 16384)
         self.assertEqual(args.rollouts, 8)
         self.assertEqual(args.action_head, 'bernoulli_10')
+        self.assertEqual(args.action_ab_arm, 'B_projected')
         self.assertEqual(args.seed, 145)
+        with io.StringIO() as stderr, contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            m.parse_args(['--checkpoint', 'a.zip', '--frozen-root', 'oracle',
+                '--reference-root', 'reference', '--qualification', 'proof.json', '--output', 'out',
+                '--deadline-unix', '2000', '--action-ab-arm', 'B_projected', '--action-head', 'gaussian'])
 
     def test_complete_mocked_block_preserves_each_rollout_and_actual_work(self):
         self.exercise_mocked_block()
@@ -212,6 +224,8 @@ class ContactRunnerTests(unittest.TestCase):
 
     def exercise_mocked_block(self, *, fail_second_save=False):
         """Exercise runner orchestration only; no actual policy exists in this test."""
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('torch is not installed in this local contract environment')
         m = self.subject()
         import torch
         import native_curriculum_ppo
@@ -258,7 +272,8 @@ class ContactRunnerTests(unittest.TestCase):
             proof = root / 'proof.json'
             proof.write_text('{}')
             args = SimpleNamespace(output=root / 'run', batch_size=8192, rollouts=2, seed=145,
-                device='cuda', update_mode='deferred_metrics', action_head='gaussian', deadline_unix=10**12,
+                device='cuda', update_mode='deferred_metrics', action_head='gaussian',
+                action_ab_arm='G_keep', deadline_unix=10**12,
                 checkpoint=root / 'calibrated.zip', qualification=proof, reference_root=root, frozen_root=root)
             with patch.object(m, 'validate_checkpoint', return_value={'sha256': m.CHECKPOINT_SHA256}), \
                  patch.object(m, 'require_checkpoint_preservation', return_value={'verified': True}), \
