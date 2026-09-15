@@ -44,6 +44,7 @@ MAX_HANDLERS = 4
 WILDCARD_TYPE = (1 << 64) - 1
 
 STATE_NAMES = {0: "first_collision", 1: "normal", 2: "ignore", 3: "cached", 4: "invalidated"}
+FP_CONTRACT_MODES = frozenset(("on", "off", "fast"))
 
 
 class Vec(ctypes.Structure):
@@ -142,14 +143,23 @@ def source_hashes() -> dict[str, str]:
 
 
 def default_contraction() -> str:
-    """The macOS Pymunk wheel is built with clang's in-expression contraction; manylinux wheels (x86-64 baseline) have no FMA."""
-    return os.environ.get("AI2_CONTACT_FP_CONTRACT") or ("on" if platform.system() == "Darwin" else "off")
+    """Return the CPU reference contraction mode; default unfused for Chipmunk parity."""
+    contract = os.environ.get("AI2_CONTACT_FP_CONTRACT")
+    if contract is None or contract == "":
+        return "off"
+    if contract not in FP_CONTRACT_MODES:
+        allowed = ", ".join(sorted(FP_CONTRACT_MODES))
+        raise ValueError(f"AI2_CONTACT_FP_CONTRACT must be one of {allowed}; got {contract!r}")
+    return contract
 
 
 def compile_cpu_reference(build_dir: Path, contract: str | None = None) -> Path:
     build_dir = Path(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
     contract = contract or default_contraction()
+    if contract not in FP_CONTRACT_MODES:
+        allowed = ", ".join(sorted(FP_CONTRACT_MODES))
+        raise ValueError(f"fp contract must be one of {allowed}; got {contract!r}")
     suffix = ".dylib" if platform.system() == "Darwin" else ".so"
     library = build_dir / f"libnavigation_contact-{contract}{suffix}"
     compiler = os.environ.get("CC") or "cc"
@@ -600,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("capture", type=Path)
     verify.add_argument("--build-dir", type=Path, default=ROOT / "build" / "navigation_contact")
     verify.add_argument("--output", type=Path, required=True)
-    verify.add_argument("--fp-contract", choices=("on", "off", "fast"), default=None, help="CPU reference contraction (default: platform rule)")
+    verify.add_argument("--fp-contract", choices=tuple(sorted(FP_CONTRACT_MODES)), default=None, help="CPU reference contraction (default: off; env AI2_CONTACT_FP_CONTRACT may override)")
     verify.add_argument("--cuda", action="store_true", help="also step every tick on the GPU across --cuda-lanes replicated lanes")
     verify.add_argument("--cuda-lanes", type=int, default=256)
     args = parser.parse_args(argv)

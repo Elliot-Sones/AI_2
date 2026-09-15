@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,6 +143,20 @@ class ContactReferencePureTests(unittest.TestCase):
         self.assertGreater(world.bodies[1].p.y, 1.0)
         ignored = [world.arbiters[i] for i in range(world.arbiter_count) if world.arbiters[i].active]
         self.assertTrue(all(a.state == 2 for a in ignored))
+
+    def test_default_contraction_is_unfused_even_on_darwin(self):
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("platform.system", return_value="Darwin"):
+            self.assertEqual(self.m.default_contraction(), "off")
+
+    def test_valid_contraction_override_is_preserved(self):
+        for value in ("on", "off", "fast"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"AI2_CONTACT_FP_CONTRACT": value}, clear=True):
+                self.assertEqual(self.m.default_contraction(), value)
+
+    def test_invalid_contraction_override_fails_closed(self):
+        with mock.patch.dict(os.environ, {"AI2_CONTACT_FP_CONTRACT": "junk"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "AI2_CONTACT_FP_CONTRACT"):
+                self.m.default_contraction()
 
 
 class ContactReferenceFrozenGameTests(unittest.TestCase):
