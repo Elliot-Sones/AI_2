@@ -5,6 +5,10 @@ import argparse
 import torch
 import sys
 import signal
+import hashlib
+import random
+import copy
+import tempfile
 import gymnasium as gym
 import numpy as np
 from collections import deque
@@ -24,9 +28,10 @@ from environment.agent import (
     SelfPlayWarehouseBrawl, OpponentsCfg, SaveHandler, SaveHandlerMode,
     CameraResolution, RewardManager, RandomAgent, BasedAgent, ConstantAgent,
     ClockworkAgent, EdgeGuardAgent, WeaponHunterAgent, RecoveryPunishAgent,
-    NoisyBasedAgent, SelfPlayLatest, SelfPlayRandom, RewTerm
+    NoisyBasedAgent, SelfPlayLatest, SelfPlayRandom, SelfPlayHandler, Agent, RewTerm
 )
-from environment.environment import WarehouseBrawl
+from environment.environment import AttackState, WarehouseBrawl
+import environment.agent as environment_agent_module
 
 import tracking  # Weights & Biases helpers; every call is a no-op when tracking is off
 
@@ -78,6 +83,26 @@ def get_resolution(resolution_str: str):
         "HIGH": CameraResolution.HIGH
     }
     return resolution_map.get(resolution_str.upper(), CameraResolution.LOW)
+
+
+def _sha256_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: str | None) -> str | None:
+    if path is None or not os.path.exists(path) or not os.path.isfile(path):
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _class_name(obj) -> str:
+    return obj.__class__.__name__ if obj is not None else "None"
 
 
 # ============================================================================
@@ -166,6 +191,13 @@ class Float32Wrapper(gym.ObservationWrapper):
         if isinstance(observation, dict):
             return {k: v.astype(np.float32) for k, v in observation.items()}
         return observation.astype(np.float32)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        return self.observation(obs), info
+
+    def close(self):
+        return self.env.close()
 
 
 class FrozenOpponentWrapper(gym.Wrapper):
@@ -582,6 +614,9 @@ class DamageTrackingWrapper(gym.Wrapper):
         self.damage_history = []
         return self.env.reset(**kwargs)
 
+    def close(self):
+        return self.env.close()
+
 
 class OpponentHistoryWrapper(gym.Wrapper):
     """
@@ -683,6 +718,306 @@ class VectorizedSaveHandler(SaveHandler):
         
     def save_agent(self) -> None:
         pass
+
+
+class OpponentSelectionTelemetry:
+    """Records configured and realized opponent choices for classic training audits."""
+
+    def __init__(self, configured_probabilities: dict[str, float], probability_source: str, audit_metadata: dict | None = None):
+        self.configured_probabilities = dict(configured_probabilities)
+        self.probability_source = probability_source
+        self.records: list[dict] = []
+        self.audit_metadata = dict(audit_metadata or {})
+
+    def record(
+        self,
+        *,
+        configured_key: str,
+        configured_probability: float,
+        opponent,
+        self_play_requested: bool,
+        archive_size: int | None,
+        selected_checkpoint_path: str | None,
+        fallback_reason: str | None,
+        fallback_class: str | None,
+    ) -> None:
+        self.records.append({
+            "selection_index": len(self.records),
+            "configured_key": configured_key,
+            "configured_probability": float(configured_probability),
+            "probability_source": self.probability_source,
+            "realized_class": _class_name(opponent),
+            "self_play_requested": bool(self_play_requested),
+            "archive_size": archive_size,
+            "checkpoint_path_sha256": _sha256_text(os.path.abspath(selected_checkpoint_path)) if selected_checkpoint_path else None,
+            "checkpoint_content_sha256": _sha256_file(selected_checkpoint_path),
+            "fallback_reason": fallback_reason,
+            "fallback_class": fallback_class,
+        })
+
+    def summary(self, *, min_selections: int = 1000, tolerance: float | None = None) -> dict:
+        total = len(self.records)
+        configured_counts: dict[str, int] = {}
+        realized_counts: dict[str, int] = {}
+        fallback_counts: dict[str, int] = {}
+        for record in self.records:
+            configured_counts[record["configured_key"]] = configured_counts.get(record["configured_key"], 0) + 1
+            realized_counts[record["realized_class"]] = realized_counts.get(record["realized_class"], 0) + 1
+            reason = record.get("fallback_reason")
+            if reason:
+                fallback_counts[reason] = fallback_counts.get(reason, 0) + 1
+
+        if tolerance is None:
+            tolerance = 0.03
+
+        realized_rates_by_configured_key = {
+            key: count / total if total else 0.0
+            for key, count in configured_counts.items()
+        }
+        probability_checks = {}
+        tolerance_passed = True
+        for key, expected in self.configured_probabilities.items():
+            actual = realized_rates_by_configured_key.get(key, 0.0)
+            delta = abs(actual - float(expected))
+            passed = delta <= tolerance
+            tolerance_passed = tolerance_passed and passed
+            probability_checks[key] = {
+                "expected": float(expected),
+                "actual": actual,
+                "absolute_delta": delta,
+                "tolerance": tolerance,
+                "passed": passed,
+            }
+
+        return {
+            "total_selections": total,
+            "configured_probabilities": dict(self.configured_probabilities),
+            "probability_source": self.probability_source,
+            "configured_counts": configured_counts,
+            "configured_rates": realized_rates_by_configured_key,
+            "realized_counts": realized_counts,
+            "realized_rates": {
+                key: count / total if total else 0.0
+                for key, count in realized_counts.items()
+            },
+            "fallback_counts": fallback_counts,
+            "fallback_rates": {
+                key: count / total if total else 0.0
+                for key, count in fallback_counts.items()
+            },
+            "probability_checks": probability_checks,
+            "checks": {
+                "minimum_selections": {
+                    "minimum": min_selections,
+                    "actual": total,
+                    "passed": total >= min_selections,
+                },
+                "configured_vs_realized_tolerance": {
+                    "tolerance": tolerance,
+                    "passed": tolerance_passed,
+                },
+            },
+        }
+
+    def receipt(self, *, min_selections: int = 1000, tolerance: float | None = None) -> dict:
+        summary = self.summary(min_selections=min_selections, tolerance=tolerance)
+        return {
+            "kind": "classic_opponent_selection_audit",
+            "audit": dict(self.audit_metadata),
+            "summary": summary,
+            "checks": summary["checks"],
+            "records": list(self.records),
+        }
+
+    def write_exclusive_receipt(self, path: str, *, min_selections: int = 1000, tolerance: float | None = None) -> dict:
+        receipt = self.receipt(min_selections=min_selections, tolerance=tolerance)
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        fd = os.open(path, flags, 0o644)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(receipt, f, indent=2, sort_keys=True)
+                f.write("\n")
+        except Exception:
+            try:
+                os.unlink(path)
+            finally:
+                raise
+        return receipt
+
+
+class TelemetryOpponentsCfg(OpponentsCfg):
+    """OpponentsCfg variant that records the selected config key and actual class."""
+
+    def __init__(self, *args, telemetry: OpponentSelectionTelemetry | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.telemetry = telemetry
+
+    def on_env_reset(self) -> Agent:
+        keys = list(self.opponents.keys())
+        weights = [prob if isinstance(prob, float) else prob[0] for prob in self.opponents.values()]
+        agent_name = random.choices(keys, weights=weights)[0]
+        configured_probability = weights[keys.index(agent_name)]
+        archive_size = None
+        chosen_path = None
+        fallback_reason = None
+        fallback_class = None
+
+        if agent_name == "self_play":
+            selfplay_handler: SelfPlayHandler = self.opponents[agent_name][1]
+            archive = list(getattr(selfplay_handler.save_handler, "history", []) or [])
+            archive_size = len(archive)
+            chosen_path = selfplay_handler.save_handler.get_random_model_path()
+            opponent = selfplay_handler.get_model_from_path(chosen_path)
+            if isinstance(opponent, ConstantAgent):
+                fallback_class = _class_name(opponent)
+                if archive_size == 0:
+                    fallback_reason = "empty_archive"
+                elif chosen_path is None:
+                    fallback_reason = "missing_checkpoint_selection"
+                elif not os.path.exists(chosen_path):
+                    fallback_reason = "missing_checkpoint_file"
+                else:
+                    fallback_reason = "load_failed_to_constant"
+        else:
+            opponent = self.opponents[agent_name][1]()
+            opponent.get_env_info(self.env)
+
+        if self.telemetry is not None:
+            self.telemetry.record(
+                configured_key=agent_name,
+                configured_probability=configured_probability,
+                opponent=opponent,
+                self_play_requested=(agent_name == "self_play"),
+                archive_size=archive_size,
+                selected_checkpoint_path=chosen_path,
+                fallback_reason=fallback_reason,
+                fallback_class=fallback_class,
+            )
+        return opponent
+
+
+def build_combat_opponents(
+    phase_config: PhaseConfig,
+    *,
+    device: str,
+    telemetry: OpponentSelectionTelemetry | None = None,
+) -> OpponentsCfg:
+    opponents_dict = {}
+    for opp_name, prob in phase_config.opponents.items():
+        if prob <= 0:
+            continue
+        if opp_name == "self_play":
+            opponents_dict[opp_name] = (prob, SelfPlayRandom(partial(PPO.load, device=device)))
+        else:
+            opp_class = get_opponent_class(opp_name)
+            if opp_class:
+                opponents_dict[opp_name] = (prob, partial(opp_class))
+
+    cfg_cls = TelemetryOpponentsCfg if telemetry is not None else OpponentsCfg
+    return cfg_cls(opponents=opponents_dict, telemetry=telemetry) if telemetry is not None else cfg_cls(opponents=opponents_dict)
+
+
+def _attach_self_play_handlers(opponent_cfg: OpponentsCfg, *, env, save_handler) -> None:
+    opponent_cfg.env = env
+    opponent_cfg.validate_probabilities()
+    for _, value in opponent_cfg.opponents.items():
+        if isinstance(value[1], SelfPlayHandler):
+            selfplay_handler: SelfPlayHandler = value[1]
+            selfplay_handler.save_handler = save_handler
+            selfplay_handler.env = env
+
+
+def _combat_model_root(params: dict) -> str:
+    return os.path.abspath(os.path.join(
+        params["folders"]["parent_dir"],
+        params["folders"]["model_name"],
+        "model",
+    ))
+
+
+def _raw_env_constructor_info() -> dict:
+    constructor = environment_agent_module.WarehouseBrawl
+    module = getattr(constructor, "__module__", "")
+    name = getattr(constructor, "__qualname__", getattr(constructor, "__name__", repr(constructor)))
+    return {
+        "identity": f"{module}.{name}",
+        "module": module,
+        "qualname": name,
+        "patched": not (module == "environment.environment" and name == "WarehouseBrawl"),
+    }
+
+
+def run_opponent_selection_audit(
+    *,
+    phase_config: PhaseConfig,
+    params: dict,
+    output_path: str,
+    selections: int = 1000,
+    seed: int = 0,
+    device: str | None = None,
+    tolerance: float | None = None,
+) -> dict:
+    global GLOBAL_REWARD_MANAGER
+    if selections < 1000:
+        raise ValueError("Opponent selection audit requires at least 1000 selections.")
+
+    previous_reward_manager = GLOBAL_REWARD_MANAGER
+    previous_random_state = random.getstate()
+    env = None
+    try:
+        GLOBAL_REWARD_MANAGER = None
+        random.seed(seed)
+        selected_device = device or get_device()
+        configured_model_root = _combat_model_root(params)
+        raw_env_constructor = _raw_env_constructor_info()
+        telemetry = OpponentSelectionTelemetry(
+            configured_probabilities={
+                name: float(prob)
+                for name, prob in phase_config.opponents.items()
+                if prob > 0 and (name == "self_play" or get_opponent_class(name) is not None)
+            },
+            probability_source="phase_config.opponents",
+        )
+        with tempfile.TemporaryDirectory(prefix="ai2-opponent-audit-save-") as isolated_parent:
+            audit_params = copy.deepcopy(params)
+            audit_params["folders"]["parent_dir"] = isolated_parent
+            audit_params["folders"]["model_name"] = "isolated_model"
+            isolated_model_root = _combat_model_root(audit_params)
+            limitations = [
+                "opponent-selection-only-no-step-rollout",
+                "temporary-isolated-save-root",
+            ]
+            if raw_env_constructor["patched"]:
+                limitations.insert(0, "asset-loading")
+            telemetry.audit_metadata = {
+                "execution_path": "make_combat_env.reset",
+                "raw_env_constructor": raw_env_constructor,
+                "save_root_isolated": os.path.abspath(configured_model_root) != os.path.abspath(isolated_model_root),
+                "configured_model_root": configured_model_root,
+                "isolated_model_root": isolated_model_root,
+                "limitations": limitations,
+            }
+            audit_params["_opponent_selection_telemetry"] = telemetry
+            env = make_combat_env(phase_config, audit_params, selected_device)
+            for _ in range(selections):
+                env.reset()
+            env.close()
+            env = None
+
+        return telemetry.write_exclusive_receipt(output_path, min_selections=1000, tolerance=tolerance)
+    finally:
+        active_exception = sys.exc_info()[0] is not None
+        close_error = None
+        if env is not None:
+            try:
+                env.close()
+            except Exception as exc:
+                close_error = exc
+        random.setstate(previous_random_state)
+        GLOBAL_REWARD_MANAGER = previous_reward_manager
+        if close_error is not None and not active_exception:
+            raise close_error
 
 
 class SelfPlayCallback(BaseCallback):
@@ -1113,12 +1448,28 @@ class PhaseAwareRewardManager:
         # Tracking
         self.episode_damage_dealt = 0.0
         self.episode_damage_received = 0.0
-        self.total_damage_dealt = 0.0
-        self.total_damage_received = 0.0
+        self.lifetime_damage_dealt = 0.0
+        self.lifetime_damage_received = 0.0
         
         self.last_damage_done = {0: 0.0, 1: 0.0}
         self.last_damage_taken = {0: 0.0, 1: 0.0}
         self.last_distance = {0: None, 1: None}
+
+    @property
+    def total_damage_dealt(self) -> float:
+        return self.lifetime_damage_dealt
+
+    @total_damage_dealt.setter
+    def total_damage_dealt(self, value: float) -> None:
+        self.lifetime_damage_dealt = value
+
+    @property
+    def total_damage_received(self) -> float:
+        return self.lifetime_damage_received
+
+    @total_damage_received.setter
+    def total_damage_received(self, value: float) -> None:
+        self.lifetime_damage_received = value
     
     def compute_reward(self, env) -> float:
         total_reward = 0.0
@@ -1145,7 +1496,7 @@ class PhaseAwareRewardManager:
         
         if delta_dd > 0:
             self.episode_damage_dealt += delta_dd
-            self.total_damage_dealt += delta_dd
+            self.lifetime_damage_dealt += delta_dd
         
         if self.weights.get("damage_dealt", 0) != 0:
             total_reward += delta_dd * self.weights["damage_dealt"]
@@ -1157,7 +1508,7 @@ class PhaseAwareRewardManager:
         
         if delta_dt > 0:
             self.episode_damage_received += delta_dt
-            self.total_damage_received += delta_dt
+            self.lifetime_damage_received += delta_dt
         
         if self.weights.get("damage_taken", 0) != 0:
             total_reward += delta_dt * self.weights["damage_taken"]
@@ -1178,11 +1529,8 @@ class PhaseAwareRewardManager:
         
         # Aggression
         if self.weights.get("aggression", 0) != 0:
-            attack_states = {6, 7, 8, 9, 10}
-            if hasattr(player, 'state_machine') and hasattr(player.state_machine, 'current_state'):
-                state_id = getattr(player.state_machine.current_state, 'id', -1)
-                if state_id in attack_states:
-                    total_reward += self.weights["aggression"] * 0.1
+            if isinstance(getattr(player, "state", None), AttackState):
+                total_reward += self.weights["aggression"] * 0.1
         
         return total_reward
     
@@ -1205,9 +1553,11 @@ class PhaseAwareRewardManager:
         self.episode_damage_dealt = 0.0
         self.episode_damage_received = 0.0
         self.last_distance = {0: None, 1: None}
+        self.last_damage_done = {0: 0.0, 1: 0.0}
+        self.last_damage_taken = {0: 0.0, 1: 0.0}
 
 
-# Global reward manager
+# Legacy name retained for external imports; combat envs must not use a shared manager.
 GLOBAL_REWARD_MANAGER = None
 
 
@@ -1219,6 +1569,21 @@ class DamageReward:
     def __call__(self, env):
         reward = self.reward_manager.compute_reward(env)
         return torch.tensor([reward, -reward])
+
+
+class RewardEpisodeResetWrapper(gym.Wrapper):
+    """Clears episode-local reward state whenever the wrapped env resets."""
+
+    def __init__(self, env, reward_manager: PhaseAwareRewardManager):
+        super().__init__(env)
+        self.reward_manager = reward_manager
+
+    def reset(self, *args, **kwargs):
+        self.reward_manager.reset_episode()
+        return self.env.reset(*args, **kwargs)
+
+    def close(self):
+        return self.env.close()
 
 
 # ============================================================================
@@ -1266,15 +1631,10 @@ def make_nav_env(phase_config: PhaseConfig, resolution, params: dict):
 
 def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
     """Factory for combat Phases 1-4 environments."""
-    global GLOBAL_REWARD_MANAGER
-    
-    if GLOBAL_REWARD_MANAGER is None:
-        GLOBAL_REWARD_MANAGER = PhaseAwareRewardManager(phase_config)
-    
-    reward_manager_instance = GLOBAL_REWARD_MANAGER
+    reward_manager_instance = PhaseAwareRewardManager(phase_config)
     
     def win_reward_func(env, agent, **kwargs):
-        winner_is_agent = (agent != 'player')
+        winner_is_agent = (agent == 'player')
         reward = reward_manager_instance.compute_win_reward(winner_is_agent)
         rewards = torch.zeros(2)
         rewards[0] = reward
@@ -1294,8 +1654,8 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
     }
     
     signal_subscriptions = {
-        "win": RewTerm(func=win_reward_func, weight=1.0, params={}),
-        "knockout": RewTerm(func=knockout_reward_func, weight=1.0, params={}),
+        "win": ("win_signal", RewTerm(func=win_reward_func, weight=1.0, params={})),
+        "knockout": ("knockout_signal", RewTerm(func=knockout_reward_func, weight=1.0, params={})),
     }
     
     reward_manager = RewardManager(
@@ -1303,19 +1663,8 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
         signal_subscriptions=signal_subscriptions
     )
     
-    # Build opponent config from YAML
-    opponents_dict = {}
-    for opp_name, prob in phase_config.opponents.items():
-        if prob <= 0:
-            continue
-        if opp_name == "self_play":
-            opponents_dict[opp_name] = (prob, SelfPlayRandom(partial(PPO.load, device=device)))
-        else:
-            opp_class = get_opponent_class(opp_name)
-            if opp_class:
-                opponents_dict[opp_name] = (prob, partial(opp_class))
-    
-    opponent_cfg = OpponentsCfg(opponents=opponents_dict)
+    telemetry = params.get("_opponent_selection_telemetry")
+    opponent_cfg = build_combat_opponents(phase_config, device=device, telemetry=telemetry)
     
     resolution = get_resolution(params.get("environment_settings", {}).get("resolution", "LOW"))
     
@@ -1334,6 +1683,7 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
         resolution=resolution,
         reward_manager=reward_manager
     )
+    reward_manager.subscribe_signals(env.raw_env)
     env = Float32Wrapper(env)
     env = DamageTrackingWrapper(env)
     
@@ -1346,7 +1696,9 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
             action_dim=history_cfg.get("action_dim", 10),
             zero_history=False  # Combat: real opponent actions
         )
-    
+
+    env = RewardEpisodeResetWrapper(env, reward_manager_instance)
+
     return env
 
 
@@ -1724,7 +2076,13 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
 # MAIN
 # ============================================================================
 
-def main(cfg_file: str):
+def main(
+    cfg_file: str,
+    *,
+    opponent_audit_output: str | None = None,
+    opponent_audit_selections: int = 1000,
+    opponent_audit_seed: int = 0,
+):
     # Load configuration
     with open(cfg_file, 'r') as f:
         params = yaml.safe_load(f)
@@ -1746,6 +2104,18 @@ def main(cfg_file: str):
         return
     
     phase_config.print_summary()
+
+    if opponent_audit_output:
+        receipt = run_opponent_selection_audit(
+            phase_config=phase_config,
+            params=params,
+            output_path=opponent_audit_output,
+            selections=opponent_audit_selections,
+            seed=opponent_audit_seed,
+        )
+        print(f"🧾 Opponent audit receipt: {opponent_audit_output}")
+        print(json.dumps(receipt["summary"], indent=2, sort_keys=True))
+        return
     
     # Run appropriate training
     if phase_config.is_navigation:
@@ -1757,5 +2127,13 @@ def main(cfg_file: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UTMIST AI^2 Training - Config-Driven")
     parser.add_argument("--cfgFile", type=str, default="config.yaml", help="Configuration file")
+    parser.add_argument("--opponent-audit-output", type=str, default=None, help="Write a classic opponent-selection audit receipt and exit")
+    parser.add_argument("--opponent-audit-selections", type=int, default=1000, help="Selections to sample for the opponent audit")
+    parser.add_argument("--opponent-audit-seed", type=int, default=0, help="Random seed for the opponent audit")
     opt = parser.parse_args()
-    main(opt.cfgFile)
+    main(
+        opt.cfgFile,
+        opponent_audit_output=opt.opponent_audit_output,
+        opponent_audit_selections=opt.opponent_audit_selections,
+        opponent_audit_seed=opt.opponent_audit_seed,
+    )

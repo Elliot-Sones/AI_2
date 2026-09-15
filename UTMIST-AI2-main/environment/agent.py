@@ -373,7 +373,7 @@ class RewardManager():
 
     def reset(self):
         self.total_reward = 0
-        self.collected_signal_rewards
+        self.collected_signal_rewards = 0.0
 
 
 # ### Save, Self-play, and Opponents

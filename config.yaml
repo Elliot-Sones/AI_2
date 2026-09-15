@@ -110,7 +110,7 @@ phases:
       damage_taken: 0.0       # No damage penalty yet
       net_damage: 0.0
       win: 0.0
-      knockout: -3.0          # Death penalty from day 1!
+      knockout: 3.0           # Death penalty from day 1! (negated when learner is KO'd)
       edge_penalty: -1.0      # Strong edge avoidance
     opponents:
       random_agent: 0.9       # 90% easy opponents
