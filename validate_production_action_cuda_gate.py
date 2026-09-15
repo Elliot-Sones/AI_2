@@ -158,6 +158,33 @@ def load_production_checkpoint(learner_cls, *, checkpoint: Path, expected_sha256
     )
 
 
+def benchmark_default_update_mode() -> str:
+    import benchmark_native_contact_training
+
+    return benchmark_native_contact_training.ContactBenchmarkConfig().update_mode
+
+
+def validate_loaded_runtime(model, benchmark_module, *, arm: str, update_mode: str, validate_runtime_fn=None) -> dict:
+    expected_head = benchmark_module.ACTION_EXPERIMENT_ARMS[arm]["action_head"]
+    cfg = benchmark_module.ContactBenchmarkConfig(
+        update_mode=update_mode,
+        action_head=expected_head,
+        action_ab_arm=arm,
+    )
+    runtime_validator = validate_runtime_fn or benchmark_module.validate_runtime
+    runtime_validator(model, cfg)
+    return {
+        "update_mode": cfg.update_mode,
+        "action_ab_arm": cfg.action_ab_arm,
+        "action_head": cfg.action_head,
+        "lanes": cfg.lanes,
+        "n_steps": cfg.n_steps,
+        "batch_size": cfg.batch_size,
+        "n_epochs": cfg.n_epochs,
+        "expected_checkpoint_steps": benchmark_module.CHECKPOINT_STEPS,
+    }
+
+
 def export_and_verify_actor(model, load_actor_fn, *, arm: str, expected_head: str, device, work_dir: Path) -> dict:
     actor_path = work_dir / f"{arm}-actor.pt"
     metadata = model.export_actor(actor_path)
@@ -253,6 +280,12 @@ def _validate_arm(arm: str, device, work_dir: Path, *, checkpoint: Path, expecte
         checkpoint=checkpoint,
         expected_sha256=expected_sha256,
         env=env,
+        arm=arm,
+        update_mode=update_mode,
+    )
+    runtime = validate_loaded_runtime(
+        model,
+        benchmark_native_contact_training,
         arm=arm,
         update_mode=update_mode,
     )
@@ -352,6 +385,8 @@ def _validate_arm(arm: str, device, work_dir: Path, *, checkpoint: Path, expecte
         "policy_class": type(model.policy).__name__,
         "learner_class": type(model).__name__,
         "checkpoint_load": "NativeCurriculumPPO.load_contact_checkpoint",
+        "update_mode": runtime["update_mode"],
+        "runtime_validation": runtime,
         "forward": {
             "sampled_actions_cuda": sampled_actions.device.type == "cuda",
             "deterministic_actions_cuda": deterministic_actions.device.type == "cuda",
@@ -388,6 +423,7 @@ def run_cuda_gate(args: argparse.Namespace, root: Path) -> dict:
     real_torch.cuda.set_device(device)
     receipt = base_receipt(args, root, "passed", gating=True)
     receipt["checkpoint"] = checkpoint
+    receipt["update_mode"] = args.update_mode
     receipt["cuda"].update({
         "device": str(device),
         "device_name": real_torch.cuda.get_device_name(device),
@@ -421,7 +457,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path, help="new JSON receipt path; must not exist or be a symlink")
     parser.add_argument("--checkpoint", type=Path, help="canonical calibrated production checkpoint zip")
     parser.add_argument("--expected-sha256", default=CANONICAL_CHECKPOINT_SHA256, help="expected checkpoint SHA256")
-    parser.add_argument("--update-mode", default="sb3", choices=("sb3", "deferred_metrics"))
+    parser.add_argument("--update-mode", default=benchmark_default_update_mode(), choices=("sb3", "deferred_metrics"))
     parser.add_argument(
         "--allow-cuda-skip",
         action="store_true",

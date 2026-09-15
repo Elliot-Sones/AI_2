@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import benchmark_native_contact_training as benchmark
+
 
 class ProductionActionCudaGateTests(unittest.TestCase):
     def subject(self):
@@ -92,6 +94,36 @@ class ProductionActionCudaGateTests(unittest.TestCase):
         self.assertTrue(all(call[2]["expected_sha256"] == "a" * 64 for call in calls))
         self.assertTrue(all(call[2]["joint"] is True for call in calls))
 
+    def test_default_update_mode_tracks_benchmark_default(self):
+        gate = self.subject()
+        args = gate.parse_args(["--output", "receipt.json", "--checkpoint", "checkpoint.zip"])
+        self.assertEqual(args.update_mode, benchmark.ContactBenchmarkConfig().update_mode)
+
+    def test_success_path_spies_on_benchmark_validate_runtime_per_arm(self):
+        gate = self.subject()
+        calls = []
+
+        def validate_runtime(model, cfg):
+            calls.append((model, cfg))
+
+        for arm in gate.ACTION_ARMS:
+            model = SimpleNamespace(action_ab_arm=arm)
+            expected_head = benchmark.ACTION_EXPERIMENT_ARMS[arm]["action_head"]
+            result = gate.validate_loaded_runtime(
+                model,
+                benchmark,
+                arm=arm,
+                update_mode=benchmark.ContactBenchmarkConfig().update_mode,
+                validate_runtime_fn=validate_runtime,
+            )
+            self.assertEqual(result["update_mode"], benchmark.ContactBenchmarkConfig().update_mode)
+            self.assertEqual(result["action_ab_arm"], arm)
+            self.assertEqual(result["action_head"], expected_head)
+
+        self.assertEqual([cfg.action_ab_arm for _model, cfg in calls], list(gate.ACTION_ARMS))
+        self.assertTrue(all(cfg.update_mode == benchmark.ContactBenchmarkConfig().update_mode for _model, cfg in calls))
+        self.assertTrue(all(model.action_ab_arm == cfg.action_ab_arm for model, cfg in calls))
+
     def test_success_path_spies_on_export_and_load_actor_mismatch_rejection(self):
         gate = self.subject()
         calls = []
@@ -131,7 +163,7 @@ class ProductionActionCudaGateTests(unittest.TestCase):
         args = SimpleNamespace(
             checkpoint=None,
             expected_sha256=gate.CANONICAL_CHECKPOINT_SHA256,
-            update_mode="sb3",
+            update_mode=benchmark.ContactBenchmarkConfig().update_mode,
             _argv=["validate_production_action_cuda_gate.py", "--output", "receipt.json"],
         )
         fake_torch = SimpleNamespace(
