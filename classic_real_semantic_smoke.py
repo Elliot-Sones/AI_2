@@ -10,8 +10,10 @@ import hashlib
 import json
 import os
 import platform
+import subprocess
 import sys
 import time
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -50,11 +52,80 @@ def sha256_json(value: Any) -> str:
     return sha256_bytes(canonical_json(value).encode("utf-8"))
 
 
-def fail_closed_output_dir(output_dir: Path) -> None:
+def file_sha256(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
+
+
+def git_output(*args: str) -> str:
+    try:
+        return subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.PIPE).strip()
+    except subprocess.CalledProcessError as exc:
+        raise SmokeFailure(f"git {' '.join(args)} failed: {exc.stderr.strip()}") from exc
+
+
+def git_dirty_files() -> list[dict[str, str]]:
+    status = git_output("status", "--porcelain=v1", "--untracked-files=all")
+    dirty = []
+    for line in status.splitlines():
+        if line:
+            dirty.append({"status": line[:2], "path": line[3:]})
+    return dirty
+
+
+def dependency_version(dist_name: str, module) -> str:
+    try:
+        return metadata.version(dist_name)
+    except metadata.PackageNotFoundError:
+        return str(getattr(module, "__version__", "unknown"))
+
+
+def source_binding(stack) -> dict[str, Any]:
+    source_paths = [
+        "classic_real_semantic_smoke.py",
+        "train.py",
+        "config.yaml",
+        "UTMIST-AI2-main/environment/environment.py",
+        "UTMIST-AI2-main/requirements.txt",
+    ]
+    dependency_dist_names = {
+        "gymnasium": "gymnasium",
+        "numpy": "numpy",
+        "pygame": "pygame",
+        "pymunk": "pymunk",
+        "torch": "torch",
+        "yaml": "PyYAML",
+    }
+    dirty_files = git_dirty_files()
+    return {
+        "schema": "classic-real-semantic-smoke/source-binding/v1",
+        "git": {
+            "head_commit": git_output("rev-parse", "HEAD"),
+            "head_tree": git_output("rev-parse", "HEAD^{tree}"),
+            "dirty": bool(dirty_files),
+            "dirty_files": dirty_files,
+        },
+        "source_files": {
+            relative: {"sha256": file_sha256(ROOT / relative)}
+            for relative in source_paths
+        },
+        "dependencies": {
+            name: {
+                "version": dependency_version(dependency_dist_names[name], module),
+                "file": str(Path(module.__file__).resolve()),
+            }
+            for name, module in stack["dependency_modules"].items()
+        },
+    }
+
+
+def validate_output_dir(output_dir: Path) -> None:
     if output_dir.is_symlink():
         raise SmokeFailure(f"refusing symlink output path: {output_dir}")
     if output_dir.exists():
         raise SmokeFailure(f"refusing existing output path: {output_dir}")
+
+
+def create_output_dir(output_dir: Path) -> None:
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(mode=0o755)
 
@@ -296,11 +367,24 @@ def run_seed_traces(stack, params: dict[str, Any], seeds: tuple[int, ...]) -> tu
 
 
 def reward_semantics(stack, params: dict[str, Any]) -> dict[str, Any]:
-    np_module = stack["np"]
     train = stack["train"]
     AttackState = stack["AttackState"]
-    phase = phase_config(train, params, 3)
     with scoped_cwd(ENV_DIR):
+        phase_1 = phase_config(train, params, 1)
+        env_phase_1 = train.make_combat_env(phase_1, params, device="cpu")
+        try:
+            phase_1_self_play = unwrap_self_play(env_phase_1)
+            phase_1_raw = phase_1_self_play.raw_env
+            env_phase_1.reset(seed=8181)
+            phase_1_raw.knockout_signal.emit(agent="player")
+            phase_1_learner_ko = float(phase_1_self_play.reward_manager.process(phase_1_raw, 1 / 30.0))
+            phase_1_self_play.reward_manager.reset()
+            phase_1_raw.knockout_signal.emit(agent="opponent")
+            phase_1_opponent_ko = float(phase_1_self_play.reward_manager.process(phase_1_raw, 1 / 30.0))
+        finally:
+            env_phase_1.close()
+
+        phase = phase_config(train, params, 3)
         env = train.make_combat_env(phase, params, device="cpu")
         try:
             self_play = unwrap_self_play(env)
@@ -328,10 +412,10 @@ def reward_semantics(stack, params: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(player.state, AttackState):
                 raise SmokeFailure("player.states['attack'] is not an actual AttackState")
             aggression_reward = float(manager.compute_reward(raw))
-            non_attack_reward = None
             player.state = player.states["standing"]
             manager.reset_episode()
             non_attack_reward = float(manager.compute_reward(raw))
+            expected_attack_bonus = float(phase.rewards["aggression"] * 0.1)
 
             before_reset = {
                 "episode_damage_dealt": manager.episode_damage_dealt,
@@ -370,6 +454,19 @@ def reward_semantics(stack, params: dict[str, Any]) -> dict[str, Any]:
                 "opponent_knockout_reward": opponent_ko,
                 "attack_state_aggression_reward": aggression_reward,
                 "standing_aggression_reward": non_attack_reward,
+                "phase_1": {
+                    "phase_id": 1,
+                    "configured_weights": dict(phase_1.rewards),
+                    "learner_knockout_reward": phase_1_learner_ko,
+                    "opponent_knockout_reward": phase_1_opponent_ko,
+                },
+                "aggression": {
+                    "phase_id": 3,
+                    "configured_weights": dict(phase.rewards),
+                    "expected_attack_bonus": expected_attack_bonus,
+                    "attack_state_reward": aggression_reward,
+                    "standing_reward": non_attack_reward,
+                },
                 "damage_reward_before_reset": damage_reward,
                 "episode_state_before_damage": before_reset,
                 "episode_state_after_reset": after_reset,
@@ -414,8 +511,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.output_dir.is_symlink():
             raise SmokeFailure(f"refusing symlink output path: {args.output_dir}")
         output_dir = args.output_dir.resolve(strict=False)
-        fail_closed_output_dir(output_dir)
+        validate_output_dir(output_dir)
         stack = import_real_stack()
+        binding = source_binding(stack)
         params = make_combat_params(load_real_config(stack["yaml"]), output_dir)
         seeds = tuple(args.seeds)
         if len(seeds) != 3:
@@ -426,11 +524,15 @@ def main(argv: list[str] | None = None) -> int:
             rewards["learner_win_reward"] > 0
             and rewards["learner_knockout_reward"] < 0
             and rewards["opponent_knockout_reward"] > 0
-            and rewards["attack_state_aggression_reward"] > 0
+            and rewards["phase_1"]["learner_knockout_reward"] == -rewards["phase_1"]["configured_weights"]["knockout"]
+            and rewards["phase_1"]["opponent_knockout_reward"] == rewards["phase_1"]["configured_weights"]["knockout"]
+            and rewards["aggression"]["attack_state_reward"] == rewards["aggression"]["expected_attack_bonus"]
+            and rewards["aggression"]["standing_reward"] == 0.0
             and rewards["reward_leakage_absent"]
         ):
             raise SmokeFailure(f"reward semantic checks failed: {rewards}")
 
+        create_output_dir(output_dir)
         events_path = output_dir / "events.jsonl"
         write_jsonl(events_path, events)
         receipt = {
@@ -460,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
             },
             "seed_traces": seed_traces,
             "reward_semantics": rewards,
+            "source_binding": binding,
         }
         receipt["receipt_payload_sha256"] = sha256_json(receipt)
         receipt_path = output_dir / "receipt.json"

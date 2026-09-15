@@ -54,8 +54,30 @@ def test_runner_writes_hash_bound_real_dependency_artifacts(tmp_path):
     assert receipt["reward_semantics"]["learner_win_reward"] > 0
     assert receipt["reward_semantics"]["learner_knockout_reward"] < 0
     assert receipt["reward_semantics"]["opponent_knockout_reward"] > 0
-    assert receipt["reward_semantics"]["attack_state_aggression_reward"] > 0
+    phase_1 = receipt["reward_semantics"]["phase_1"]
+    assert phase_1["phase_id"] == 1
+    assert phase_1["configured_weights"]["knockout"] == 3.0
+    assert phase_1["learner_knockout_reward"] == -3.0
+    assert phase_1["opponent_knockout_reward"] == 3.0
+    aggression = receipt["reward_semantics"]["aggression"]
+    assert aggression["phase_id"] == 3
+    assert aggression["configured_weights"]["aggression"] == 0.5
+    assert aggression["expected_attack_bonus"] == 0.05
+    assert aggression["attack_state_reward"] == aggression["expected_attack_bonus"]
+    assert aggression["standing_reward"] == 0.0
     assert receipt["reward_semantics"]["reward_leakage_absent"] is True
+    source = receipt["source_binding"]
+    assert source["schema"] == "classic-real-semantic-smoke/source-binding/v1"
+    assert source["git"]["head_commit"]
+    assert source["git"]["head_tree"]
+    assert isinstance(source["git"]["dirty_files"], list)
+    assert source["source_files"]["classic_real_semantic_smoke.py"]["sha256"]
+    assert source["source_files"]["train.py"]["sha256"]
+    assert source["source_files"]["config.yaml"]["sha256"]
+    assert source["source_files"]["UTMIST-AI2-main/environment/environment.py"]["sha256"]
+    assert source["source_files"]["UTMIST-AI2-main/requirements.txt"]["sha256"]
+    assert source["dependencies"]["torch"]["version"]
+    assert source["dependencies"]["torch"]["file"]
 
     event_lines = events_path.read_text().splitlines()
     assert event_lines
