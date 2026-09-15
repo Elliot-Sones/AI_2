@@ -23,12 +23,12 @@ AI2_BOX10_BUTTONS = (
     "a/left",
     "s/down",
     "d/right",
-    "space/dodge",
-    "h/pickup",
-    "g/unused_source_button",
+    "space/jump",
+    "h/pickup_drop",
+    "l/dodge_backdash",
     "j/light",
     "k/heavy",
-    "l/throw",
+    "g/taunt",
 )
 
 
