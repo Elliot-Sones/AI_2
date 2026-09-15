@@ -75,7 +75,6 @@ _AMBIGUOUS_COUNTERS = (
 )
 
 _THROUGHPUT_PATHS = (
-    "workload.unit",
     "workload.timing_scope",
     "workload.included_stages",
     "workload.warmup_policy",
@@ -107,6 +106,11 @@ _LEARNING_PATHS = (
     "workload.environment.action_contract",
     "workload.environment.tick_semantics",
     "workload.environment.terminal_bootstrap",
+    "workload.model.architecture",
+    "workload.model.parameter_count",
+    "workload.model.precision",
+    "workload.rollout.horizon",
+    "workload.rollout.transitions_per_batch",
     "algorithm.optimizer",
     "algorithm.learning_rate",
     "algorithm.gamma",
@@ -131,7 +135,13 @@ _PROMOTION_EVIDENCE = (
     "correctness.fixed_wall_clock_quality",
 )
 
-_ALLOWED_TIMING_SCOPES = {"end_to_end", "env_only"}
+_ALLOWED_TIMING_SCOPES = {
+    "collection",
+    "end_to_end",
+    "env_only",
+    "time_to_quality",
+    "update",
+}
 _ALLOWED_OVERLAP_MODES = {"none", "async"}
 
 _POSITIVE_INTEGER_PATHS = (
@@ -257,10 +267,10 @@ def compare_receipts(left: dict[str, Any], right: dict[str, Any]) -> dict[str, A
         "learning_behavior_comparable": learning_behavior_comparable,
         "promotion_eligible": promotion_eligible,
         "speedup_ratio": right_rate / left_rate if throughput_comparable else None,
-        "left_rate": left_rate,
-        "right_rate": right_rate,
+        "left_agent_transitions_per_second": left_rate,
+        "right_agent_transitions_per_second": right_rate,
         "throughput_blockers": throughput_blockers,
-        "learning_behavior_blockers": learning_blockers,
+        "learning_blockers": learning_blockers,
         "promotion_blockers": promotion_blockers,
     }
 

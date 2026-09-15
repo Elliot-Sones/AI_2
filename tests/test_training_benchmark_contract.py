@@ -1,6 +1,7 @@
 import math
 import unittest
 
+import training_benchmark_contract as contract
 from training_benchmark_contract import (
     ContractError,
     END_TO_END_STAGES,
@@ -8,6 +9,59 @@ from training_benchmark_contract import (
     compare_receipts,
     validate_receipt,
 )
+
+
+THROUGHPUT_MISMATCH_CASES = {
+    "workload.timing_scope": {
+        "workload": {"timing_scope": "env_only", "included_stages": ["environment_step"]}
+    },
+    "workload.included_stages": {
+        "workload": {"timing_scope": "env_only", "included_stages": ["environment_step"]}
+    },
+    "workload.warmup_policy": {"workload": {"warmup_policy": {"mode": "none"}}},
+    "workload.synchronization": {
+        "workload": {"synchronization": {"device": "cuda", "method": "event"}}
+    },
+    "workload.overlap.mode": {
+        "workload": {"overlap": {"mode": "async", "evidence": ["event_timeline"]}}
+    },
+    "workload.overlap.evidence": {
+        "workload": {"overlap": {"mode": "async", "evidence": ["event_timeline"]}}
+    },
+    "system.hardware.accelerator_model": {
+        "system": {"hardware": {"accelerator_model": "RTX 3090"}}
+    },
+    "system.hardware.accelerator_count": {
+        "system": {"hardware": {"accelerator_count": 2}}
+    },
+    "system.hardware.cpu_model": {"system": {"hardware": {"cpu_model": "other-cpu"}}},
+    "workload.environment.env_id": {
+        "workload": {"environment": {"env_id": "OtherBrawl"}}
+    },
+    "workload.environment.observation_contract": {
+        "workload": {"environment": {"observation_contract": "puffer_observation_v2"}}
+    },
+    "workload.environment.action_contract": {
+        "workload": {"environment": {"action_contract": "discrete_22_v1"}}
+    },
+    "workload.environment.tick_semantics": {
+        "workload": {"environment": {"tick_semantics": "one_tick_per_env_step"}}
+    },
+    "workload.environment.terminal_bootstrap": {
+        "workload": {"environment": {"terminal_bootstrap": "zero_terminal"}}
+    },
+    "workload.model.architecture": {"workload": {"model": {"architecture": "cnn"}}},
+    "workload.model.parameter_count": {"workload": {"model": {"parameter_count": 999}}},
+    "workload.model.precision": {"workload": {"model": {"precision": "tf32"}}},
+    "workload.rollout.num_envs": {"workload": {"rollout": {"num_envs": 2048}}},
+    "workload.rollout.horizon": {"workload": {"rollout": {"horizon": 256}}},
+    "workload.rollout.transitions_per_batch": {
+        "workload": {"rollout": {"transitions_per_batch": 262144}}
+    },
+    "algorithm.minibatches": {"algorithm": {"minibatches": 16}},
+    "algorithm.ppo_epochs": {"algorithm": {"ppo_epochs": 2}},
+    "algorithm.sample_reuse_epochs": {"algorithm": {"sample_reuse_epochs": 3}},
+}
 
 
 def receipt(**overrides):
@@ -112,7 +166,15 @@ class ValidationTests(unittest.TestCase):
             validate_receipt(raw)
 
     def test_rejects_ambiguous_measurement_counter_spellings_case_insensitively(self):
-        for counter in ("StepS", "SPS", "Game Ticks", "Game_Ticks", "Episodes", "Optimizer Calls", "Optimizer_Calls"):
+        for counter in (
+            "StepS",
+            "SPS",
+            "Game Ticks",
+            "Game_Ticks",
+            "Episodes",
+            "Optimizer Calls",
+            "Optimizer_Calls",
+        ):
             with self.subTest(counter=counter):
                 raw = receipt(measurement={counter: 1000})
 
@@ -174,7 +236,7 @@ class ValidationTests(unittest.TestCase):
         invalid_cases = (
             (
                 "workload.timing_scope",
-                {"workload": {"timing_scope": "collection"}},
+                {"workload": {"timing_scope": "profile_only"}},
             ),
             (
                 "workload.overlap.mode",
@@ -194,6 +256,29 @@ class ValidationTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaisesRegex(ContractError, path):
                     validate_receipt(receipt(**overrides))
+
+    def test_accepts_all_allowed_timing_scopes_with_explicit_stages(self):
+        cases = {
+            "env_only": ["environment_step"],
+            "collection": [
+                "policy_inference",
+                "action_sampling",
+                "environment_step",
+                "rollout_storage",
+            ],
+            "update": ["returns_and_advantages", "ppo_update", "device_synchronization"],
+            "end_to_end": list(END_TO_END_STAGES),
+            "time_to_quality": list(END_TO_END_STAGES),
+        }
+
+        for scope, stages in cases.items():
+            with self.subTest(scope=scope):
+                normalized = validate_receipt(
+                    receipt(workload={"timing_scope": scope, "included_stages": stages})
+                )
+
+                self.assertEqual(scope, normalized["workload"]["timing_scope"])
+                self.assertEqual(stages, normalized["workload"]["included_stages"])
 
     def test_requires_wall_clock_elapsed_source(self):
         with self.assertRaisesRegex(ContractError, "timing.elapsed_source"):
@@ -252,51 +337,21 @@ class ComparisonTests(unittest.TestCase):
         self.assertTrue(result["throughput_comparable"])
         self.assertTrue(result["learning_behavior_comparable"])
         self.assertTrue(result["promotion_eligible"])
-        self.assertEqual(100.0, result["left_rate"])
-        self.assertEqual(200.0, result["right_rate"])
+        self.assertEqual(100.0, result["left_agent_transitions_per_second"])
+        self.assertEqual(200.0, result["right_agent_transitions_per_second"])
         self.assertEqual(2.0, result["speedup_ratio"])
         self.assertEqual([], result["throughput_blockers"])
-        self.assertEqual([], result["learning_behavior_blockers"])
+        self.assertEqual([], result["learning_blockers"])
         self.assertEqual([], result["promotion_blockers"])
 
-    def test_gpu_mismatch_blocks_throughput(self):
-        result = comparison_with(
-            {"system": {"hardware": {"accelerator_model": "RTX 3090"}}}
+    def test_every_throughput_blocker_path_has_direct_mismatch_coverage(self):
+        self.assertEqual(
+            set(contract._THROUGHPUT_PATHS),
+            set(THROUGHPUT_MISMATCH_CASES),
         )
-
-        self.assertFalse(result["throughput_comparable"])
-        self.assertIn("system.hardware.accelerator_model", result["throughput_blockers"])
-        self.assertIsNone(result["speedup_ratio"])
 
     def test_throughput_mismatch_classes_block_speedup(self):
-        cases = (
-            ("workload.warmup_policy", {"workload": {"warmup_policy": {"mode": "none"}}}),
-            (
-                "workload.synchronization",
-                {"workload": {"synchronization": {"device": "cuda", "method": "event"}}},
-            ),
-            ("system.hardware.accelerator_count", {"system": {"hardware": {"accelerator_count": 2}}}),
-            (
-                "workload.environment.action_contract",
-                {"workload": {"environment": {"action_contract": "discrete_22_v1"}}},
-            ),
-            (
-                "workload.environment.tick_semantics",
-                {"workload": {"environment": {"tick_semantics": "one_tick_per_env_step"}}},
-            ),
-            (
-                "workload.environment.terminal_bootstrap",
-                {"workload": {"environment": {"terminal_bootstrap": "zero_terminal"}}},
-            ),
-            ("workload.rollout.horizon", {"workload": {"rollout": {"horizon": 256}}}),
-            (
-                "workload.rollout.transitions_per_batch",
-                {"workload": {"rollout": {"transitions_per_batch": 262144}}},
-            ),
-            ("algorithm.sample_reuse_epochs", {"algorithm": {"sample_reuse_epochs": 3}}),
-        )
-
-        for blocker, overrides in cases:
+        for blocker, overrides in THROUGHPUT_MISMATCH_CASES.items():
             with self.subTest(blocker=blocker):
                 result = comparison_with(overrides)
 
@@ -334,7 +389,7 @@ class ComparisonTests(unittest.TestCase):
         )
         self.assertIn(
             "workload.environment.observation_contract",
-            result["learning_behavior_blockers"],
+            result["learning_blockers"],
         )
 
     def test_model_parameters_or_precision_mismatch_blocks_throughput(self):
@@ -370,7 +425,7 @@ class ComparisonTests(unittest.TestCase):
 
         self.assertTrue(result["throughput_comparable"])
         self.assertFalse(result["learning_behavior_comparable"])
-        self.assertIn("algorithm.learning_rate", result["learning_behavior_blockers"])
+        self.assertIn("algorithm.learning_rate", result["learning_blockers"])
         self.assertFalse(result["promotion_eligible"])
         self.assertEqual(2.0, result["speedup_ratio"])
 
@@ -379,10 +434,35 @@ class ComparisonTests(unittest.TestCase):
 
         self.assertTrue(result["throughput_comparable"])
         self.assertFalse(result["learning_behavior_comparable"])
-        self.assertIn("algorithm.actor_staleness", result["learning_behavior_blockers"])
+        self.assertIn("algorithm.actor_staleness", result["learning_blockers"])
 
     def test_learning_mismatch_classes_do_not_block_system_speedup(self):
         cases = (
+            ("workload.environment.env_id", {"workload": {"environment": {"env_id": "OtherBrawl"}}}),
+            (
+                "workload.environment.observation_contract",
+                {"workload": {"environment": {"observation_contract": "puffer_observation_v2"}}},
+            ),
+            (
+                "workload.environment.action_contract",
+                {"workload": {"environment": {"action_contract": "discrete_22_v1"}}},
+            ),
+            (
+                "workload.environment.tick_semantics",
+                {"workload": {"environment": {"tick_semantics": "one_tick_per_env_step"}}},
+            ),
+            (
+                "workload.environment.terminal_bootstrap",
+                {"workload": {"environment": {"terminal_bootstrap": "zero_terminal"}}},
+            ),
+            ("workload.model.architecture", {"workload": {"model": {"architecture": "cnn"}}}),
+            ("workload.model.parameter_count", {"workload": {"model": {"parameter_count": 999}}}),
+            ("workload.model.precision", {"workload": {"model": {"precision": "tf32"}}}),
+            ("workload.rollout.horizon", {"workload": {"rollout": {"horizon": 256}}}),
+            (
+                "workload.rollout.transitions_per_batch",
+                {"workload": {"rollout": {"transitions_per_batch": 262144}}},
+            ),
             ("algorithm.optimizer", {"algorithm": {"optimizer": "sgd"}}),
             ("algorithm.gamma", {"algorithm": {"gamma": 0.98}}),
             ("algorithm.gae_lambda", {"algorithm": {"gae_lambda": 0.9}}),
@@ -390,6 +470,9 @@ class ComparisonTests(unittest.TestCase):
             ("algorithm.entropy_coef", {"algorithm": {"entropy_coef": 0.0}}),
             ("algorithm.value_coef", {"algorithm": {"value_coef": 0.25}}),
             ("algorithm.max_grad_norm", {"algorithm": {"max_grad_norm": 1.0}}),
+            ("algorithm.sample_reuse_epochs", {"algorithm": {"sample_reuse_epochs": 3}}),
+            ("algorithm.minibatches", {"algorithm": {"minibatches": 16}}),
+            ("algorithm.ppo_epochs", {"algorithm": {"ppo_epochs": 2}}),
             ("algorithm.replay_semantics", {"algorithm": {"replay_semantics": "replay_buffer"}}),
             (
                 "algorithm.advantage_normalization",
@@ -413,11 +496,9 @@ class ComparisonTests(unittest.TestCase):
                     ),
                 )
 
-                self.assertTrue(result["throughput_comparable"])
                 self.assertFalse(result["learning_behavior_comparable"])
-                self.assertIn(blocker, result["learning_behavior_blockers"])
+                self.assertIn(blocker, result["learning_blockers"])
                 self.assertFalse(result["promotion_eligible"])
-                self.assertEqual(2.0, result["speedup_ratio"])
 
     def test_async_evidence_mismatch_blocks_throughput(self):
         result = comparison_with(
