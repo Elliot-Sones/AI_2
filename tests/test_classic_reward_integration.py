@@ -48,7 +48,17 @@ def purge_stubbed_imports():
         is_unit_test_dummy = module.__class__.__name__ == "DummyModule" or (
             module_file is not None and not isinstance(module_file, (str, bytes, os.PathLike))
         )
-        if is_unit_test_dummy or is_named_real_import:
+        root_name = name.split(".", 1)[0]
+        root_module = sys.modules.get(root_name)
+        root_file = getattr(root_module, "__file__", None)
+        is_real_torch_child = (
+            root_name == "torch"
+            and name != "torch"
+            and isinstance(root_file, (str, bytes, os.PathLike))
+        )
+        is_synthetic_module = module_file is None and is_named_real_import and not is_real_torch_child
+        is_repo_module_loaded_under_stubs = name == "train" or name.startswith("environment")
+        if is_unit_test_dummy or is_synthetic_module or is_repo_module_loaded_under_stubs:
             sys.modules.pop(name, None)
 
 
@@ -190,6 +200,25 @@ def combat_params():
         "environment_settings": {"resolution": "LOW"},
         "opponent_history": {"enabled": False},
     }
+
+
+class ClassicRewardImportIsolationTest(unittest.TestCase):
+    def test_purge_preserves_real_torch_c_extension_children(self):
+        try:
+            import torch
+        except Exception as exc:  # pragma: no cover - local lightweight env path
+            raise unittest.SkipTest(f"real torch unavailable: {exc}") from exc
+
+        if not getattr(torch, "__file__", None):
+            raise unittest.SkipTest("real torch unavailable")
+        self.assertIs(sys.modules.get("torch"), torch)
+        self.assertIn("torch._C._profiler", sys.modules)
+
+        purge_stubbed_imports()
+
+        self.assertIs(sys.modules.get("torch"), torch)
+        self.assertIn("torch._C._profiler", sys.modules)
+        self.assertIsNotNone(getattr(sys.modules["torch._C._profiler"], "__name__", None))
 
 
 class ClassicRewardIntegrationTest(unittest.TestCase):

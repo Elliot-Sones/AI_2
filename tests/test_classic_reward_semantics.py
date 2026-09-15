@@ -19,8 +19,76 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
+_ORIGINAL_SYS_PATH = list(sys.path)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "UTMIST-AI2-main"))
+_MISSING = object()
+_STUBBED_MODULE_NAMES = [
+    "yaml",
+    "torch",
+    "torch.nn",
+    "gymnasium",
+    "gymnasium.spaces",
+    "stable_baselines3",
+    "stable_baselines3.common",
+    "stable_baselines3.common.base_class",
+    "stable_baselines3.common.callbacks",
+    "stable_baselines3.common.env_util",
+    "stable_baselines3.common.vec_env",
+    "stable_baselines3.common.monitor",
+    "stable_baselines3.common.results_plotter",
+    "sb3_contrib",
+    "imageio",
+    "gdown",
+    "pygame",
+    "pygame.gfxdraw",
+    "pygame.locals",
+    "pymunk",
+    "pymunk.pygame_util",
+    "pymunk.space_debug_draw_options",
+    "pymunk.vec2d",
+    "cv2",
+    "skvideo",
+    "skvideo.io",
+    "skimage",
+    "skimage.transform",
+    "IPython",
+    "IPython.display",
+    "train",
+    "tracking",
+    "environment",
+    "environment.agent",
+    "environment.environment",
+]
+
+
+def _capture_modules(names):
+    return {name: sys.modules.get(name, _MISSING) for name in names}
+
+
+_MODULE_SNAPSHOT = _capture_modules(_STUBBED_MODULE_NAMES)
+
+
+def _restore_modules(snapshot, only_if_current=None) -> None:
+    for name, module in snapshot.items():
+        if only_if_current is not None:
+            current = sys.modules.get(name, _MISSING)
+            installed = only_if_current.get(name, _MISSING)
+            if installed is _MISSING or current is not installed:
+                continue
+        if module is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
+_INSTALLED_MODULE_SNAPSHOT = {}
+
+
+def restore_import_stubs(*, restore_path: bool = False) -> None:
+    _restore_modules(_MODULE_SNAPSHOT, only_if_current=_INSTALLED_MODULE_SNAPSHOT)
+    if restore_path:
+        sys.path[:] = _ORIGINAL_SYS_PATH
 
 
 class FakeTensor:
@@ -223,12 +291,19 @@ def install_import_stubs() -> None:
 
 
 install_import_stubs()
+try:
+    import torch  # noqa: E402
 
-import torch  # noqa: E402
+    train = importlib.import_module("train")
+    agent_mod = importlib.import_module("environment.agent")
+    env_mod = importlib.import_module("environment.environment")
+finally:
+    _INSTALLED_MODULE_SNAPSHOT = _capture_modules(_STUBBED_MODULE_NAMES)
+    restore_import_stubs(restore_path=True)
 
-train = importlib.import_module("train")
-agent_mod = importlib.import_module("environment.agent")
-env_mod = importlib.import_module("environment.environment")
+
+def tearDownModule() -> None:
+    restore_import_stubs()
 
 
 class FakeSignal:
@@ -251,7 +326,10 @@ class FakeRawEnv:
         self.logger = [{}]
 
 
-class FakeCombatEnv:
+_GYM_ENV_BASE = getattr(sys.modules.get("gymnasium"), "Env", object)
+
+
+class FakeCombatEnv(_GYM_ENV_BASE):
     instances = []
 
     def __init__(self, **kwargs) -> None:
@@ -326,6 +404,30 @@ def build_factory_env(config: train.PhaseConfig):
 class ClassicRewardSemanticsTest(unittest.TestCase):
     def tearDown(self) -> None:
         train.GLOBAL_REWARD_MANAGER = None
+
+    def test_import_stubs_restore_original_modules_and_absence(self):
+        original_torch = _MODULE_SNAPSHOT["torch"]
+        current_torch = sys.modules.get("torch")
+        if original_torch is _MISSING:
+            if current_torch is not None:
+                self.assertIsNot(getattr(current_torch, "Tensor", None), FakeTensor)
+                self.assertTrue(hasattr(current_torch, "no_grad"))
+        else:
+            self.assertIs(current_torch, original_torch)
+
+        sentinel = ModuleType("ai2_sentinel_torch")
+        snapshot = _capture_modules(["torch"])
+        sys.modules["torch"] = sentinel
+        try:
+            sys.modules["torch"] = ModuleType("fake_torch")
+            _restore_modules({"torch": sentinel})
+            self.assertIs(sys.modules["torch"], sentinel)
+        finally:
+            _restore_modules(snapshot)
+
+        current_torch = sys.modules.get("torch")
+        if current_torch is not None:
+            self.assertIsNot(getattr(current_torch, "Tensor", None), FakeTensor)
 
     def test_factory_subscribes_exact_signal_names_and_shapes(self):
         config = phase_config({"win": 2.0, "knockout": 3.0})
