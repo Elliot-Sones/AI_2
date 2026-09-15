@@ -1336,6 +1336,13 @@ def _configured_max_timesteps(params: dict, *, fps: int) -> int:
     return int(fps * 90)
 
 
+def _configured_env_seed(params: dict) -> int | None:
+    seed = params.get("environment_settings", {}).get("seed")
+    if seed is None:
+        return None
+    return int(seed)
+
+
 def _combat_model_root(params: dict) -> str:
     return os.path.abspath(os.path.join(
         params["folders"]["parent_dir"],
@@ -2316,13 +2323,19 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         "params": params,
         "device": device,
     }
+    vec_env_kwargs = {
+        "n_envs": n_envs,
+        "vec_env_cls": SubprocVecEnv,
+        "vec_env_kwargs": {"start_method": "spawn"},
+        "env_kwargs": env_kwargs,
+    }
+    env_seed = _configured_env_seed(params)
+    if env_seed is not None:
+        vec_env_kwargs["seed"] = env_seed
     
     env = make_vec_env(
         make_combat_env,
-        n_envs=n_envs,
-        vec_env_cls=SubprocVecEnv,
-        vec_env_kwargs={"start_method": "spawn"},
-        env_kwargs=env_kwargs
+        **vec_env_kwargs,
     )
     env = VecMonitor(env)
     

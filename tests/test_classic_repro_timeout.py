@@ -18,28 +18,21 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
-_PATH_ENTRIES_ADDED = []
 _MISSING = object()
 
 
-def add_test_path(path: Path) -> None:
-    entry = str(path)
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
-        _PATH_ENTRIES_ADDED.append(entry)
-
-
-def restore_test_paths() -> None:
-    for entry in reversed(_PATH_ENTRIES_ADDED):
-        try:
+def move_test_roots_to_front() -> None:
+    """Make this worktree's train/environment imports win over prior suite imports."""
+    entries = [str(ROOT), str(ROOT / "UTMIST-AI2-main")]
+    for entry in entries:
+        while entry in sys.path:
             sys.path.remove(entry)
-        except ValueError:
-            pass
-    _PATH_ENTRIES_ADDED.clear()
+    sys.path[:0] = entries
 
 
-add_test_path(ROOT)
-add_test_path(ROOT / "UTMIST-AI2-main")
+def restore_test_paths(snapshot) -> None:
+    if snapshot is not None:
+        sys.path[:] = snapshot
 
 
 def capture_repo_game_modules():
@@ -164,10 +157,10 @@ def null_reward_manager(train_module):
 
 class ClassicReproTimeoutTests(unittest.TestCase):
     def setUp(self):
+        self.path_snapshot = list(sys.path)
         self.module_snapshot = capture_repo_game_modules()
         self.loaded_repo_modules = {}
-        add_test_path(ROOT)
-        add_test_path(ROOT / "UTMIST-AI2-main")
+        move_test_roots_to_front()
         self.assets_guard = install_test_assets_guard()
         try:
             clear_repo_game_modules_for_import()
@@ -190,10 +183,11 @@ class ClassicReproTimeoutTests(unittest.TestCase):
             getattr(self, "module_snapshot", {}),
             getattr(self, "loaded_repo_modules", {}),
         )
-        restore_test_paths()
-        if self.assets_guard is not None:
+        restore_test_paths(getattr(self, "path_snapshot", None))
+        assets_guard = getattr(self, "assets_guard", None)
+        if assets_guard is not None:
             try:
-                self.assets_guard.rmdir()
+                assets_guard.rmdir()
             except OSError:
                 pass
 
@@ -315,9 +309,41 @@ class ClassicReproTimeoutTests(unittest.TestCase):
         self.assertEqual(params["environment_settings"]["max_timesteps"], 2700)
         self.assertEqual(params["environment_settings"]["time_limit_seconds"], 90)
 
+    def test_combat_training_vec_env_construction_receives_configured_seed(self):
+        params = make_params(self.tmp.name)
+        params["environment_settings"]["n_envs"] = 3
+        params["environment_settings"]["seed"] = 4242
+        phase = self.train.PhaseConfig(params, 1)
+        captured = {}
+
+        class StopAfterVecEnvConstruction(Exception):
+            pass
+
+        def capture_make_vec_env(env_id, **kwargs):
+            captured["env_id"] = env_id
+            captured.update(kwargs)
+            raise StopAfterVecEnvConstruction()
+
+        with (
+            mock.patch.object(self.train, "get_device", return_value="cpu"),
+            mock.patch.object(self.train, "make_vec_env", side_effect=capture_make_vec_env),
+        ):
+            with self.assertRaises(StopAfterVecEnvConstruction):
+                self.train.run_combat_training(params, phase)
+
+        self.assertIs(captured["env_id"], self.train.make_combat_env)
+        self.assertEqual(captured["n_envs"], 3)
+        self.assertIs(captured["vec_env_cls"], self.train.SubprocVecEnv)
+        self.assertEqual(captured["vec_env_kwargs"], {"start_method": "spawn"})
+        self.assertEqual(captured["seed"], 4242)
+        self.assertIs(captured["env_kwargs"]["phase_config"], phase)
+        self.assertIs(captured["env_kwargs"]["params"], params)
+        self.assertEqual(captured["env_kwargs"]["device"], "cpu")
+
 
 class ClassicReproImportIsolationTest(unittest.TestCase):
     def test_different_source_environment_imports_after_repro_tests_restore(self):
+        path_snapshot = list(sys.path)
         snapshot = capture_repo_game_modules()
         with tempfile.TemporaryDirectory(prefix="ai2-repro-env-sentinel-") as directory:
             package = Path(directory) / "environment"
@@ -342,6 +368,7 @@ class ClassicReproImportIsolationTest(unittest.TestCase):
                     sys.path.remove(directory)
                 except ValueError:
                     pass
+                restore_test_paths(path_snapshot)
                 restore_repo_game_modules(snapshot, capture_repo_game_modules())
 
 

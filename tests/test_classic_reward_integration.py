@@ -15,29 +15,19 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
-_PATH_ENTRIES_ADDED = []
-
-
-def add_test_path(path: Path) -> None:
-    entry = str(path)
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
-        _PATH_ENTRIES_ADDED.append(entry)
-
-
-def restore_test_paths() -> None:
-    for entry in reversed(_PATH_ENTRIES_ADDED):
-        try:
-            sys.path.remove(entry)
-        except ValueError:
-            pass
-    _PATH_ENTRIES_ADDED.clear()
-
-
-add_test_path(ROOT)
-add_test_path(ROOT / "UTMIST-AI2-main")
-
+_ORIGINAL_SYS_PATH = list(sys.path)
 _MISSING = object()
+
+
+def move_real_stack_paths_to_front() -> None:
+    entries = [str(ROOT), str(ROOT / "UTMIST-AI2-main")]
+    for entry in entries:
+        while entry in sys.path:
+            sys.path.remove(entry)
+    sys.path[:0] = entries
+
+
+move_real_stack_paths_to_front()
 
 
 REAL_IMPORT_PREFIXES = (
@@ -292,7 +282,7 @@ class ClassicRewardIntegrationTest(unittest.TestCase):
         except Exception:
             cls.loaded_repo_modules = repo_game_modules_loaded_since(cls.module_snapshot)
             restore_repo_game_modules(cls.module_snapshot, cls.loaded_repo_modules)
-            restore_test_paths()
+            sys.path[:] = _ORIGINAL_SYS_PATH
             created_assets_dir = getattr(cls, "created_assets_dir", None)
             if created_assets_dir is not None:
                 try:
@@ -309,7 +299,7 @@ class ClassicRewardIntegrationTest(unittest.TestCase):
                 getattr(cls, "loaded_repo_modules", {}),
             )
         finally:
-            restore_test_paths()
+            sys.path[:] = _ORIGINAL_SYS_PATH
             created_assets_dir = getattr(cls, "created_assets_dir", None)
             if created_assets_dir is not None:
                 try:
@@ -406,6 +396,10 @@ class ClassicRewardPostTeardownImportIsolationTest(unittest.TestCase):
                 except ValueError:
                     pass
                 restore_repo_game_modules(snapshot, capture_repo_game_modules())
+
+
+def tearDownModule() -> None:
+    sys.path[:] = _ORIGINAL_SYS_PATH
 
 
 if __name__ == "__main__":
