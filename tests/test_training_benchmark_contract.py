@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import training_benchmark_contract as contract
 from training_benchmark_contract import (
@@ -334,9 +335,18 @@ class ValidationTests(unittest.TestCase):
     def test_rejects_semantically_empty_provenance_and_protocol_objects(self):
         invalid_cases = (
             ("workload.warmup_policy", {"workload": {"warmup_policy": {"mode": ""}}}),
+            ("workload.warmup_policy", {"workload": {"warmup_policy": {"mode": False, "iterations": 1}}}),
             (
                 "workload.synchronization",
                 {"workload": {"synchronization": {"device": "cuda", "method": None}}},
+            ),
+            (
+                "workload.synchronization",
+                {"workload": {"synchronization": {"device": False, "method": "event"}}},
+            ),
+            (
+                "workload.source_provenance.sources",
+                {"workload": {"source_provenance": {"sources": {"runner.py": False}}}},
             ),
             ("system.software.command", {"system": {"software": {"command": ""}}}),
             (
@@ -352,8 +362,20 @@ class ValidationTests(unittest.TestCase):
 
         empty_cases = (
             ("workload.warmup_policy", lambda raw: raw["workload"].update(warmup_policy={})),
+            (
+                "workload.warmup_policy",
+                lambda raw: raw["workload"].update(warmup_policy={"mode": "discard_first"}),
+            ),
             ("workload.synchronization", lambda raw: raw["workload"].update(synchronization={})),
             ("system.software.runtime", lambda raw: raw["system"]["software"].update(runtime={})),
+            (
+                "system.software.runtime",
+                lambda raw: raw["system"]["software"].update(runtime={"placeholder": "filled"}),
+            ),
+            (
+                "system.software.runtime",
+                lambda raw: raw["system"]["software"].update(runtime={"matmul_tf32": False}),
+            ),
             (
                 "workload.source_provenance.sources",
                 lambda raw: raw["workload"]["source_provenance"].update(sources={}),
@@ -1151,6 +1173,28 @@ class CLITests(unittest.TestCase):
             self.assertTrue(legacy_tmp.is_symlink())
             self.assertTrue(output.is_file())
             validate_receipt(json.loads(output.read_text(encoding="utf-8")))
+
+    def test_cli_output_publish_refuses_destination_created_after_precheck(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "receipt.json"
+            output = root / "validated.json"
+            source.write_text(json.dumps(receipt()), encoding="utf-8")
+
+            def racing_link(src, dst):
+                Path(dst).write_text("racer-created", encoding="utf-8")
+                raise FileExistsError(dst)
+
+            stdout = io.StringIO()
+            with patch.object(contract.os, "link", side_effect=racing_link), redirect_stdout(stdout):
+                self.assertEqual(
+                    contract.CLI_OUTPUT_EXISTS,
+                    contract.main(["validate", str(source), "--output", str(output)]),
+                )
+
+            self.assertIn("refusing to overwrite", json.loads(stdout.getvalue())["error"])
+            self.assertEqual("racer-created", output.read_text(encoding="utf-8"))
+            self.assertEqual([], list(root.glob(".validated.json.*.tmp")))
 
     def test_cli_refuses_overwrite_and_marks_non_comparable_pair_distinctly(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -261,9 +261,9 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
             )
     receipt["measurement"]["derived_rate"] = derived_rate
 
-    _require_evidence_object(_get(receipt, "system.software.runtime"), "system.software.runtime")
-    _require_evidence_object(_get(receipt, "workload.source_provenance.sources"), "workload.source_provenance.sources")
-    _require_evidence_object(_get(receipt, "workload.source_provenance.runtime"), "workload.source_provenance.runtime")
+    _validate_runtime_evidence(_get(receipt, "system.software.runtime"), "system.software.runtime")
+    _validate_source_evidence(_get(receipt, "workload.source_provenance.sources"), "workload.source_provenance.sources")
+    _validate_runtime_evidence(_get(receipt, "workload.source_provenance.runtime"), "workload.source_provenance.runtime")
     for path in (
         "system.software.command",
         "workload.source_provenance.runner",
@@ -272,8 +272,8 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
         if not _non_empty_string(_get(receipt, path)):
             raise ContractError(f"{path} must be a non-empty string")
 
-    _require_evidence_object(_get(receipt, "workload.warmup_policy"), "workload.warmup_policy")
-    _require_evidence_object(_get(receipt, "workload.synchronization"), "workload.synchronization")
+    _validate_warmup_policy(_get(receipt, "workload.warmup_policy"), "workload.warmup_policy")
+    _validate_synchronization(_get(receipt, "workload.synchronization"), "workload.synchronization")
     _require_dict(_get(receipt, "workload.overlap"), "workload.overlap")
     overlap_mode = _get(receipt, "workload.overlap.mode")
     if overlap_mode not in _ALLOWED_OVERLAP_MODES:
@@ -601,11 +601,11 @@ def _emit_json(payload: dict[str, Any], output: Path | None) -> int:
         ) as handle:
             temporary_path = Path(handle.name)
             handle.write(text)
-        if output.exists():
+        try:
+            os.link(temporary_path, output)
+        except FileExistsError:
             print(json.dumps({"error": f"refusing to overwrite {output}"}, sort_keys=True))
             return CLI_OUTPUT_EXISTS
-        os.replace(temporary_path, output)
-        temporary_path = None
     finally:
         if temporary_path is not None:
             try:
@@ -773,38 +773,118 @@ def _known_hardware_string(value: Any) -> bool:
     }
 
 
-def _require_evidence_object(value: Any, name: str) -> dict[str, Any]:
+def _validate_warmup_policy(value: Any, name: str) -> None:
     obj = _require_dict(value, name)
     if not obj:
-        raise ContractError(f"{name} must contain provenance evidence")
+        raise ContractError(f"{name} must contain warmup evidence")
+    if not _non_empty_string(obj.get("mode")):
+        raise ContractError(f"{name}.mode must be a non-empty string")
+    detail_fields = [key for key in obj if key != "mode"]
+    if not detail_fields:
+        raise ContractError(f"{name} must include warmup count or detail evidence")
+    for key in detail_fields:
+        _validate_non_bool_evidence(obj[key], f"{name}.{key}", allow_zero=True)
+
+
+def _validate_synchronization(value: Any, name: str) -> None:
+    obj = _require_dict(value, name)
+    if not obj:
+        raise ContractError(f"{name} must contain synchronization evidence")
+    for field in ("device", "method"):
+        if not _non_empty_string(obj.get(field)):
+            raise ContractError(f"{name}.{field} must be a non-empty string")
+
+
+def _validate_source_evidence(value: Any, name: str) -> None:
+    obj = _require_dict(value, name)
+    if not obj:
+        raise ContractError(f"{name} must contain source evidence")
     for key, item in obj.items():
         if not isinstance(key, str) or not key.strip():
             raise ContractError(f"{name} keys must be non-empty strings")
-        _require_evidence_value(item, f"{name}.{key}")
-    return obj
+        _validate_source_manifest_value(item, f"{name}.{key}")
 
 
-def _require_evidence_value(value: Any, name: str) -> None:
-    if value is None:
-        raise ContractError(f"{name} must not be empty")
-    if isinstance(value, str):
-        if not value.strip():
-            raise ContractError(f"{name} must be a non-empty string")
+def _validate_source_manifest_value(value: Any, name: str) -> None:
+    if _non_empty_string(value):
         return
     if isinstance(value, dict):
-        _require_evidence_object(value, name)
+        _validate_source_evidence(value, name)
         return
     if isinstance(value, list):
         if not value:
             raise ContractError(f"{name} must be a non-empty list")
         for index, item in enumerate(value):
-            _require_evidence_value(item, f"{name}[{index}]")
+            _validate_source_manifest_value(item, f"{name}[{index}]")
         return
-    if isinstance(value, bool):
+    raise ContractError(f"{name} must be non-empty source hash/version evidence")
+
+
+_RUNTIME_MEANINGFUL_KEYS = {
+    "cuda",
+    "cuda_version",
+    "numpy",
+    "packages",
+    "python",
+    "python_version",
+    "pytorch",
+    "stable_baselines3",
+    "torch",
+}
+_RUNTIME_BOOL_AUXILIARY_KEYS = {"allow_tf32", "matmul_tf32", "tf32"}
+
+
+def _validate_runtime_evidence(value: Any, name: str) -> None:
+    obj = _require_dict(value, name)
+    if not obj:
+        raise ContractError(f"{name} must contain runtime evidence")
+    has_meaningful = False
+    for key, item in obj.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ContractError(f"{name} keys must be non-empty strings")
+        normalized_key = key.strip().casefold()
+        if isinstance(item, bool):
+            if normalized_key not in _RUNTIME_BOOL_AUXILIARY_KEYS:
+                raise ContractError(f"{name}.{key} cannot be boolean-only evidence")
+            continue
+        if normalized_key == "packages":
+            _validate_source_evidence(item, f"{name}.{key}")
+            has_meaningful = True
+            continue
+        _validate_non_bool_evidence(item, f"{name}.{key}", allow_zero=False)
+        if normalized_key in _RUNTIME_MEANINGFUL_KEYS:
+            has_meaningful = True
+    if not has_meaningful:
+        raise ContractError(f"{name} must include named runtime/version evidence")
+
+
+def _validate_non_bool_evidence(value: Any, name: str, *, allow_zero: bool) -> None:
+    if isinstance(value, bool) or value is None:
+        raise ContractError(f"{name} must contain non-boolean evidence")
+    if isinstance(value, str):
+        if not value.strip():
+            raise ContractError(f"{name} must be a non-empty string")
+        return
+    if isinstance(value, dict):
+        if not value:
+            raise ContractError(f"{name} must be a non-empty object")
+        for key, item in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ContractError(f"{name} keys must be non-empty strings")
+            _validate_non_bool_evidence(item, f"{name}.{key}", allow_zero=allow_zero)
+        return
+    if isinstance(value, list):
+        if not value:
+            raise ContractError(f"{name} must be a non-empty list")
+        for index, item in enumerate(value):
+            _validate_non_bool_evidence(item, f"{name}[{index}]", allow_zero=allow_zero)
         return
     if isinstance(value, (int, float)) and math.isfinite(float(value)):
-        return
-    raise ContractError(f"{name} must contain JSON provenance evidence")
+        if allow_zero and float(value) >= 0:
+            return
+        if not allow_zero and float(value) > 0:
+            return
+    raise ContractError(f"{name} must contain semantic evidence")
 
 
 def _counter_key(value: str) -> str:
