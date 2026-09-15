@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import os
 import random
 import sys
@@ -17,54 +18,74 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "UTMIST-AI2-main"))
+_PATH_ENTRIES_ADDED = []
+_MISSING = object()
 
 
-REAL_IMPORT_PREFIXES = (
-    "train",
-    "environment",
-    "src",
-    "gymnasium",
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-    "gdown",
-    "pygame",
-    "pymunk",
-    "cv2",
-    "skvideo",
-    "skimage",
-    "IPython",
-)
+def add_test_path(path: Path) -> None:
+    entry = str(path)
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
+        _PATH_ENTRIES_ADDED.append(entry)
 
 
-def purge_repo_and_stubbed_imports():
+def restore_test_paths() -> None:
+    for entry in reversed(_PATH_ENTRIES_ADDED):
+        try:
+            sys.path.remove(entry)
+        except ValueError:
+            pass
+    _PATH_ENTRIES_ADDED.clear()
+
+
+add_test_path(ROOT)
+add_test_path(ROOT / "UTMIST-AI2-main")
+
+
+def capture_repo_game_modules():
+    return {
+        name: sys.modules.get(name, _MISSING)
+        for name in list(sys.modules)
+        if name == "train" or name == "environment" or name.startswith("environment.")
+    }
+
+
+def repo_game_modules_loaded_since(snapshot):
+    loaded = {}
     for name in list(sys.modules):
+        if not (name == "train" or name == "environment" or name.startswith("environment.")):
+            continue
         module = sys.modules[name]
-        module_file = getattr(module, "__file__", None)
-        is_named_real_import = name in REAL_IMPORT_PREFIXES or any(
-            name.startswith(f"{prefix}.") for prefix in REAL_IMPORT_PREFIXES
-        )
-        is_unit_test_dummy = module.__class__.__name__ == "DummyModule" or (
-            module_file is not None and not isinstance(module_file, (str, bytes, os.PathLike))
-        )
-        root_name = name.split(".", 1)[0]
-        root_module = sys.modules.get(root_name)
-        root_file = getattr(root_module, "__file__", None)
-        is_real_torch_child = (
-            root_name == "torch"
-            and name != "torch"
-            and isinstance(root_file, (str, bytes, os.PathLike))
-        )
-        is_synthetic_module = module_file is None and is_named_real_import and not is_real_torch_child
-        is_repo_module_loaded_under_stubs = name == "train" or name.startswith("environment")
-        if is_unit_test_dummy or is_synthetic_module or is_repo_module_loaded_under_stubs:
+        if snapshot.get(name, _MISSING) is module:
+            continue
+        loaded[name] = module
+    return loaded
+
+
+def restore_repo_game_modules(snapshot, loaded):
+    for name, module in sorted(loaded.items(), key=lambda item: item[0].count("."), reverse=True):
+        if sys.modules.get(name) is not module:
+            continue
+        previous = snapshot.get(name, _MISSING)
+        if previous is _MISSING:
             sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+
+
+def clear_repo_game_modules_for_import():
+    for name in sorted(
+        [
+            name for name in list(sys.modules)
+            if name == "train" or name == "environment" or name.startswith("environment.")
+        ],
+        key=lambda value: value.count("."),
+        reverse=True,
+    ):
+        sys.modules.pop(name, None)
 
 
 def import_real_stack():
-    purge_repo_and_stubbed_imports()
     try:
         import numpy as np
         import train
@@ -143,16 +164,40 @@ def null_reward_manager(train_module):
 
 class ClassicReproTimeoutTests(unittest.TestCase):
     def setUp(self):
+        self.module_snapshot = capture_repo_game_modules()
+        self.loaded_repo_modules = {}
+        add_test_path(ROOT)
+        add_test_path(ROOT / "UTMIST-AI2-main")
         self.assets_guard = install_test_assets_guard()
-        self.np, self.train, self.OpponentsCfg, self.SelfPlayWarehouseBrawl, self.WarehouseBrawl = import_real_stack()
-        self.tmp = tempfile.TemporaryDirectory(prefix="ai2-classic-repro-")
+        try:
+            clear_repo_game_modules_for_import()
+            self.np, self.train, self.OpponentsCfg, self.SelfPlayWarehouseBrawl, self.WarehouseBrawl = import_real_stack()
+            self.loaded_repo_modules = repo_game_modules_loaded_since(self.module_snapshot)
+            self.tmp = tempfile.TemporaryDirectory(prefix="ai2-classic-repro-")
+        except Exception:
+            self.loaded_repo_modules = repo_game_modules_loaded_since(self.module_snapshot)
+            self._restore_imports_and_assets()
+            raise
 
     def tearDown(self):
-        self.tmp.cleanup()
-        if self.assets_guard is not None:
-            self.assets_guard.rmdir()
+        tmp = getattr(self, "tmp", None)
+        if tmp is not None:
+            tmp.cleanup()
+        self._restore_imports_and_assets()
 
-    def test_combat_factory_applies_configured_90_second_time_limit_to_real_raw_env(self):
+    def _restore_imports_and_assets(self):
+        restore_repo_game_modules(
+            getattr(self, "module_snapshot", {}),
+            getattr(self, "loaded_repo_modules", {}),
+        )
+        restore_test_paths()
+        if self.assets_guard is not None:
+            try:
+                self.assets_guard.rmdir()
+            except OSError:
+                pass
+
+    def test_combat_factory_applies_configured_90_second_time_limit_and_boundary(self):
         params = make_params(self.tmp.name)
         phase = self.train.PhaseConfig(params, 1)
         env = self.train.make_combat_env(phase, params, device="cpu")
@@ -161,16 +206,42 @@ class ClassicReproTimeoutTests(unittest.TestCase):
             raw = self_play_env.raw_env
             self.assertEqual(raw.fps, 30)
             self.assertEqual(raw.max_timesteps, 2700)
-            obs, _ = env.reset()
-            raw.steps = raw.max_timesteps - 1
+            env.reset()
             action = self.np.zeros(env.action_space.shape, dtype=env.action_space.dtype)
 
+            raw.steps = raw.max_timesteps - 2
             _, _, _, truncated, _ = env.step(action)
+            self.assertFalse(truncated)
+            self.assertEqual(raw.steps, 2699)
 
+            _, _, _, truncated, _ = env.step(action)
             self.assertTrue(truncated)
             self.assertEqual(raw.steps, 2700)
         finally:
             env.close()
+
+    def test_configured_max_timesteps_fails_closed_for_invalid_horizons(self):
+        params = make_params(self.tmp.name)
+
+        bad_settings = [
+            {"time_limit_seconds": 0},
+            {"time_limit_seconds": -1},
+            {"time_limit_seconds": float("nan")},
+            {"time_limit_seconds": float("inf")},
+            {"max_timesteps": 0},
+            {"max_timesteps": -10},
+            {"time_limit_seconds": 90, "max_timesteps": 2699},
+        ]
+        for settings in bad_settings:
+            with self.subTest(settings=settings):
+                candidate = copy.deepcopy(params)
+                candidate["environment_settings"] = settings
+                with self.assertRaises(ValueError):
+                    self.train._configured_max_timesteps(candidate, fps=30)
+
+        seconds_only = copy.deepcopy(params)
+        seconds_only["environment_settings"] = {"time_limit_seconds": 1.5}
+        self.assertEqual(self.train._configured_max_timesteps(seconds_only, fps=30), 45)
 
     def test_raw_reset_seed_replays_the_same_initial_randomized_setup(self):
         env = self.WarehouseBrawl(train_mode=True)
@@ -243,6 +314,35 @@ class ClassicReproTimeoutTests(unittest.TestCase):
 
         self.assertEqual(params["environment_settings"]["max_timesteps"], 2700)
         self.assertEqual(params["environment_settings"]["time_limit_seconds"], 90)
+
+
+class ClassicReproImportIsolationTest(unittest.TestCase):
+    def test_different_source_environment_imports_after_repro_tests_restore(self):
+        snapshot = capture_repo_game_modules()
+        with tempfile.TemporaryDirectory(prefix="ai2-repro-env-sentinel-") as directory:
+            package = Path(directory) / "environment"
+            package.mkdir()
+            (package / "__init__.py").write_text("")
+            (package / "environment.py").write_text(
+                "SENTINEL_SOURCE = 'post-classic-repro-teardown'\n"
+                "class WarehouseBrawl:\n"
+                "    pass\n"
+            )
+            sys.path.insert(0, directory)
+            try:
+                for name in list(sys.modules):
+                    if name == "environment" or name.startswith("environment."):
+                        sys.modules.pop(name, None)
+                importlib.invalidate_caches()
+                sentinel = importlib.import_module("environment.environment")
+                self.assertEqual(sentinel.SENTINEL_SOURCE, "post-classic-repro-teardown")
+                self.assertTrue(Path(sentinel.__file__).resolve().is_relative_to(package.resolve()))
+            finally:
+                try:
+                    sys.path.remove(directory)
+                except ValueError:
+                    pass
+                restore_repo_game_modules(snapshot, capture_repo_game_modules())
 
 
 if __name__ == "__main__":

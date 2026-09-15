@@ -11,7 +11,7 @@ import random
 import copy
 import tempfile
 import time
-import re
+import math
 import gymnasium as gym
 import numpy as np
 from collections import deque
@@ -1315,7 +1315,12 @@ def _configured_max_timesteps(params: dict, *, fps: int) -> int:
     configured_steps = settings.get("max_timesteps")
     configured_seconds = settings.get("time_limit_seconds")
     if configured_seconds is not None:
-        computed_steps = int(round(float(configured_seconds) * fps))
+        seconds = float(configured_seconds)
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("environment_settings.time_limit_seconds must be finite and positive.")
+        computed_steps = int(round(seconds * fps))
+        if computed_steps <= 0:
+            raise ValueError("environment_settings.time_limit_seconds produced a non-positive max_timesteps.")
         if configured_steps is not None and int(configured_steps) != computed_steps:
             raise ValueError(
                 "environment_settings.max_timesteps must match "
@@ -1324,7 +1329,10 @@ def _configured_max_timesteps(params: dict, *, fps: int) -> int:
             )
         return computed_steps
     if configured_steps is not None:
-        return int(configured_steps)
+        steps = int(configured_steps)
+        if steps <= 0:
+            raise ValueError("environment_settings.max_timesteps must be positive.")
+        return steps
     return int(fps * 90)
 
 
