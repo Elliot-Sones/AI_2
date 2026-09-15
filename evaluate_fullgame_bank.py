@@ -196,8 +196,6 @@ def run_evaluation(
     env_factory = env_factory or create_real_env
     opponent_factory = opponent_factory or create_opponent
     video_keys = set(video_subset)
-    if video_keys and video_capture is None:
-        video_capture = _write_mp4_from_frames
 
     episodes: list[dict[str, Any]] = []
     summary = _empty_summary(len(cases), tuple(modes))
@@ -365,9 +363,9 @@ def _run_one_episode(
     video_capture: Callable[[Sequence[np.ndarray], Path], None] | None,
 ) -> dict[str, Any]:
     deterministic = mode == "deterministic"
-    if video_enabled and video_capture is None:
-        raise VideoUnavailableError("video requested but no capture function was provided")
-    video_frames: list[np.ndarray] = []
+    video_recorder: Any | None = None
+    video_path: Path | None = None
+    video_closed = False
     with _seeded_global_rng(case.seed):
         env = env_factory(dataclasses.replace(case, max_ticks=max_ticks))
         try:
@@ -385,7 +383,10 @@ def _run_one_episode(
             last_stats = (_stats(env, case.player_slot), _stats(env, 1 - case.player_slot))
             start_distance = _distance_between_players(env)
             if video_enabled:
-                video_frames.append(_render_video_frame(env))
+                video_dir.mkdir(parents=True, exist_ok=True)
+                video_path = video_dir / f"{case.case_id}_{mode}.mp4"
+                video_recorder = _open_video_recorder(video_path, video_capture)
+                video_recorder.append(_render_video_frame(env))
 
             for tick in range(max_ticks):
                 before_players = _players_snapshot(env)
@@ -418,7 +419,8 @@ def _run_one_episode(
                 _fold_trace_into_episode(episode, trace)
                 last_stats = current_stats
                 if video_enabled:
-                    video_frames.append(_render_video_frame(env))
+                    assert video_recorder is not None
+                    video_recorder.append(_render_video_frame(env))
                 if terminated or truncated:
                     episode["terminal_cause"] = _terminal_cause(trace, current_stats)
                     break
@@ -429,9 +431,17 @@ def _run_one_episode(
             episode.update(_final_episode_fields(env, final_stats, start_distance))
             episode["diagnoses"] = _diagnose_episode(episode)
             if video_enabled:
-                episode["video_path"] = str(_write_video(video_dir, case, mode, video_frames, video_capture))
+                assert video_recorder is not None and video_path is not None
+                video_recorder.close()
+                video_closed = True
+                _verify_video_artifact(video_path)
+                episode["video_path"] = str(Path("videos") / video_path.name)
             return episode
         finally:
+            if video_recorder is not None and not video_closed:
+                abort = getattr(video_recorder, "abort", None)
+                if callable(abort):
+                    abort()
             if hasattr(env, "close"):
                 env.close()
 
@@ -830,6 +840,83 @@ def _write_video(
     return Path("videos") / path.name
 
 
+def _open_video_recorder(path: Path, video_capture: Callable[[Sequence[np.ndarray], Path], None] | None) -> Any:
+    if video_capture is not None:
+        return _CallbackVideoRecorder(path, video_capture)
+    return _open_default_video_recorder(path)
+
+
+def _open_default_video_recorder(path: Path) -> Any:
+    return _ImageioVideoRecorder(path)
+
+
+class _CallbackVideoRecorder:
+    def __init__(self, path: Path, video_capture: Callable[[Sequence[np.ndarray], Path], None]) -> None:
+        self.path = path
+        self.video_capture = video_capture
+        self.frames: list[np.ndarray] = []
+        self.closed = False
+
+    def append(self, frame: np.ndarray) -> None:
+        self.frames.append(np.asarray(frame, dtype=np.uint8).copy())
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self.video_capture(self.frames, self.path)
+        _verify_video_artifact(self.path)
+
+    def abort(self) -> None:
+        self.closed = True
+
+
+class _ImageioVideoRecorder:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.writer: Any | None = None
+        self.frames = 0
+        self.closed = False
+
+    def append(self, frame: np.ndarray) -> None:
+        if self.closed:
+            raise VideoUnavailableError("cannot append to a closed video recorder")
+        if self.writer is None:
+            try:
+                import imageio
+            except Exception as exc:
+                raise VideoUnavailableError("imageio is required for default MP4 video capture") from exc
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                self.writer = imageio.get_writer(str(self.path), fps=VIDEO_FPS, codec="libx264", quality=8)
+            except Exception as exc:
+                raise VideoUnavailableError(f"failed to open MP4 video writer: {self.path}: {exc}") from exc
+        try:
+            self.writer.append_data(np.asarray(frame, dtype=np.uint8))
+        except Exception as exc:
+            raise VideoUnavailableError(f"failed to append MP4 frame: {self.path}: {exc}") from exc
+        self.frames += 1
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if self.frames <= 0:
+            raise VideoUnavailableError("video capture had no frames to write")
+        if self.writer is not None:
+            try:
+                self.writer.close()
+            except Exception as exc:
+                raise VideoUnavailableError(f"failed to close MP4 video writer: {self.path}: {exc}") from exc
+        _verify_default_video_decodable(self.path)
+
+    def abort(self) -> None:
+        self.closed = True
+        if self.writer is not None:
+            with contextlib.suppress(Exception):
+                self.writer.close()
+
+
 def _render_video_frame(env: Any) -> np.ndarray:
     render = getattr(env, "render", None)
     if not callable(render):
@@ -846,22 +933,9 @@ def _render_video_frame(env: Any) -> np.ndarray:
     return np.ascontiguousarray(np.swapaxes(frame, 0, 1))
 
 
-def _write_mp4_from_frames(frames: Sequence[np.ndarray], path: Path) -> None:
-    try:
-        import imageio
-    except Exception as exc:
-        raise VideoUnavailableError("imageio is required for default MP4 video capture") from exc
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        writer = imageio.get_writer(str(path), fps=VIDEO_FPS, codec="libx264", quality=8)
-        try:
-            for frame in frames:
-                writer.append_data(np.asarray(frame, dtype=np.uint8))
-        finally:
-            writer.close()
-    except Exception as exc:
-        raise VideoUnavailableError(f"failed to write MP4 video: {path}: {exc}") from exc
-    _verify_default_video_decodable(path)
+def _verify_video_artifact(path: Path) -> None:
+    if not path.exists() or path.stat().st_size <= 0:
+        raise VideoUnavailableError(f"video capture did not produce a nonempty artifact: {path}")
 
 
 def _verify_default_video_decodable(path: Path) -> None:

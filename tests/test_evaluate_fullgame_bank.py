@@ -121,7 +121,7 @@ class DummyPolicy:
 
 def missing_real_game_dependencies():
     missing = []
-    for module in ("gdown", "pygame", "pymunk", "gymnasium", "skvideo", "cv2", "skimage", "PIL"):
+    for module in ("gdown", "pygame", "pymunk", "gymnasium", "skvideo", "cv2", "skimage", "PIL", "imageio"):
         try:
             __import__(module)
         except Exception as exc:
@@ -353,6 +353,47 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertIn(video_rel.as_posix(), result["manifest"]["artifact_sha256"])
             self.assertEqual((out / video_rel).read_bytes(), b"fake mp4 bytes")
 
+    def test_default_video_capture_streams_frames_to_recorder(self):
+        import evaluate_fullgame_bank as ev
+
+        opened_recorders = []
+
+        class FakeRecorder:
+            def __init__(self, path):
+                self.path = path
+                self.frames = []
+                self.closed = False
+                opened_recorders.append(self)
+
+            def append(self, frame):
+                self.frames.append(int(frame[0, 0, 0]))
+
+            def close(self):
+                self.closed = True
+                self.path.write_bytes(b"streamed mp4 bytes")
+
+        original = ev._open_default_video_recorder
+        ev._open_default_video_recorder = FakeRecorder
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                out = Path(d) / "out"
+                result = ev.run_evaluation(
+                    policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                    cases=[ev.EvaluationCase("case", seed=1, opponent="Constant", max_ticks=2)],
+                    modes=("deterministic",),
+                    output_dir=out,
+                    env_factory=lambda c: FakeEnv(),
+                    opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
+                    video_subset=("case:deterministic",),
+                )
+                self.assertEqual(result["episodes"][0]["video_path"], "videos/case_deterministic.mp4")
+        finally:
+            ev._open_default_video_recorder = original
+
+        self.assertEqual(len(opened_recorders), 1)
+        self.assertEqual(opened_recorders[0].frames, [0, 1, 2])
+        self.assertTrue(opened_recorders[0].closed)
+
     def test_video_request_fails_closed_when_default_capture_cannot_render(self):
         import evaluate_fullgame_bank as ev
 
@@ -524,6 +565,66 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                 self.assertTrue((out / "trace.jsonl").exists())
                 self.assertTrue((out / "manifest.json").exists())
                 self.assertEqual(download_calls, [])
+            finally:
+                gdown.download = original_download
+        self.assertEqual(os.getcwd(), original_cwd)
+
+    def test_real_environment_video_smoke_is_opt_in(self):
+        import evaluate_fullgame_bank as ev
+
+        if os.environ.get("AI2_RUN_REAL_EVAL_VIDEO_SMOKE") != "1":
+            self.skipTest("opt-in real game video smoke")
+        missing = missing_real_game_dependencies()
+        if missing:
+            self.skipTest("missing real game deps: " + ",".join(missing))
+        import gdown
+        import imageio
+
+        original_cwd = os.getcwd()
+        download_calls = []
+
+        def forbidden_download(*args, **kwargs):
+            download_calls.append((args, kwargs))
+            raise AssertionError("real video smoke must use existing assets and never call gdown.download")
+
+        original_download = gdown.download
+        gdown.download = forbidden_download
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                out = Path(d) / "video-out"
+                case = ev.EvaluationCase("real_video_smoke", seed=20260915, opponent="Constant", max_ticks=2)
+                result = ev.run_evaluation(
+                    policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                    cases=[case],
+                    modes=("deterministic",),
+                    output_dir=out,
+                    video_subset=("real_video_smoke:deterministic",),
+                )
+                self.assertEqual(result["summary"]["episodes"], 1)
+                episode = json.loads((out / "episodes.jsonl").read_text())
+                self.assertEqual(episode["video_path"], "videos/real_video_smoke_deterministic.mp4")
+                video = out / episode["video_path"]
+                self.assertGreater(video.stat().st_size, 0)
+                self.assertIn(episode["video_path"], result["manifest"]["artifact_sha256"])
+                reader = imageio.get_reader(str(video))
+                try:
+                    frame = reader.get_data(0)
+                finally:
+                    reader.close()
+                self.assertEqual(frame.ndim, 3)
+                self.assertEqual(frame.shape[2], 3)
+                self.assertEqual(download_calls, [])
+
+                bad_out = Path(d) / "bad-video-out"
+                with self.assertRaises(ValueError):
+                    ev.run_evaluation(
+                        policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                        cases=[case],
+                        modes=("deterministic",),
+                        output_dir=bad_out,
+                        video_subset=("missing:deterministic",),
+                    )
+                self.assertFalse(bad_out.exists())
             finally:
                 gdown.download = original_download
         self.assertEqual(os.getcwd(), original_cwd)
