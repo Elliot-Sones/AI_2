@@ -77,6 +77,7 @@ _AMBIGUOUS_COUNTERS = (
 _THROUGHPUT_PATHS = (
     "workload.timing_scope",
     "workload.included_stages",
+    "workload.quality_target",
     "workload.warmup_policy",
     "workload.synchronization",
     "workload.overlap.mode",
@@ -109,6 +110,8 @@ _LEARNING_PATHS = (
     "workload.model.architecture",
     "workload.model.parameter_count",
     "workload.model.precision",
+    "workload.quality_target",
+    "workload.rollout.num_envs",
     "workload.rollout.horizon",
     "workload.rollout.transitions_per_batch",
     "algorithm.optimizer",
@@ -143,6 +146,10 @@ _ALLOWED_TIMING_SCOPES = {
     "update",
 }
 _ALLOWED_OVERLAP_MODES = {"none", "async"}
+_ALLOWED_OVERLAP_EVIDENCE = {"cuda_trace", "event_timeline", "not_applicable"}
+_ASYNC_OVERLAP_EVIDENCE = {"cuda_trace", "event_timeline"}
+_QUALITY_TARGET_DIRECTIONS = {"at_least", "at_most"}
+_QUALITY_TARGET_AGGREGATIONS = {"mean", "min", "max"}
 
 _POSITIVE_INTEGER_PATHS = (
     "system.hardware.accelerator_count",
@@ -168,6 +175,7 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
 
     for path in _POSITIVE_INTEGER_PATHS:
         _positive_int(_get(receipt, path), path)
+    _validate_ppo_hyperparameters(receipt)
 
     unit = _get(receipt, "workload.unit")
     if unit != HEADLINE_UNIT:
@@ -188,6 +196,8 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
         raise ContractError(
             f"workload.timing_scope must be one of {sorted(_ALLOWED_TIMING_SCOPES)}"
         )
+    if timing_scope == "time_to_quality":
+        _validate_quality_target(receipt["workload"].get("quality_target"))
 
     stages = _get(receipt, "workload.included_stages")
     if not isinstance(stages, list) or not stages:
@@ -218,6 +228,9 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
             )
     receipt["measurement"]["derived_rate"] = derived_rate
 
+    _require_dict(_get(receipt, "workload.warmup_policy"), "workload.warmup_policy")
+    _require_dict(_get(receipt, "workload.synchronization"), "workload.synchronization")
+    _require_dict(_get(receipt, "workload.overlap"), "workload.overlap")
     overlap_mode = _get(receipt, "workload.overlap.mode")
     if overlap_mode not in _ALLOWED_OVERLAP_MODES:
         raise ContractError(
@@ -226,8 +239,16 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
     overlap_evidence = _get(receipt, "workload.overlap.evidence")
     if not isinstance(overlap_evidence, list) or not overlap_evidence:
         raise ContractError("workload.overlap.evidence must be a non-empty list")
+    if not all(isinstance(item, str) for item in overlap_evidence):
+        raise ContractError("workload.overlap.evidence must contain only strings")
+    unknown_evidence = set(overlap_evidence) - _ALLOWED_OVERLAP_EVIDENCE
+    if unknown_evidence:
+        raise ContractError(
+            "workload.overlap.evidence contains unknown evidence tokens: "
+            f"{sorted(unknown_evidence)}"
+        )
     if overlap_mode == "async":
-        if not {"cuda_trace", "event_timeline"}.intersection(overlap_evidence):
+        if not _ASYNC_OVERLAP_EVIDENCE.intersection(overlap_evidence):
             raise ContractError(
                 "workload.overlap.evidence requires cuda_trace or event_timeline"
             )
@@ -299,6 +320,110 @@ def _positive_int(value: Any, name: str) -> int:
     if value <= 0:
         raise ContractError(f"{name} must be a positive integer")
     return value
+
+
+def _require_dict(value: Any, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ContractError(f"{name} must be an object")
+    return value
+
+
+def _validate_ppo_hyperparameters(receipt: dict[str, Any]) -> None:
+    _bounded_number(_get(receipt, "algorithm.learning_rate"), "algorithm.learning_rate", lower=0.0)
+    _bounded_number(_get(receipt, "algorithm.gamma"), "algorithm.gamma", lower=0.0, upper=1.0, include_lower=True)
+    _bounded_number(
+        _get(receipt, "algorithm.gae_lambda"),
+        "algorithm.gae_lambda",
+        lower=0.0,
+        upper=1.0,
+        include_lower=True,
+    )
+    _bounded_number(_get(receipt, "algorithm.clip_range"), "algorithm.clip_range", lower=0.0, upper=1.0)
+    _bounded_number(
+        _get(receipt, "algorithm.entropy_coef"),
+        "algorithm.entropy_coef",
+        lower=0.0,
+        include_lower=True,
+    )
+    _bounded_number(
+        _get(receipt, "algorithm.value_coef"),
+        "algorithm.value_coef",
+        lower=0.0,
+        include_lower=True,
+    )
+    _bounded_number(_get(receipt, "algorithm.max_grad_norm"), "algorithm.max_grad_norm", lower=0.0)
+
+
+def _bounded_number(
+    value: Any,
+    name: str,
+    *,
+    lower: float | None = None,
+    upper: float | None = None,
+    include_lower: bool = False,
+    include_upper: bool = True,
+) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ContractError(f"{name} must be numeric")
+    as_float = float(value)
+    if not math.isfinite(as_float):
+        raise ContractError(f"{name} must be finite")
+    if lower is not None:
+        if include_lower:
+            invalid = as_float < lower
+        else:
+            invalid = as_float <= lower
+        if invalid:
+            comparator = ">=" if include_lower else ">"
+            raise ContractError(f"{name} must be {comparator} {lower}")
+    if upper is not None:
+        if include_upper:
+            invalid = as_float > upper
+        else:
+            invalid = as_float >= upper
+        if invalid:
+            comparator = "<=" if include_upper else "<"
+            raise ContractError(f"{name} must be {comparator} {upper}")
+    return as_float
+
+
+def _validate_quality_target(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise ContractError("workload.quality_target must be an object")
+    required = (
+        "metric",
+        "threshold",
+        "direction",
+        "evaluation_protocol",
+        "aggregation",
+    )
+    missing = [field for field in required if field not in value]
+    if missing:
+        raise ContractError(f"workload.quality_target missing {missing}")
+    if not _non_empty_string(value["metric"]):
+        raise ContractError("workload.quality_target.metric must be a non-empty string")
+    threshold = value["threshold"]
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+        raise ContractError("workload.quality_target.threshold must be numeric")
+    if not math.isfinite(float(threshold)):
+        raise ContractError("workload.quality_target.threshold must be finite")
+    if value["direction"] not in _QUALITY_TARGET_DIRECTIONS:
+        raise ContractError(
+            "workload.quality_target.direction must be at_least or at_most"
+        )
+    if not _non_empty_string(value["evaluation_protocol"]):
+        raise ContractError(
+            "workload.quality_target.evaluation_protocol must be a non-empty string"
+        )
+    if value["aggregation"] not in _QUALITY_TARGET_AGGREGATIONS:
+        raise ContractError(
+            "workload.quality_target.aggregation must be one of "
+            f"{sorted(_QUALITY_TARGET_AGGREGATIONS)}"
+        )
+
+
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _counter_key(value: str) -> str:

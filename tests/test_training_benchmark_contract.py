@@ -58,6 +58,18 @@ THROUGHPUT_MISMATCH_CASES = {
     "workload.rollout.transitions_per_batch": {
         "workload": {"rollout": {"transitions_per_batch": 262144}}
     },
+    "workload.quality_target": {
+        "workload": {
+            "timing_scope": "time_to_quality",
+            "quality_target": {
+                "metric": "elo",
+                "threshold": 1200.0,
+                "direction": "at_least",
+                "evaluation_protocol": "fixed_seed_eval_v2",
+                "aggregation": "mean",
+            },
+        }
+    },
     "algorithm.minibatches": {"algorithm": {"minibatches": 16}},
     "algorithm.ppo_epochs": {"algorithm": {"ppo_epochs": 2}},
     "algorithm.sample_reuse_epochs": {"algorithm": {"sample_reuse_epochs": 3}},
@@ -135,6 +147,10 @@ def receipt(**overrides):
 
 
 def deep_update(base, overrides):
+    if not isinstance(overrides, dict):
+        if isinstance(overrides, list):
+            return list(overrides)
+        return overrides
     result = {}
     for key, value in base.items():
         if isinstance(value, dict):
@@ -232,6 +248,47 @@ class ValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, path):
                     validate_receipt(receipt(**overrides))
 
+    def test_rejects_invalid_ppo_numeric_hyperparameters(self):
+        invalid_cases = (
+            ("algorithm.learning_rate", {"algorithm": {"learning_rate": 0}}),
+            ("algorithm.learning_rate", {"algorithm": {"learning_rate": True}}),
+            ("algorithm.gamma", {"algorithm": {"gamma": -0.01}}),
+            ("algorithm.gamma", {"algorithm": {"gamma": 1.01}}),
+            ("algorithm.gae_lambda", {"algorithm": {"gae_lambda": -0.01}}),
+            ("algorithm.gae_lambda", {"algorithm": {"gae_lambda": 1.01}}),
+            ("algorithm.clip_range", {"algorithm": {"clip_range": 0}}),
+            ("algorithm.clip_range", {"algorithm": {"clip_range": 1.01}}),
+            ("algorithm.entropy_coef", {"algorithm": {"entropy_coef": -0.01}}),
+            ("algorithm.value_coef", {"algorithm": {"value_coef": -0.01}}),
+            ("algorithm.max_grad_norm", {"algorithm": {"max_grad_norm": 0}}),
+            ("finite", {"algorithm": {"max_grad_norm": math.inf}}),
+        )
+
+        for path, overrides in invalid_cases:
+            with self.subTest(path=path, overrides=overrides):
+                with self.assertRaisesRegex(ContractError, path):
+                    validate_receipt(receipt(**overrides))
+
+    def test_requires_dicts_for_policy_synchronization_and_overlap_fields(self):
+        invalid_cases = (
+            ("workload.warmup_policy", {"workload": {"warmup_policy": "none"}}),
+            ("workload.synchronization", {"workload": {"synchronization": "sync"}}),
+            ("workload.overlap", {"workload": {"overlap": "none"}}),
+            (
+                "workload.overlap.evidence",
+                {"workload": {"overlap": {"mode": "none", "evidence": ["ok", 7]}}},
+            ),
+            (
+                "workload.overlap.evidence",
+                {"workload": {"overlap": {"mode": "async", "evidence": ["cuda_trace", "config_only"]}}},
+            ),
+        )
+
+        for path, overrides in invalid_cases:
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ContractError, path):
+                    validate_receipt(receipt(**overrides))
+
     def test_rejects_unknown_timing_scope_overlap_mode_and_bad_stages(self):
         invalid_cases = (
             (
@@ -268,7 +325,6 @@ class ValidationTests(unittest.TestCase):
             ],
             "update": ["returns_and_advantages", "ppo_update", "device_synchronization"],
             "end_to_end": list(END_TO_END_STAGES),
-            "time_to_quality": list(END_TO_END_STAGES),
         }
 
         for scope, stages in cases.items():
@@ -279,6 +335,92 @@ class ValidationTests(unittest.TestCase):
 
                 self.assertEqual(scope, normalized["workload"]["timing_scope"])
                 self.assertEqual(stages, normalized["workload"]["included_stages"])
+
+    def test_time_to_quality_requires_quality_target(self):
+        with self.assertRaisesRegex(ContractError, "workload.quality_target"):
+            validate_receipt(
+                receipt(
+                    workload={
+                        "timing_scope": "time_to_quality",
+                        "included_stages": list(END_TO_END_STAGES),
+                    }
+                )
+            )
+
+    def test_time_to_quality_accepts_minimal_quality_target_schema(self):
+        target = {
+            "metric": "elo",
+            "threshold": 1000.0,
+            "direction": "at_least",
+            "evaluation_protocol": "fixed_seed_eval_v1",
+            "aggregation": "mean",
+        }
+
+        normalized = validate_receipt(
+            receipt(
+                workload={
+                    "timing_scope": "time_to_quality",
+                    "included_stages": list(END_TO_END_STAGES),
+                    "quality_target": target,
+                }
+            )
+        )
+
+        self.assertEqual(target, normalized["workload"]["quality_target"])
+
+    def test_time_to_quality_rejects_invalid_quality_target_schema(self):
+        invalid_cases = (
+            (
+                "workload.quality_target",
+                {"metric": "", "threshold": 1000.0, "direction": "at_least", "evaluation_protocol": "fixed", "aggregation": "mean"},
+            ),
+            (
+                "workload.quality_target",
+                {"metric": "elo", "threshold": True, "direction": "at_least", "evaluation_protocol": "fixed", "aggregation": "mean"},
+            ),
+            (
+                "finite",
+                {"metric": "elo", "threshold": math.inf, "direction": "at_least", "evaluation_protocol": "fixed", "aggregation": "mean"},
+            ),
+            (
+                "workload.quality_target",
+                {"metric": "elo", "threshold": 1000.0, "direction": "higher", "evaluation_protocol": "fixed", "aggregation": "mean"},
+            ),
+            (
+                "workload.quality_target",
+                {"metric": "elo", "threshold": 1000.0, "direction": "at_least", "evaluation_protocol": "", "aggregation": "mean"},
+            ),
+            (
+                "workload.quality_target",
+                {"metric": "elo", "threshold": 1000.0, "direction": "at_least", "evaluation_protocol": "fixed", "aggregation": "median"},
+            ),
+            ("workload.quality_target", "elo>=1000"),
+        )
+
+        for expected, target in invalid_cases:
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(ContractError, expected):
+                    validate_receipt(
+                        receipt(
+                            workload={
+                                "timing_scope": "time_to_quality",
+                                "included_stages": list(END_TO_END_STAGES),
+                                "quality_target": target,
+                            }
+                        )
+                    )
+
+    def test_other_timing_scopes_do_not_require_quality_target(self):
+        normalized = validate_receipt(
+            receipt(
+                workload={
+                    "timing_scope": "collection",
+                    "included_stages": ["policy_inference", "environment_step"],
+                }
+            )
+        )
+
+        self.assertNotIn("quality_target", normalized["workload"])
 
     def test_requires_wall_clock_elapsed_source(self):
         with self.assertRaisesRegex(ContractError, "timing.elapsed_source"):
@@ -304,6 +446,11 @@ class ValidationTests(unittest.TestCase):
 
         self.assertEqual(100.0, normalized["measurement"]["derived_rate"])
         self.assertEqual(15.0, sum(normalized["timing"]["stage_seconds"].values()))
+
+    def test_deep_update_replaces_dict_subtree_with_non_dict_override(self):
+        raw = receipt(workload={"quality_target": None})
+
+        self.assertIsNone(raw["workload"]["quality_target"])
 
     def test_rejects_async_elapsed_source_summed_stages(self):
         raw = receipt(
@@ -436,7 +583,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(result["learning_behavior_comparable"])
         self.assertIn("algorithm.actor_staleness", result["learning_blockers"])
 
-    def test_learning_mismatch_classes_do_not_block_system_speedup(self):
+    def test_learning_mismatch_classes_block_learning_comparison(self):
         cases = (
             ("workload.environment.env_id", {"workload": {"environment": {"env_id": "OtherBrawl"}}}),
             (
@@ -458,6 +605,22 @@ class ComparisonTests(unittest.TestCase):
             ("workload.model.architecture", {"workload": {"model": {"architecture": "cnn"}}}),
             ("workload.model.parameter_count", {"workload": {"model": {"parameter_count": 999}}}),
             ("workload.model.precision", {"workload": {"model": {"precision": "tf32"}}}),
+            (
+                "workload.quality_target",
+                {
+                    "workload": {
+                        "timing_scope": "time_to_quality",
+                        "quality_target": {
+                            "metric": "elo",
+                            "threshold": 1200.0,
+                            "direction": "at_least",
+                            "evaluation_protocol": "fixed_seed_eval_v2",
+                            "aggregation": "mean",
+                        },
+                    }
+                },
+            ),
+            ("workload.rollout.num_envs", {"workload": {"rollout": {"num_envs": 2048}}}),
             ("workload.rollout.horizon", {"workload": {"rollout": {"horizon": 256}}}),
             (
                 "workload.rollout.transitions_per_batch",
@@ -483,8 +646,22 @@ class ComparisonTests(unittest.TestCase):
 
         for blocker, overrides in cases:
             with self.subTest(blocker=blocker):
+                left = receipt()
+                if blocker == "workload.quality_target":
+                    left = receipt(
+                        workload={
+                            "timing_scope": "time_to_quality",
+                            "quality_target": {
+                                "metric": "elo",
+                                "threshold": 1000.0,
+                                "direction": "at_least",
+                                "evaluation_protocol": "fixed_seed_eval_v1",
+                                "aggregation": "mean",
+                            },
+                        }
+                    )
                 result = compare_receipts(
-                    receipt(),
+                    left,
                     receipt(
                         **deep_update(
                             overrides,
