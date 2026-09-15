@@ -15,9 +15,9 @@ cuda: test_kernels.c kernels.h cuda_shim.h
 	./test_kernels_cuda
 
 clean:
-	rm -f test_kernels test_kernels_cuda
+	rm -f test_kernels test_kernels_cuda trace_bin
 
-.PHONY: test cuda clean
+.PHONY: test cuda clean trace
 
 trace: trace.c cuda_shim.h
-	$(CC) $(CFLAGS) -o trace trace.c && ./trace
+	$(CC) $(CFLAGS) -o trace_bin trace.c && ./trace_bin
