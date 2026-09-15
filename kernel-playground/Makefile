@@ -18,3 +18,6 @@ clean:
 	rm -f test_kernels test_kernels_cuda
 
 .PHONY: test cuda clean
+
+trace: trace.c cuda_shim.h
+	$(CC) $(CFLAGS) -o trace trace.c && ./trace
