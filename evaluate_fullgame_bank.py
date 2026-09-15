@@ -196,6 +196,11 @@ def run_evaluation(
     env_factory = env_factory or create_real_env
     opponent_factory = opponent_factory or create_opponent
     video_keys = set(video_subset)
+    manifest_cases = (
+        [dataclasses.replace(case, max_ticks=episode_max) for case in cases]
+        if episode_max is not None
+        else list(cases)
+    )
 
     episodes: list[dict[str, Any]] = []
     summary = _empty_summary(len(cases), tuple(modes))
@@ -228,7 +233,7 @@ def run_evaluation(
         (temp_path / "summary.json").write_text(_json_block(summary), encoding="utf-8")
 
         manifest = _build_manifest(
-            cases=cases,
+            cases=manifest_cases,
             modes=modes,
             checkpoint_record=checkpoint_record,
             output_dir=temp_path,

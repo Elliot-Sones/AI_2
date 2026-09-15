@@ -194,6 +194,27 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual(sampled_first["decoded_buttons"][8], 1)
             self.assertEqual(policy.calls[0][0], (256,))
 
+    def test_manifest_cases_record_effective_episode_max_override(self):
+        import evaluate_fullgame_bank as ev
+
+        case = ev.EvaluationCase("case_a", seed=11, opponent="Constant", max_ticks=2700)
+
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            result = ev.run_evaluation(
+                policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                cases=[case],
+                modes=("deterministic",),
+                output_dir=out,
+                env_factory=lambda c: FakeEnv(),
+                opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
+                episode_max=180,
+            )
+
+            written_manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["manifest"]["cases"][0]["max_ticks"], 180)
+            self.assertEqual(written_manifest["cases"][0]["max_ticks"], 180)
+
     def test_slot_one_case_sends_policy_action_to_slot_one(self):
         import evaluate_fullgame_bank as ev
 
