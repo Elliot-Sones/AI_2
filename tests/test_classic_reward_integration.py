@@ -77,9 +77,10 @@ def purge_stubbed_imports():
             and name != "torch"
             and isinstance(root_file, (str, bytes, os.PathLike))
         )
+        is_mutable_asset_dependency = root_name == "pygame"
         is_synthetic_module = module_file is None and is_named_real_import and not is_real_torch_child
         is_repo_module_loaded_under_stubs = name == "train" or name.startswith("environment")
-        if is_unit_test_dummy or is_synthetic_module or is_repo_module_loaded_under_stubs:
+        if is_unit_test_dummy or is_mutable_asset_dependency or is_synthetic_module or is_repo_module_loaded_under_stubs:
             sys.modules.pop(name, None)
 
 

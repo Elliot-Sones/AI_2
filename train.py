@@ -6,9 +6,11 @@ import torch
 import sys
 import signal
 import hashlib
+import re
 import random
 import copy
 import tempfile
+import time
 import gymnasium as gym
 import numpy as np
 from collections import deque
@@ -103,6 +105,81 @@ def _sha256_file(path: str | None) -> str | None:
 
 def _class_name(obj) -> str:
     return obj.__class__.__name__ if obj is not None else "None"
+
+
+SELF_PLAY_ARCHIVE_MANIFEST = "manifest.json"
+SELF_PLAY_ARCHIVE_VERSION = 1
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _checkpoint_step_from_path(path: str, name_prefix: str = "rl_model") -> int | None:
+    basename = os.path.basename(path)
+    prefix = f"{name_prefix}_"
+    suffix = "_steps.zip"
+    if not basename.startswith(prefix) or not basename.endswith(suffix):
+        return None
+    raw_step = basename[len(prefix):-len(suffix)]
+    try:
+        return int(raw_step)
+    except ValueError:
+        return None
+
+
+def _atomic_write_json(path: str, payload: dict) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp_path = f"{path}.tmp-{os.getpid()}-{random.getrandbits(32):08x}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        finally:
+            raise
+
+
+def _sorted_checkpoint_paths(exp_path: str, name_prefix: str = "rl_model") -> list[str]:
+    if not os.path.isdir(exp_path):
+        return []
+    paths = []
+    for filename in os.listdir(exp_path):
+        path = os.path.join(exp_path, filename)
+        if not os.path.isfile(path):
+            continue
+        if _checkpoint_step_from_path(path, name_prefix) is None:
+            continue
+        paths.append(path)
+    return sorted(paths, key=lambda path: _checkpoint_step_from_path(path, name_prefix) or -1)
+
+
+def _safe_name_component(value) -> str:
+    text = str(value)
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._")
+    return safe or "unknown"
+
+
+def _classic_self_play_name_prefix(phase_config) -> str:
+    return f"phase{_safe_name_component(getattr(phase_config, 'phase_key', 'unknown'))}_selfplay"
+
+
+def _manifest_filename_is_safe(filename: str) -> bool:
+    if not isinstance(filename, str) or filename in {"", ".", ".."}:
+        return False
+    if os.path.isabs(filename) or filename != os.path.basename(filename):
+        return False
+    return "/" not in filename and "\\" not in filename and ".." not in filename
+
+
+def _path_is_within_directory(path: str, directory: str) -> bool:
+    try:
+        real_path = os.path.realpath(path)
+        real_dir = os.path.realpath(directory)
+        return os.path.commonpath([real_dir, real_path]) == real_dir
+    except ValueError:
+        return False
 
 
 # ============================================================================
@@ -707,55 +784,268 @@ class OpponentHistoryWrapper(gym.Wrapper):
 class VectorizedSaveHandler(SaveHandler):
     """Read-only SaveHandler for subprocess environments.
 
-    Workers are spawned before the parent callback publishes later self-play
-    checkpoints. Refreshing from disk at selection time keeps their archive live
-    without letting workers write model files.
+    Worker environments must be able to discover parent-published self-play
+    snapshots, but they must never clear, save into, or otherwise mutate the
+    shared archive. The vendored SaveHandler mutates on FORCE construction, so
+    this class deliberately initializes the small subset of fields it needs
+    instead of delegating to SaveHandler.__init__.
     """
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.agent = None
+        self.agent = kwargs.get("agent", args[0] if len(args) > 0 else None)
+        self.save_freq = kwargs.get("save_freq", args[1] if len(args) > 1 else 10_000)
+        self.max_saved = kwargs.get("max_saved", args[2] if len(args) > 2 else 20)
+        self.run_name = kwargs.get("run_name", args[3] if len(args) > 3 else "experiment_1")
+        self.save_path = kwargs.get("save_path", args[4] if len(args) > 4 else "checkpoints")
+        self.name_prefix = kwargs.get("name_prefix", "rl_model")
+        self.mode = kwargs.get("mode", SaveHandlerMode.RESUME)
+        self.history = []
+        self.selection_reason = "empty_archive"
+        self._manifest_was_present = False
         self.refresh_history()
 
-    def _candidate_dirs(self) -> list[str]:
-        run_dir = os.path.join(self.save_path, self.run_name)
-        return [run_dir, self.save_path] if run_dir != self.save_path else [self.save_path]
+    def _experiment_path(self) -> str:
+        return os.path.join(self.save_path, self.run_name)
+
+    def _manifest_path(self) -> str:
+        return os.path.join(self._experiment_path(), SELF_PLAY_ARCHIVE_MANIFEST)
+
+    def _manifest_entries(self) -> list[dict] | None:
+        manifest_path = self._manifest_path()
+        self._manifest_was_present = os.path.isfile(manifest_path)
+        if not os.path.isfile(manifest_path):
+            return []
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            self.selection_reason = "invalid_manifest"
+            return None
+        if manifest.get("version") != SELF_PLAY_ARCHIVE_VERSION:
+            self.selection_reason = "incompatible_manifest_version"
+            return None
+        entries = manifest.get("checkpoints")
+        if not isinstance(entries, list):
+            self.selection_reason = "invalid_manifest"
+            return None
+        return entries
+
+    def _checkpoint_path_from_manifest_entry(self, entry: dict) -> str | None:
+        if not isinstance(entry, dict):
+            self.selection_reason = "invalid_manifest"
+            return None
+        filename = entry.get("filename")
+        if not _manifest_filename_is_safe(filename):
+            self.selection_reason = "invalid_manifest_path"
+            return None
+        path = os.path.join(self._experiment_path(), filename)
+        if not _path_is_within_directory(path, self._experiment_path()):
+            self.selection_reason = "manifest_path_escape"
+            return None
+        if _checkpoint_step_from_path(path, self.name_prefix) is None:
+            self.selection_reason = "invalid_manifest_checkpoint_name"
+            return None
+        expected_sha = entry.get("content_sha256")
+        if not isinstance(expected_sha, str) or _SHA256_RE.fullmatch(expected_sha) is None:
+            self.selection_reason = "invalid_manifest_hash"
+            return None
+        if not os.path.isfile(path):
+            self.selection_reason = "missing_checkpoint_file"
+            return None
+        actual_sha = _sha256_file(path)
+        if actual_sha != expected_sha.lower() and actual_sha != expected_sha:
+            self.selection_reason = "checkpoint_hash_mismatch"
+            return None
+        return path
 
     def refresh_history(self) -> list[str]:
-        paths: list[str] = []
-        seen: set[str] = set()
-        for folder in self._candidate_dirs():
-            if not os.path.isdir(folder):
-                continue
-            for name in sorted(os.listdir(folder)):
-                if not name.endswith(".zip"):
-                    continue
-                path = os.path.abspath(os.path.join(folder, name))
-                if path in seen or not os.path.isfile(path):
-                    continue
-                seen.add(path)
-                paths.append(path)
-        paths.sort(key=lambda path: (os.path.getmtime(path), path))
-        max_saved = getattr(self, "max_saved", None)
-        if isinstance(max_saved, int) and max_saved > 0:
-            paths = paths[-max_saved:]
-        self.history = paths
+        exp_path = self._experiment_path()
+        refreshed: list[str] = []
+        entries = self._manifest_entries()
+        if entries is None:
+            refreshed = []
+        elif entries:
+            for entry in entries:
+                path = self._checkpoint_path_from_manifest_entry(entry)
+                if path is None:
+                    refreshed = []
+                    break
+                refreshed.append(path)
+        elif self._manifest_was_present:
+            refreshed = []
+        else:
+            refreshed = _sorted_checkpoint_paths(exp_path, self.name_prefix)
+
+        if self.max_saved != -1:
+            refreshed = refreshed[-self.max_saved:]
+        self.history = refreshed
+        self.selection_reason = "selected_checkpoint" if refreshed else self.selection_reason or "empty_archive"
+        if not refreshed and not os.path.isdir(exp_path):
+            self.selection_reason = "empty_archive"
+        elif not refreshed and self.selection_reason == "selected_checkpoint":
+            self.selection_reason = "empty_archive"
         return list(self.history)
 
     def update_info(self):
-        self.refresh_history()
+        pass
 
     def process(self) -> bool:
         self.refresh_history()
         return False
 
     def save_agent(self) -> None:
-        self.refresh_history()
+        pass
 
-    def get_random_model_path(self):
+    def get_random_model_path(self) -> str:
         self.refresh_history()
-        if not self.history:
+        if len(self.history) == 0:
             return None
         return random.choice(self.history)
+
+    def get_latest_model_path(self) -> str:
+        self.refresh_history()
+        if len(self.history) == 0:
+            return None
+        return self.history[-1]
+
+    def describe_checkpoint(self, path: str | None) -> dict:
+        if path is None:
+            return {
+                "archive_version": SELF_PLAY_ARCHIVE_VERSION,
+                "path": None,
+                "step": None,
+                "content_sha256": None,
+                "path_sha256": None,
+                "selection_reason": self.selection_reason or "empty_archive",
+            }
+        return {
+            "archive_version": SELF_PLAY_ARCHIVE_VERSION,
+            "path": path,
+            "step": _checkpoint_step_from_path(path, self.name_prefix),
+            "content_sha256": _sha256_file(path),
+            "path_sha256": _sha256_text(os.path.abspath(path)),
+            "selection_reason": "selected_checkpoint",
+        }
+
+
+class ClassicSelfPlaySaveHandler(SaveHandler):
+    """Parent-owned writer for classic self-play snapshots."""
+
+    def __init__(self, *args, save_initial: bool = True, save_final: bool = True, **kwargs):
+        self.agent = kwargs.get("agent", args[0] if len(args) > 0 else None)
+        self.save_freq = kwargs.get("save_freq", args[1] if len(args) > 1 else 10_000)
+        self.max_saved = kwargs.get("max_saved", args[2] if len(args) > 2 else 20)
+        self.run_name = kwargs.get("run_name", args[3] if len(args) > 3 else "experiment_1")
+        self.save_path = kwargs.get("save_path", args[4] if len(args) > 4 else "checkpoints")
+        self.name_prefix = kwargs.get("name_prefix", "rl_model")
+        self.mode = kwargs.get("mode", SaveHandlerMode.RESUME)
+        self.history = []
+        self.save_initial = save_initial
+        self.save_final = save_final
+        self.last_save_timestep = None
+        os.makedirs(self._experiment_path(), exist_ok=True)
+        self._refresh_existing_history()
+        self._publish_manifest()
+
+    def _experiment_path(self) -> str:
+        return os.path.join(self.save_path, self.run_name)
+
+    def _manifest_path(self) -> str:
+        return os.path.join(self._experiment_path(), SELF_PLAY_ARCHIVE_MANIFEST)
+
+    def _refresh_existing_history(self) -> None:
+        self.history = _sorted_checkpoint_paths(self._experiment_path(), self.name_prefix)
+        if self.max_saved != -1:
+            self.history = self.history[-self.max_saved:]
+        if self.history:
+            self.last_save_timestep = _checkpoint_step_from_path(self.history[-1], self.name_prefix)
+
+    def _checkpoint_record(self, path: str) -> dict:
+        return {
+            "filename": os.path.basename(path),
+            "step": _checkpoint_step_from_path(path, self.name_prefix),
+            "content_sha256": _sha256_file(path),
+        }
+
+    def _publish_manifest(self) -> None:
+        manifest = {
+            "version": SELF_PLAY_ARCHIVE_VERSION,
+            "run_name": self.run_name,
+            "name_prefix": self.name_prefix,
+            "max_saved": self.max_saved,
+            "published_at_unix": time.time(),
+            "checkpoints": [self._checkpoint_record(path) for path in self.history if os.path.exists(path)],
+        }
+        _atomic_write_json(self._manifest_path(), manifest)
+
+    def _checkpoint_path_for_step(self, step: int) -> str:
+        return os.path.join(self._experiment_path(), f"{self.name_prefix}_{int(step)}_steps.zip")
+
+    def _save_at_timestep(self, step: int, *, reason: str) -> bool:
+        if self.agent is None:
+            return False
+        os.makedirs(self._experiment_path(), exist_ok=True)
+        step = int(step)
+        model_path = self._checkpoint_path_for_step(step)
+        if model_path in self.history and os.path.exists(model_path):
+            self.last_save_timestep = step
+            self._publish_manifest()
+            return False
+
+        tmp_path = f"{model_path}.tmp-{os.getpid()}-{random.getrandbits(32):08x}.zip"
+        print(f"Saving self-play snapshot ({reason}) to {model_path}")
+        try:
+            self.agent.save(tmp_path)
+            os.replace(tmp_path, model_path)
+        except Exception:
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            finally:
+                raise
+
+        self.history.append(model_path)
+        self.history = sorted(self.history, key=lambda path: _checkpoint_step_from_path(path, self.name_prefix) or -1)
+        if self.max_saved != -1:
+            while len(self.history) > self.max_saved:
+                to_remove = self.history.pop(0)
+                if os.path.exists(to_remove):
+                    os.remove(to_remove)
+        self.last_save_timestep = step
+        self._publish_manifest()
+        return True
+
+    def save_initial_snapshot(self) -> bool:
+        if not self.save_initial:
+            return False
+        return self._save_at_timestep(int(getattr(self, "num_timesteps", 0)), reason="initial")
+
+    def save_final_snapshot(self) -> bool:
+        if not self.save_final:
+            return False
+        return self._save_at_timestep(int(getattr(self, "num_timesteps", 0)), reason="final")
+
+    def save_agent(self) -> None:
+        self._save_at_timestep(int(self.num_timesteps), reason="cadence")
+
+    def process(self) -> bool:
+        current = int(self.num_timesteps)
+        if self.last_save_timestep is None:
+            self.last_save_timestep = 0
+        if current >= self.last_save_timestep + int(self.save_freq):
+            return self._save_at_timestep(current, reason="cadence")
+        self._publish_manifest()
+        return False
+
+    def describe_checkpoint(self, path: str | None) -> dict:
+        return VectorizedSaveHandler(
+            agent=None,
+            save_freq=self.save_freq,
+            max_saved=self.max_saved,
+            run_name=self.run_name,
+            save_path=self.save_path,
+            name_prefix=self.name_prefix,
+            mode=SaveHandlerMode.RESUME,
+        ).describe_checkpoint(path)
 
 
 class OpponentSelectionTelemetry:
@@ -778,17 +1068,26 @@ class OpponentSelectionTelemetry:
         selected_checkpoint_path: str | None,
         fallback_reason: str | None,
         fallback_class: str | None,
+        checkpoint_selection: dict | None = None,
     ) -> None:
+        checkpoint_selection = dict(checkpoint_selection or {})
         self.records.append({
             "selection_index": len(self.records),
+            "requested_opponent": configured_key,
             "configured_key": configured_key,
             "configured_probability": float(configured_probability),
             "probability_source": self.probability_source,
+            "realized_opponent_class": _class_name(opponent),
             "realized_class": _class_name(opponent),
             "self_play_requested": bool(self_play_requested),
             "archive_size": archive_size,
             "checkpoint_path_sha256": _sha256_text(os.path.abspath(selected_checkpoint_path)) if selected_checkpoint_path else None,
             "checkpoint_content_sha256": _sha256_file(selected_checkpoint_path),
+            "checkpoint_step": checkpoint_selection.get("step"),
+            "checkpoint_archive_version": checkpoint_selection.get("archive_version"),
+            "selection_reason": checkpoint_selection.get("selection_reason") or fallback_reason or (
+                "selected_checkpoint" if selected_checkpoint_path else None
+            ),
             "fallback_reason": fallback_reason,
             "fallback_class": fallback_class,
         })
@@ -884,7 +1183,61 @@ class OpponentSelectionTelemetry:
         return receipt
 
 
-class TelemetryOpponentsCfg(OpponentsCfg):
+class RefreshingOpponentsCfg(OpponentsCfg):
+    """OpponentsCfg variant that refreshes self-play archives on every reset."""
+
+    def _load_self_play_opponent(self, selfplay_handler: SelfPlayHandler):
+        save_handler = selfplay_handler.save_handler
+        if hasattr(save_handler, "refresh_history"):
+            save_handler.refresh_history()
+        archive = list(getattr(save_handler, "history", []) or [])
+        chosen_path = save_handler.get_random_model_path()
+        selection = save_handler.describe_checkpoint(chosen_path) if hasattr(save_handler, "describe_checkpoint") else {
+            "archive_version": SELF_PLAY_ARCHIVE_VERSION,
+            "path": chosen_path,
+            "step": _checkpoint_step_from_path(chosen_path) if chosen_path else None,
+            "content_sha256": _sha256_file(chosen_path),
+            "path_sha256": _sha256_text(os.path.abspath(chosen_path)) if chosen_path else None,
+            "selection_reason": "selected_checkpoint" if chosen_path else "empty_archive",
+        }
+        fallback_reason = None
+        fallback_class = None
+        try:
+            opponent = selfplay_handler.get_model_from_path(chosen_path)
+        except Exception as exc:
+            opponent = ConstantAgent()
+            opponent.get_env_info(self.env)
+            fallback_reason = f"checkpoint_load_failed:{exc.__class__.__name__}"
+            fallback_class = _class_name(opponent)
+        if isinstance(opponent, ConstantAgent):
+            fallback_class = _class_name(opponent)
+            if fallback_reason is None:
+                if len(archive) == 0:
+                    fallback_reason = selection.get("selection_reason") or "empty_archive"
+                elif chosen_path is None:
+                    fallback_reason = "missing_checkpoint_selection"
+                elif not os.path.exists(chosen_path):
+                    fallback_reason = "missing_checkpoint_file"
+                else:
+                    fallback_reason = "load_failed_to_constant"
+        return opponent, archive, chosen_path, fallback_reason, fallback_class, selection
+
+    def on_env_reset(self) -> Agent:
+        keys = list(self.opponents.keys())
+        weights = [prob if isinstance(prob, float) else prob[0] for prob in self.opponents.values()]
+        agent_name = random.choices(keys, weights=weights)[0]
+
+        if agent_name == "self_play":
+            selfplay_handler: SelfPlayHandler = self.opponents[agent_name][1]
+            opponent, *_ = self._load_self_play_opponent(selfplay_handler)
+            return opponent
+
+        opponent = self.opponents[agent_name][1]()
+        opponent.get_env_info(self.env)
+        return opponent
+
+
+class TelemetryOpponentsCfg(RefreshingOpponentsCfg):
     """OpponentsCfg variant that records the selected config key and actual class."""
 
     def __init__(self, *args, telemetry: OpponentSelectionTelemetry | None = None, **kwargs):
@@ -903,21 +1256,10 @@ class TelemetryOpponentsCfg(OpponentsCfg):
 
         if agent_name == "self_play":
             selfplay_handler: SelfPlayHandler = self.opponents[agent_name][1]
-            archive = list(getattr(selfplay_handler.save_handler, "history", []) or [])
+            opponent, archive, chosen_path, fallback_reason, fallback_class, selection = self._load_self_play_opponent(selfplay_handler)
             archive_size = len(archive)
-            chosen_path = selfplay_handler.save_handler.get_random_model_path()
-            opponent = selfplay_handler.get_model_from_path(chosen_path)
-            if isinstance(opponent, ConstantAgent):
-                fallback_class = _class_name(opponent)
-                if archive_size == 0:
-                    fallback_reason = "empty_archive"
-                elif chosen_path is None:
-                    fallback_reason = "missing_checkpoint_selection"
-                elif not os.path.exists(chosen_path):
-                    fallback_reason = "missing_checkpoint_file"
-                else:
-                    fallback_reason = "load_failed_to_constant"
         else:
+            selection = None
             opponent = self.opponents[agent_name][1]()
             opponent.get_env_info(self.env)
 
@@ -931,6 +1273,7 @@ class TelemetryOpponentsCfg(OpponentsCfg):
                 selected_checkpoint_path=chosen_path,
                 fallback_reason=fallback_reason,
                 fallback_class=fallback_class,
+                checkpoint_selection=selection,
             )
         return opponent
 
@@ -952,7 +1295,7 @@ def build_combat_opponents(
             if opp_class:
                 opponents_dict[opp_name] = (prob, partial(opp_class))
 
-    cfg_cls = TelemetryOpponentsCfg if telemetry is not None else OpponentsCfg
+    cfg_cls = TelemetryOpponentsCfg if telemetry is not None else RefreshingOpponentsCfg
     return cfg_cls(opponents=opponents_dict, telemetry=telemetry) if telemetry is not None else cfg_cls(opponents=opponents_dict)
 
 
@@ -1063,32 +1406,25 @@ class SelfPlayCallback(BaseCallback):
     def __init__(self, save_handler, verbose=0):
         super().__init__(verbose)
         self.save_handler = save_handler
-        self.last_save_timestep = None
 
-    def _publish(self) -> None:
+    def _sync_handler(self) -> None:
         self.save_handler.agent = self.model
         self.save_handler.num_timesteps = self.num_timesteps
-        self.save_handler.save_agent()
-        self.last_save_timestep = self.num_timesteps
 
     def _on_training_start(self) -> None:
-        self._publish()
+        self._sync_handler()
+        if hasattr(self.save_handler, "save_initial_snapshot"):
+            self.save_handler.save_initial_snapshot()
 
     def _on_step(self) -> bool:
-        self.save_handler.agent = self.model
-        self.save_handler.num_timesteps = self.num_timesteps
-        save_freq = getattr(self.save_handler, "save_freq", None)
-        if isinstance(save_freq, int) and save_freq > 0:
-            previous = 0 if self.last_save_timestep is None else self.last_save_timestep
-            if self.num_timesteps >= previous + save_freq:
-                self._publish()
-        else:
-            self.save_handler.process()
+        self._sync_handler()
+        self.save_handler.process()
         return True
 
     def _on_training_end(self) -> None:
-        if self.last_save_timestep != self.num_timesteps:
-            self._publish()
+        self._sync_handler()
+        if hasattr(self.save_handler, "save_final_snapshot"):
+            self.save_handler.save_final_snapshot()
 
 
 class ArtifactCheckpointCallback(CheckpointCallback):
@@ -1725,12 +2061,14 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
     opponent_cfg = build_combat_opponents(phase_config, device=device, telemetry=telemetry)
     
     resolution = get_resolution(params.get("environment_settings", {}).get("resolution", "LOW"))
+    self_play_name_prefix = _classic_self_play_name_prefix(phase_config)
     
     vec_save_handler = VectorizedSaveHandler(
         agent=None,
         save_freq=params["self_play_settings"]["save_freq"],
         max_saved=params["self_play_settings"]["max_saved_models"],
         run_name="self_play_run",
+        name_prefix=self_play_name_prefix,
         save_path=os.path.join(params["folders"]["parent_dir"], params["folders"]["model_name"], "model"),
         mode=SaveHandlerMode.FORCE
     )
@@ -2028,12 +2366,13 @@ def run_combat_training(params: dict, phase_config: PhaseConfig):
         )
     
     # Save handler for self-play
-    save_handler = SaveHandler(
+    save_handler = ClassicSelfPlaySaveHandler(
         agent=None,
         save_freq=params["self_play_settings"]["save_freq"],
         max_saved=params["self_play_settings"]["max_saved_models"],
         save_path=model_folder,
         run_name="self_play_run",
+        name_prefix=_classic_self_play_name_prefix(phase_config),
         mode=SaveHandlerMode.FORCE
     )
     

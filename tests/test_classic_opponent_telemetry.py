@@ -109,13 +109,18 @@ class OpponentSelectionTelemetryTest(unittest.TestCase):
 
         cfg = train.build_combat_opponents(phase_config, device="cpu")
 
-        self.assertIs(type(cfg), train.OpponentsCfg)
+        self.assertIs(type(cfg), train.RefreshingOpponentsCfg)
         self.assertNotIsInstance(cfg, train.TelemetryOpponentsCfg)
         self.assertIn("self_play", cfg.opponents)
         self.assertIsInstance(cfg.opponents["self_play"][1], train.SelfPlayRandom)
 
-    def test_vectorized_save_handler_refreshes_archive_created_after_worker_construction(self):
+    def test_vectorized_save_handler_process_refreshes_read_only_archive(self):
         with tempfile.TemporaryDirectory(prefix="ai2-vectorized-save-handler-") as tmp:
+            archive_dir = os.path.join(tmp, "self_play_run")
+            os.makedirs(archive_dir)
+            checkpoint_path = os.path.join(archive_dir, "rl_model_123_steps.zip")
+            with open(checkpoint_path, "wb") as f:
+                f.write(b"checkpoint")
             handler = train.VectorizedSaveHandler(
                 agent=None,
                 save_freq=1,
@@ -125,48 +130,11 @@ class OpponentSelectionTelemetryTest(unittest.TestCase):
                 mode=train.SaveHandlerMode.FORCE,
             )
 
-            run_dir = os.path.join(tmp, "self_play_run")
-            os.makedirs(run_dir, exist_ok=True)
-            first = os.path.join(run_dir, "model_000001_steps.zip")
-            second = os.path.join(run_dir, "model_000002_steps.zip")
-            with open(first, "wb") as f:
-                f.write(b"first")
-            with open(second, "wb") as f:
-                f.write(b"second")
-
             self.assertFalse(handler.process())
+            handler.save_agent()
 
-            self.assertEqual(handler.history, [os.path.abspath(first), os.path.abspath(second)])
-            self.assertIn(handler.get_random_model_path(), handler.history)
-
-    def test_self_play_callback_saves_initial_interval_and_final_by_timesteps(self):
-        class FakeSaveHandler:
-            save_freq = 100
-
-            def __init__(self):
-                self.saved = []
-                self.agent = None
-                self.num_timesteps = 0
-
-            def save_agent(self):
-                self.saved.append(self.num_timesteps)
-
-            def process(self):
-                raise AssertionError("callback should use absolute timestep saves")
-
-        handler = FakeSaveHandler()
-        callback = train.SelfPlayCallback(handler)
-        callback.model = object()
-
-        callback.num_timesteps = 0
-        callback._on_training_start()
-        for step in (48, 96, 144, 199, 200):
-            callback.num_timesteps = step
-            self.assertTrue(callback._on_step())
-        callback.num_timesteps = 240
-        callback._on_training_end()
-
-        self.assertEqual(handler.saved, [0, 144, 240])
+            self.assertEqual(handler.history, [checkpoint_path])
+            self.assertEqual(os.listdir(archive_dir), ["rl_model_123_steps.zip"])
 
     def test_records_self_play_empty_archive_constant_fallback(self):
         recorder = train.OpponentSelectionTelemetry(
@@ -194,7 +162,10 @@ class OpponentSelectionTelemetryTest(unittest.TestCase):
         self.assertEqual(record["archive_size"], 0)
         self.assertIsNone(record["checkpoint_path_sha256"])
         self.assertIsNone(record["checkpoint_content_sha256"])
+        self.assertEqual(record["requested_opponent"], "self_play")
+        self.assertEqual(record["realized_opponent_class"], "ConstantAgent")
         self.assertEqual(record["realized_class"], "ConstantAgent")
+        self.assertEqual(record["selection_reason"], "empty_archive")
         self.assertEqual(record["fallback_reason"], "empty_archive")
         self.assertEqual(record["fallback_class"], "ConstantAgent")
 
