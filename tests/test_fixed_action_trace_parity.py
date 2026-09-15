@@ -1,4 +1,5 @@
 import copy
+import json
 import tempfile
 import types
 import unittest
@@ -468,7 +469,7 @@ class FixedActionTraceParityTests(unittest.TestCase):
 
         calls = []
 
-        def resident_trace(case, document, backend_name):
+        def resident_trace(case, document, backend_name, **kwargs):
             calls.append(backend_name)
             trace = {
                 "mode": "recorded_draw_replay",
@@ -484,7 +485,7 @@ class FixedActionTraceParityTests(unittest.TestCase):
                 "reset_draw_count": 0,
                 "tick_draw_count": 0,
             }
-            return {
+            result = {
                 "resident_cpu_recorded_replay_exact": True,
                 "resident_cpu_generated_rng_recorded": True,
                 "resident_cpu_recorded_replay_trace": trace,
@@ -496,6 +497,23 @@ class FixedActionTraceParityTests(unittest.TestCase):
                 "rng": {"cursor": 0, "count": 0, "error": 0},
                 "terminal_autoreset_evidence": "exact",
             }
+            if backend_name == "cuda":
+                result["resident_cuda_stream"] = {
+                    "mode": kwargs.get("cuda_stream_mode"),
+                    "used_non_default_stream": kwargs.get("cuda_stream_mode") == "non_default",
+                    "synchronized_before_compare": True,
+                }
+                result["resident_cuda_observation_checks"] = {
+                    "reset_observation_exact": True,
+                    "step_observation_exact": True,
+                    "reward_exact": True,
+                    "terminated_exact": True,
+                    "truncated_exact": True,
+                    "terminal_observation_exact": True,
+                    "reset_observation_sha256": "reset",
+                    "terminal_observation_sha256": "terminal",
+                }
+            return result
 
         try:
             parity._run_original_vs_serial_native = exact_python
@@ -517,6 +535,219 @@ class FixedActionTraceParityTests(unittest.TestCase):
         self.assertTrue(receipt["native_cpu_cuda_exact"])
         self.assertEqual(receipt["promotion_status"], "passed")
         self.assertEqual(receipt["promotion_blockers"], [])
+
+    def test_native_cuda_promotion_requires_nondefault_stream_evidence_and_observation_checks(self):
+        complete = [
+            {
+                "action_index": action_index,
+                "seed": 101,
+                "horizon": 1,
+                "python_reference_exact": True,
+                "native_cpu_cuda_exact": True,
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_lanes_replay_step_supported": True,
+                "reset_compared": True,
+                "compared_ticks": 1,
+                "terminal_autoreset_evidence": "exact",
+                "rng": {"cursor": 1, "count": 1, "error": 0},
+            }
+            for action_index in range(10)
+        ]
+        complete[0]["resident_termination_autoreset"] = exact_autoreset()
+        complete[1]["resident_truncation_autoreset"] = exact_autoreset()
+        receipt = build_receipt(
+            cases=complete,
+            backends=["python", "native_cpu", "native_cuda"],
+            expected_actions=list(range(10)),
+            expected_seeds=[101],
+            horizon=1,
+        )
+        self.assertEqual(receipt["promotion_status"], "blocked")
+        reasons = {blocker["reason"] for blocker in receipt["promotion_blockers"]}
+        self.assertIn("native_cuda_nondefault_stream_unverified", reasons)
+        self.assertIn("native_cuda_observation_checks_incomplete", reasons)
+
+        for case in complete:
+            case["resident_cuda_stream"] = {
+                "mode": "non_default",
+                "used_non_default_stream": True,
+                "synchronized_before_compare": True,
+            }
+            case["resident_cuda_observation_checks"] = {
+                "reset_observation_exact": True,
+                "step_observation_exact": True,
+                "reward_exact": True,
+                "terminated_exact": True,
+                "truncated_exact": True,
+                "terminal_observation_exact": True,
+                "reset_observation_sha256": "reset",
+                "terminal_observation_sha256": "terminal",
+            }
+        receipt = build_receipt(
+            cases=complete,
+            backends=["python", "native_cpu", "native_cuda"],
+            expected_actions=list(range(10)),
+            expected_seeds=[101],
+            horizon=1,
+        )
+        self.assertEqual(receipt["promotion_status"], "passed")
+
+    def test_run_suite_uses_nondefault_cuda_stream_when_native_cuda_requested(self):
+        original_python = parity._run_original_vs_serial_native
+        original_resident = parity._run_resident_replay_trace
+        original_forced = parity._run_forced_autoreset_evidence
+        calls = []
+
+        def exact_python(_case, _frozen_root):
+            return {
+                "python_reference_exact": True,
+                "document": {
+                    "reset": {
+                        "draws": [],
+                        "outputs": {
+                            "obs": {"0": [0.0] * 64, "1": [0.0] * 64},
+                            "rewards": {"0": 0.0, "1": 0.0},
+                            "terminated": False,
+                            "truncated": False,
+                        },
+                    },
+                    "ticks": [
+                        {
+                            "actions": [[0.0] * 10, [0.0] * 10],
+                            "draws": [],
+                            "outputs": {
+                                "obs": {"0": [0.0] * 64, "1": [0.0] * 64},
+                                "rewards": {"0": 0.0, "1": 0.0},
+                                "terminated": False,
+                                "truncated": False,
+                            },
+                        }
+                    ],
+                },
+                "compared_ticks": 1,
+                "reset_compared": True,
+                "first_divergence": None,
+                "rng": {"cursor": 0, "count": 0, "error": 0},
+                "terminal_autoreset_evidence": "exact",
+            }
+
+        def resident_trace(_case, _document, backend_name, **kwargs):
+            calls.append((backend_name, kwargs.get("cuda_stream_mode")))
+            result = {
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_cpu_recorded_replay_trace": {
+                    "ticks": 1,
+                    "valid_steps": [1],
+                    "final_observation_sha256": "same",
+                    "final_rewards": [0.0, 0.0],
+                    "terminated_count": 0,
+                    "truncated_count": 0,
+                    "terminal_observation_checked": True,
+                    "rng_statuses": [],
+                    "reset_draw_count": 0,
+                    "tick_draw_count": 0,
+                },
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_lanes_replay_step_supported": True,
+                "rng": {"cursor": 0, "count": 0, "error": 0},
+                "terminal_autoreset_evidence": "exact",
+            }
+            if backend_name == "cuda":
+                result["resident_cuda_stream"] = {
+                    "mode": kwargs.get("cuda_stream_mode"),
+                    "used_non_default_stream": kwargs.get("cuda_stream_mode") == "non_default",
+                    "synchronized_before_compare": True,
+                }
+                result["resident_cuda_observation_checks"] = {
+                    "reset_observation_exact": True,
+                    "step_observation_exact": True,
+                    "reward_exact": True,
+                    "terminated_exact": True,
+                    "truncated_exact": True,
+                    "terminal_observation_exact": True,
+                    "reset_observation_sha256": "reset",
+                    "terminal_observation_sha256": "terminal",
+                }
+            return result
+
+        try:
+            parity._run_original_vs_serial_native = exact_python
+            parity._run_resident_replay_trace = resident_trace
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            receipt = run_suite(
+                frozen_root=Path("/ok"),
+                backends=["python", "native_cpu", "native_cuda"],
+                actions=[0],
+                seeds=[101],
+                horizon=1,
+            )
+        finally:
+            parity._run_original_vs_serial_native = original_python
+            parity._run_resident_replay_trace = original_resident
+            parity._run_forced_autoreset_evidence = original_forced
+        self.assertIn(("cuda", "non_default"), calls)
+        self.assertEqual(receipt["promotion_status"], "passed")
+
+    def test_main_writes_manifest_with_source_hashes_and_no_cuda_blocker(self):
+        original = parity.run_suite
+
+        def blocked_suite(**_kwargs):
+            return {
+                "schema_version": parity.SCHEMA_VERSION,
+                "status": "blocked",
+                "backends": ["python", "native_cpu", "native_cuda"],
+                "cases": [
+                    {
+                        "action_index": 0,
+                        "seed": 101,
+                        "native_cpu_cuda_exact": False,
+                        "native_cpu_cuda_exact_note": "RuntimeError: CUDA unavailable",
+                    }
+                ],
+                "blockers": [
+                    {
+                        "action_index": 0,
+                        "seed": 101,
+                        "reason": "native_cpu_cuda_exact_missing",
+                        "first_divergence": "RuntimeError: CUDA unavailable",
+                    }
+                ],
+                "promotion_status": "blocked",
+                "promotion_blockers": [{"reason": "native_cuda_replay_unverified"}],
+            }
+
+        try:
+            parity.run_suite = blocked_suite
+            with tempfile.TemporaryDirectory(prefix="resident-stream-gate-") as directory:
+                output = Path(directory)
+                code = parity.main(
+                    [
+                        "--frozen-root",
+                        ".",
+                        "--backends",
+                        "python,native_cpu,native_cuda",
+                        "--actions",
+                        "0",
+                        "--seeds",
+                        "101",
+                        "--horizon",
+                        "1",
+                        "--output",
+                        str(output),
+                    ]
+                )
+                self.assertEqual(code, 1)
+                manifest = json.loads((output / "resident-stream-gate-manifest.json").read_text())
+                self.assertEqual(manifest["schema_version"], "ai2.resident_stream_gate_manifest.v1")
+                self.assertEqual(manifest["status"], "blocked")
+                self.assertEqual(manifest["cuda_skip"]["status"], "blocked_no_cuda")
+                self.assertIn("fixed_action_trace_parity.py", manifest["source_hashes"])
+                self.assertIn("native_game_lane_vec_env.py", manifest["source_hashes"])
+                self.assertTrue((output / "trace-report.json").is_file())
+        finally:
+            parity.run_suite = original
 
     def test_gdown_fuzzy_compatibility_shim_preserves_older_download_signature(self):
         calls = []

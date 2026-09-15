@@ -16,7 +16,9 @@ import json
 import math
 import os
 import shutil
+import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -47,6 +49,17 @@ TRACE_FIELDS_CHECKED = (
     "draws_consumed",
 )
 FORCED_AUTORESET_KINDS = ("termination", "truncation")
+MANIFEST_SCHEMA_VERSION = "ai2.resident_stream_gate_manifest.v1"
+SOURCE_HASH_FILES = (
+    "fixed_action_trace_parity.py",
+    "native_game_lane_vec_env.py",
+    "native/game_lanes.c",
+    "native/game_lanes.cu",
+    "native/game_episode.c",
+    "native/game_episode.h",
+    "native/navigation_episode.c",
+    "native/navigation_episode.h",
+)
 ACTION_SPECIFIC_FIELDS = {
     0: ("state.players.y", "state.players.vy", "state.players.input[0]"),
     1: ("state.players.x", "state.players.vx", "state.players.input[1]"),
@@ -239,6 +252,38 @@ def _autoreset_exact(case: dict[str, Any], kind: str) -> bool:
         and evidence.get("same_step_autoreset") is True
         and evidence.get("same_step_reset_obs_exact") is True
         and evidence.get("healthy_subsequent_step") is True
+    )
+
+
+def _cuda_stream_exact(case: dict[str, Any]) -> bool:
+    stream = case.get("resident_cuda_stream")
+    return (
+        isinstance(stream, dict)
+        and stream.get("mode") == "non_default"
+        and stream.get("used_non_default_stream") is True
+        and stream.get("synchronized_before_compare") is True
+    )
+
+
+def _cuda_observation_checks_exact(case: dict[str, Any]) -> bool:
+    checks = case.get("resident_cuda_observation_checks")
+    if not isinstance(checks, dict):
+        return False
+    required = (
+        "reset_observation_exact",
+        "step_observation_exact",
+        "reward_exact",
+        "terminated_exact",
+        "truncated_exact",
+        "terminal_observation_exact",
+    )
+    if not all(checks.get(key) is True for key in required):
+        return False
+    return (
+        isinstance(checks.get("reset_observation_sha256"), str)
+        and bool(checks["reset_observation_sha256"])
+        and isinstance(checks.get("terminal_observation_sha256"), str)
+        and bool(checks["terminal_observation_sha256"])
     )
 
 
@@ -472,6 +517,28 @@ def build_receipt(
                     "first_divergence": case.get("native_cpu_cuda_exact_note"),
                 }
             )
+        if "native_cuda" in backends and case.get("native_cpu_cuda_exact") is True:
+            if not _cuda_stream_exact(case):
+                blockers.append(
+                    {
+                        "action_index": case.get("action_index"),
+                        "seed": case.get("seed"),
+                        "reason": "native_cuda_nondefault_stream_unverified",
+                        "first_divergence": "resident CUDA replay must execute on a synchronized non-default stream",
+                    }
+                )
+            if not _cuda_observation_checks_exact(case):
+                blockers.append(
+                    {
+                        "action_index": case.get("action_index"),
+                        "seed": case.get("seed"),
+                        "reason": "native_cuda_observation_checks_incomplete",
+                        "first_divergence": (
+                            "resident CUDA replay must record exact reset/step/terminal observations, "
+                            "rewards, terminated, and truncated checks"
+                        ),
+                    }
+                )
     has_termination_autoreset = any(_autoreset_exact(case, "termination") for case in cases)
     has_truncation_autoreset = any(_autoreset_exact(case, "truncation") for case in cases)
     if not has_termination_autoreset:
@@ -525,6 +592,24 @@ def build_receipt(
                 "detail": "promotion requires exact resident CUDA replay evidence, not CPU-only execution",
             }
         )
+    if "native_cuda" in backends and native_cpu_cuda_exact is True:
+        if not all(_cuda_stream_exact(case) for case in cases):
+            promotion_blockers.append(
+                {
+                    "reason": "native_cuda_nondefault_stream_unverified",
+                    "detail": "promotion requires resident CUDA replay on a synchronized non-default PyTorch stream",
+                }
+            )
+        if not all(_cuda_observation_checks_exact(case) for case in cases):
+            promotion_blockers.append(
+                {
+                    "reason": "native_cuda_observation_checks_incomplete",
+                    "detail": (
+                        "promotion requires exact reset observations, step observations, rewards, done flags, "
+                        "and terminal/reset observation evidence"
+                    ),
+                }
+            )
     if not has_termination_autoreset:
         promotion_blockers.append(
             {
@@ -546,6 +631,15 @@ def build_receipt(
                 "detail": "promotion requires exact recorded-draw resident CPU replay for every matrix case",
             }
         )
+    cuda_gate_exact = (
+        "native_cuda" not in backends
+        or (
+            native_cpu_cuda_exact is True
+            and all(_cuda_stream_exact(case) for case in cases)
+            and all(_cuda_observation_checks_exact(case) for case in cases)
+        )
+    )
+    promotion_passed = three_way_exact and cuda_gate_exact
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "blocked" if blockers else "completed",
@@ -569,9 +663,15 @@ def build_receipt(
             if not resident_supported
             else None
         ),
+        "native_cuda_nondefault_stream_exact": (
+            None if "native_cuda" not in backends else all(_cuda_stream_exact(case) for case in cases)
+        ),
+        "native_cuda_observation_checks_exact": (
+            None if "native_cuda" not in backends else all(_cuda_observation_checks_exact(case) for case in cases)
+        ),
         "three_way_exact": three_way_exact,
-        "promotion_status": "passed" if three_way_exact else "blocked",
-        "promotion_blockers": [] if three_way_exact else promotion_blockers,
+        "promotion_status": "passed" if promotion_passed else "blocked",
+        "promotion_blockers": [] if promotion_passed else promotion_blockers,
         "three_way_exact_note": (
             "requires exact original replay, CPU/CUDA resident parity, replay_step support, "
             "and exact RNG cursor/count/error for every action and seed"
@@ -779,12 +879,17 @@ def _run_resident_replay_trace(
     scenario: dict[str, Any] | None = None,
     post_terminal_reset_draws: list[dict[str, float]] | None = None,
     compare_reset: bool = True,
+    cuda_stream_mode: str = "current",
 ) -> dict[str, Any]:
     from native_game_lane_vec_env import GameLaneBackend
 
     backend = GameLaneBackend(1, backend_name)
     torch = backend.torch
     device = backend.device
+    if backend.kind != "cuda" and cuda_stream_mode != "current":
+        raise ValueError("non-current stream mode is only valid for native_cuda")
+    if cuda_stream_mode not in {"current", "non_default"}:
+        raise ValueError("cuda_stream_mode must be current or non_default")
     obs = torch.empty((2, 64), dtype=torch.float32, device=device)
     terminal = torch.empty_like(obs)
     rewards = torch.empty(2, dtype=torch.float32, device=device)
@@ -792,27 +897,54 @@ def _run_resident_replay_trace(
     truncated = torch.empty(2, dtype=torch.bool, device=device)
     statuses = []
     diffs: list[dict[str, Any]] = []
+    reset_diffs: list[dict[str, Any]] = []
+    selected_stream = None
+    default_stream_id = None
+    selected_stream_id = None
+    synchronized_before_compare = backend.kind != "cuda"
+
+    def _sync_before_compare() -> None:
+        nonlocal synchronized_before_compare
+        if selected_stream is not None:
+            selected_stream.synchronize()
+            synchronized_before_compare = True
+
+    def _stream_scope():
+        return torch.cuda.stream(selected_stream) if selected_stream is not None else nullcontext()
+
     try:
-        backend.replay_reset(0, document["reset"]["draws"], obs)
-        if scenario:
-            players = scenario.get("players", [{}, {}])
-            stocks = [
-                int(players[index]["stocks"]) if index < len(players) and "stocks" in players[index] else -1
-                for index in range(2)
-            ]
-            backend.configure_episode(
-                0,
-                stocks=None if stocks == [-1, -1] else stocks,
-                max_timesteps=scenario.get("max_timesteps"),
-            )
-        if compare_reset:
-            diffs.extend(
-                _compare_tensor_to_expected(
-                    obs,
-                    _float32_pair(document["reset"]["outputs"], "obs"),
-                    "reset.outputs.obs",
+        if backend.kind == "cuda" and cuda_stream_mode == "non_default":
+            default_stream = torch.cuda.default_stream(device)
+            current_stream = torch.cuda.current_stream(device)
+            selected_stream = torch.cuda.Stream(device=device)
+            selected_stream.wait_stream(current_stream)
+            default_stream_id = int(default_stream.cuda_stream)
+            selected_stream_id = int(selected_stream.cuda_stream)
+        elif backend.kind == "cuda":
+            current_stream = torch.cuda.current_stream(device)
+            default_stream_id = int(torch.cuda.default_stream(device).cuda_stream)
+            selected_stream_id = int(current_stream.cuda_stream)
+        with _stream_scope():
+            backend.replay_reset(0, document["reset"]["draws"], obs)
+            if scenario:
+                players = scenario.get("players", [{}, {}])
+                stocks = [
+                    int(players[index]["stocks"]) if index < len(players) and "stocks" in players[index] else -1
+                    for index in range(2)
+                ]
+                backend.configure_episode(
+                    0,
+                    stocks=None if stocks == [-1, -1] else stocks,
+                    max_timesteps=scenario.get("max_timesteps"),
                 )
+        if compare_reset:
+            _sync_before_compare()
+            reset_diffs = _compare_tensor_to_expected(
+                obs,
+                _float32_pair(document["reset"]["outputs"], "obs"),
+                "reset.outputs.obs",
             )
+            diffs.extend(reset_diffs)
         terminal_observation_checked = False
         terminated_count = 0
         truncated_count = 0
@@ -824,8 +956,10 @@ def _run_resident_replay_trace(
                 row["outputs"]["terminated"] or row["outputs"]["truncated"]
             ):
                 draws = [*draws, *post_terminal_reset_draws]
-            backend.replay_step(0, actions, draws, obs, terminal, rewards, terminated, truncated)
-            status = backend.rng_status(0)
+            with _stream_scope():
+                backend.replay_step(0, actions, draws, obs, terminal, rewards, terminated, truncated)
+                status = backend.rng_status(0)
+            _sync_before_compare()
             statuses.append({"tick": tick, **status, "expected_count": len(draws)})
             if status != {"mode": 0, "cursor": len(draws), "count": len(draws), "error": 0}:
                 diffs.append(
@@ -853,9 +987,15 @@ def _run_resident_replay_trace(
             terminated_count += int(terminated.to(torch.int32).sum().item())
             truncated_count += int(truncated.to(torch.int32).sum().item())
         backend.drain()
+        _sync_before_compare()
         total_draws = len(document["reset"]["draws"]) + sum(status["count"] for status in statuses)
         exact = not diffs
         terminal_seen = any(row["outputs"]["terminated"] or row["outputs"]["truncated"] for row in document["ticks"])
+        step_diffs = [diff for diff in diffs if str(diff.get("field", "")).startswith("tick[")]
+        obs_diffs = [diff for diff in step_diffs if ".outputs.obs" in str(diff.get("field", ""))]
+        reward_diffs = [diff for diff in step_diffs if ".outputs.rewards" in str(diff.get("field", ""))]
+        terminated_diffs = [diff for diff in step_diffs if ".outputs.terminated" in str(diff.get("field", ""))]
+        truncated_diffs = [diff for diff in step_diffs if ".outputs.truncated" in str(diff.get("field", ""))]
         trace = {
             "mode": "recorded_draw_replay",
             "backend": backend_name,
@@ -871,7 +1011,7 @@ def _run_resident_replay_trace(
             "tick_draw_count": total_draws - len(document["reset"]["draws"]),
             "note": "resident native recorded-draw per-step replay against Python capture",
         }
-        return {
+        result = {
             "resident_cpu_recorded_replay_exact": exact,
             "resident_cpu_generated_rng_recorded": exact,
             "resident_cpu_recorded_replay_trace": trace,
@@ -890,6 +1030,32 @@ def _run_resident_replay_trace(
                 "exact" if exact and terminal_observation_checked else "not_exercised" if exact and not terminal_seen else "missing"
             ),
         }
+        if backend.kind == "cuda":
+            result["resident_cuda_stream"] = {
+                "mode": cuda_stream_mode,
+                "default_stream": default_stream_id,
+                "selected_stream": selected_stream_id,
+                "used_non_default_stream": (
+                    cuda_stream_mode == "non_default"
+                    and selected_stream_id is not None
+                    and selected_stream_id != default_stream_id
+                ),
+                "synchronized_before_compare": synchronized_before_compare,
+            }
+            result["resident_cuda_observation_checks"] = {
+                "reset_observation_exact": not reset_diffs,
+                "step_observation_exact": not obs_diffs,
+                "reward_exact": not reward_diffs,
+                "terminated_exact": not terminated_diffs,
+                "truncated_exact": not truncated_diffs,
+                "terminal_observation_exact": (not terminal_seen)
+                or (terminal_observation_checked and not obs_diffs),
+                "reset_observation_sha256": _tensor_sha256(obs if not compare_reset else torch.as_tensor(
+                    _float32_pair(document["reset"]["outputs"], "obs"), dtype=torch.float32, device=device
+                )),
+                "terminal_observation_sha256": _tensor_sha256(terminal if terminal_seen else obs),
+            }
+        return result
     finally:
         backend.close()
 
@@ -1020,6 +1186,7 @@ def _run_forced_autoreset_evidence(
                 scenario=scenario,
                 post_terminal_reset_draws=post_reset,
                 compare_reset=False,
+                cuda_stream_mode="non_default",
             )
         except Exception as exc:
             cuda_exact = False
@@ -1125,7 +1292,12 @@ def run_suite(
                     result["native_cpu_cuda_exact_note"] = "native_cuda backend not requested"
                     if "native_cuda" in backends:
                         try:
-                            cuda_result = _run_resident_replay_trace(case, document, "cuda")
+                            cuda_result = _run_resident_replay_trace(
+                                case,
+                                document,
+                                "cuda",
+                                cuda_stream_mode="non_default",
+                            )
                         except Exception as cuda_exc:
                             result["native_cpu_cuda_exact"] = False
                             result["native_cpu_cuda_exact_note"] = f"{type(cuda_exc).__name__}: {cuda_exc}"
@@ -1139,6 +1311,10 @@ def run_suite(
                             result["resident_cuda_replay_trace"] = result["resident_cuda_recorded_replay_trace"]
                             result["resident_cuda_recorded_replay_exact"] = cuda_result.get(
                                 "resident_cpu_recorded_replay_exact"
+                            )
+                            result["resident_cuda_stream"] = cuda_result.get("resident_cuda_stream")
+                            result["resident_cuda_observation_checks"] = cuda_result.get(
+                                "resident_cuda_observation_checks"
                             )
                             cpu_trace = _resident_trace_comparable(
                                 result.get(
@@ -1227,6 +1403,72 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_hashes(root: Path | None = None) -> dict[str, dict[str, Any]]:
+    root = (root or Path(__file__).resolve().parent).resolve()
+    hashes: dict[str, dict[str, Any]] = {}
+    for relative in SOURCE_HASH_FILES:
+        path = root / relative
+        if path.is_file():
+            hashes[relative] = {"sha256": _sha256_file(path), "bytes": path.stat().st_size}
+        else:
+            hashes[relative] = {"missing": True}
+    return hashes
+
+
+def _cuda_skip_status(receipt: dict[str, Any]) -> dict[str, Any]:
+    backends = receipt.get("backends", [])
+    if "native_cuda" not in backends:
+        return {"status": "not_requested"}
+    if receipt.get("native_cpu_cuda_exact") is True:
+        return {"status": "not_skipped"}
+    notes = []
+    for case in receipt.get("cases", []):
+        note = case.get("native_cpu_cuda_exact_note")
+        if note is not None:
+            notes.append(note)
+        trace = case.get("resident_cuda_recorded_replay_trace")
+        if trace is None and case.get("native_cpu_cuda_exact") is False:
+            notes.append("resident_cuda_recorded_replay_trace missing")
+    blockers = receipt.get("blockers", []) + receipt.get("promotion_blockers", [])
+    for blocker in blockers:
+        text = json.dumps(blocker, sort_keys=True, default=str)
+        if "CUDA unavailable" in text or "cuda unavailable" in text or "torch.cuda.is_available" in text:
+            return {"status": "blocked_no_cuda", "evidence": blocker}
+    joined = " ".join(str(note) for note in notes)
+    if "CUDA unavailable" in joined or "cuda unavailable" in joined or "nvcc unavailable" in joined:
+        return {"status": "blocked_no_cuda", "evidence": joined}
+    return {"status": "blocked_cuda_failed", "evidence": notes[:3]}
+
+
+def build_manifest(*, receipt: dict[str, Any], output: Path, argv: list[str]) -> dict[str, Any]:
+    report = output / "trace-report.json"
+    return {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "status": receipt.get("status"),
+        "promotion_status": receipt.get("promotion_status"),
+        "created_unix": time.time(),
+        "command": ["python", "-B", "fixed_action_trace_parity.py", *argv],
+        "artifacts": {
+            "trace_report": str(report),
+            "manifest": str(output / "resident-stream-gate-manifest.json"),
+        },
+        "backends": receipt.get("backends"),
+        "expected_actions": receipt.get("expected_actions"),
+        "expected_seeds": receipt.get("expected_seeds"),
+        "horizon": receipt.get("horizon"),
+        "cuda_skip": _cuda_skip_status(receipt),
+        "source_hashes": _source_hashes(),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frozen-root", required=True, type=Path)
@@ -1236,6 +1478,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--horizon", required=True, type=int)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
     receipt = run_suite(
         frozen_root=args.frozen_root,
         backends=args.backends,
@@ -1244,6 +1487,10 @@ def main(argv: list[str] | None = None) -> int:
         horizon=args.horizon,
     )
     _write_json_atomic(args.output / "trace-report.json", receipt)
+    _write_json_atomic(
+        args.output / "resident-stream-gate-manifest.json",
+        build_manifest(receipt=receipt, output=args.output, argv=raw_argv),
+    )
     print(json.dumps({"status": receipt["status"], "report": str(args.output / "trace-report.json")}, sort_keys=True))
     return 0 if not receipt["blockers"] else 1
 
