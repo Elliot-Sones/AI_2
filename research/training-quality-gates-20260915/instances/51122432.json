@@ -1,0 +1,22 @@
+{
+  "schema_version": "ai2.vast_instance_closeout.v1",
+  "instance_id": 51122432,
+  "label": "ai2-puffer-gae-root-20260915",
+  "owner": "root/puffer_cuda_gae_test",
+  "purpose": "AI2 Puffer CUDA SB3 GAE parity verification",
+  "gpu": "RTX 4090",
+  "num_gpus": 1,
+  "observed_hourly_usd": 0.3555555555555555,
+  "provisioning_outcome": "failed_before_ssh",
+  "uploads": {
+    "code": false,
+    "artifacts": false,
+    "credentials": false
+  },
+  "remote_artifacts_to_retrieve": false,
+  "closeout": "destroyed_after_failed_provisioning",
+  "closeout_verified_utc": "2026-09-15T14:05:40Z",
+  "final_inventory": [],
+  "credit_usd_after_closeout": 10.064486821184097,
+  "billing_note": "The provider had not supplied a settled per-instance charge at closeout; do not infer exact spend from hourly price."
+}
