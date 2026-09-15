@@ -255,6 +255,19 @@ def _autoreset_exact(case: dict[str, Any], kind: str) -> bool:
     )
 
 
+def _autoreset_exact_for_backends(case: dict[str, Any], kind: str, backends: list[str]) -> bool:
+    if not _autoreset_exact(case, kind):
+        return False
+    if "native_cuda" not in backends:
+        return True
+    evidence = case.get(f"resident_{kind}_autoreset")
+    return (
+        isinstance(evidence, dict)
+        and evidence.get("resident_cuda_recorded_replay_exact") is True
+        and _cuda_stream_exact(evidence)
+    )
+
+
 def _cuda_stream_exact(case: dict[str, Any]) -> bool:
     stream = case.get("resident_cuda_stream")
     return (
@@ -539,15 +552,27 @@ def build_receipt(
                         ),
                     }
                 )
-    has_termination_autoreset = any(_autoreset_exact(case, "termination") for case in cases)
-    has_truncation_autoreset = any(_autoreset_exact(case, "truncation") for case in cases)
+    has_termination_autoreset = any(
+        _autoreset_exact_for_backends(case, "termination", backends) for case in cases
+    )
+    has_truncation_autoreset = any(
+        _autoreset_exact_for_backends(case, "truncation", backends) for case in cases
+    )
     if not has_termination_autoreset:
         blockers.append(
             {
                 "action_index": None,
                 "seed": None,
-                "reason": "termination_autoreset_evidence_missing",
-                "first_divergence": "need at least one exact termination same-step autoreset plus healthy next step",
+                "reason": (
+                    "termination_cuda_autoreset_evidence_missing"
+                    if "native_cuda" in backends
+                    else "termination_autoreset_evidence_missing"
+                ),
+                "first_divergence": (
+                    "need at least one exact termination same-step autoreset with exact resident CUDA replay on a non-default stream"
+                    if "native_cuda" in backends
+                    else "need at least one exact termination same-step autoreset plus healthy next step"
+                ),
             }
         )
     if not has_truncation_autoreset:
@@ -555,8 +580,16 @@ def build_receipt(
             {
                 "action_index": None,
                 "seed": None,
-                "reason": "truncation_autoreset_evidence_missing",
-                "first_divergence": "need at least one exact truncation same-step autoreset plus healthy next step",
+                "reason": (
+                    "truncation_cuda_autoreset_evidence_missing"
+                    if "native_cuda" in backends
+                    else "truncation_autoreset_evidence_missing"
+                ),
+                "first_divergence": (
+                    "need at least one exact truncation same-step autoreset with exact resident CUDA replay on a non-default stream"
+                    if "native_cuda" in backends
+                    else "need at least one exact truncation same-step autoreset plus healthy next step"
+                ),
             }
         )
     python_reference_exact = bool(cases) and all(
@@ -613,15 +646,33 @@ def build_receipt(
     if not has_termination_autoreset:
         promotion_blockers.append(
             {
-                "reason": "termination_autoreset_evidence_missing",
-                "detail": "promotion requires exact termination same-step reset obs and healthy follow-up",
+                "reason": (
+                    "termination_cuda_autoreset_evidence_missing"
+                    if "native_cuda" in backends
+                    else "termination_autoreset_evidence_missing"
+                ),
+                "detail": (
+                    "promotion requires exact termination same-step reset obs, healthy follow-up, "
+                    "and exact resident CUDA replay on a non-default stream"
+                    if "native_cuda" in backends
+                    else "promotion requires exact termination same-step reset obs and healthy follow-up"
+                ),
             }
         )
     if not has_truncation_autoreset:
         promotion_blockers.append(
             {
-                "reason": "truncation_autoreset_evidence_missing",
-                "detail": "promotion requires exact truncation same-step reset obs and healthy follow-up",
+                "reason": (
+                    "truncation_cuda_autoreset_evidence_missing"
+                    if "native_cuda" in backends
+                    else "truncation_autoreset_evidence_missing"
+                ),
+                "detail": (
+                    "promotion requires exact truncation same-step reset obs, healthy follow-up, "
+                    "and exact resident CUDA replay on a non-default stream"
+                    if "native_cuda" in backends
+                    else "promotion requires exact truncation same-step reset obs and healthy follow-up"
+                ),
             }
         )
     if any(case.get("resident_cpu_recorded_replay_exact") is not True for case in cases):
@@ -639,7 +690,12 @@ def build_receipt(
             and all(_cuda_observation_checks_exact(case) for case in cases)
         )
     )
-    promotion_passed = three_way_exact and cuda_gate_exact
+    promotion_passed = (
+        three_way_exact
+        and cuda_gate_exact
+        and has_termination_autoreset
+        and has_truncation_autoreset
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "blocked" if blockers else "completed",
@@ -1177,6 +1233,8 @@ def _run_forced_autoreset_evidence(
         backend.close()
     cuda_exact = None
     cuda_note = "native_cuda backend not requested"
+    cuda_stream = None
+    cuda_observation_checks = None
     if "native_cuda" in backends:
         try:
             cuda = _run_resident_replay_trace(
@@ -1194,6 +1252,8 @@ def _run_forced_autoreset_evidence(
         else:
             cuda_exact = cuda.get("resident_cpu_recorded_replay_exact") is True
             cuda_note = None if cuda_exact else cuda.get("resident_replay_first_divergence")
+            cuda_stream = cuda.get("resident_cuda_stream")
+            cuda_observation_checks = cuda.get("resident_cuda_observation_checks")
     return {
         "status": "exact" if same_step and same_step_reset_obs_exact and healthy else "missing",
         "same_step_autoreset": same_step,
@@ -1204,6 +1264,8 @@ def _run_forced_autoreset_evidence(
         "resident_cpu_recorded_replay_exact": True,
         "resident_cuda_recorded_replay_exact": cuda_exact,
         "resident_cuda_note": cuda_note,
+        "resident_cuda_stream": cuda_stream if "native_cuda" in backends else None,
+        "resident_cuda_observation_checks": cuda_observation_checks if "native_cuda" in backends else None,
         "post_terminal_reset_draw_count": len(post_reset),
         "terminal_tick_draw_count": len(tick["draws"]),
         "terminal_replay_draw_count": len(tick["draws"]) + len(post_reset),
@@ -1469,6 +1531,13 @@ def build_manifest(*, receipt: dict[str, Any], output: Path, argv: list[str]) ->
     }
 
 
+def _existing_output_blocker(output: Path) -> Path | None:
+    for path in (output / "trace-report.json", output / "resident-stream-gate-manifest.json"):
+        if path.exists():
+            return path
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frozen-root", required=True, type=Path)
@@ -1479,6 +1548,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    existing = _existing_output_blocker(args.output)
+    if existing is not None:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": "output_exists",
+                    "path": str(existing),
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
     receipt = run_suite(
         frozen_root=args.frozen_root,
         backends=args.backends,

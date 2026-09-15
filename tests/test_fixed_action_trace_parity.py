@@ -24,6 +24,36 @@ def exact_autoreset():
     }
 
 
+def exact_cuda_stream():
+    return {
+        "mode": "non_default",
+        "used_non_default_stream": True,
+        "synchronized_before_compare": True,
+    }
+
+
+def exact_cuda_observation_checks():
+    return {
+        "reset_observation_exact": True,
+        "step_observation_exact": True,
+        "reward_exact": True,
+        "terminated_exact": True,
+        "truncated_exact": True,
+        "terminal_observation_exact": True,
+        "reset_observation_sha256": "reset",
+        "terminal_observation_sha256": "terminal",
+    }
+
+
+def exact_cuda_autoreset():
+    return {
+        **exact_autoreset(),
+        "resident_cuda_recorded_replay_exact": True,
+        "resident_cuda_stream": exact_cuda_stream(),
+        "resident_cuda_observation_checks": exact_cuda_observation_checks(),
+    }
+
+
 class FixedActionTraceParityTests(unittest.TestCase):
     def test_suite_covers_all_ten_actions(self):
         suite = build_fixed_action_suite(seeds=[101], horizon=12)
@@ -407,7 +437,7 @@ class FixedActionTraceParityTests(unittest.TestCase):
         try:
             parity._run_original_vs_serial_native = exact_python
             parity._run_resident_replay_trace = resident_trace
-            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_cuda_autoreset()
             receipt = run_suite(
                 frozen_root=Path("/ok"),
                 backends=["python", "native_cpu"],
@@ -518,7 +548,7 @@ class FixedActionTraceParityTests(unittest.TestCase):
         try:
             parity._run_original_vs_serial_native = exact_python
             parity._run_resident_replay_trace = resident_trace
-            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_cuda_autoreset()
             receipt = run_suite(
                 frozen_root=Path("/ok"),
                 backends=["python", "native_cpu", "native_cuda"],
@@ -584,6 +614,8 @@ class FixedActionTraceParityTests(unittest.TestCase):
                 "reset_observation_sha256": "reset",
                 "terminal_observation_sha256": "terminal",
             }
+        complete[0]["resident_termination_autoreset"] = exact_cuda_autoreset()
+        complete[1]["resident_truncation_autoreset"] = exact_cuda_autoreset()
         receipt = build_receipt(
             cases=complete,
             backends=["python", "native_cpu", "native_cuda"],
@@ -592,6 +624,47 @@ class FixedActionTraceParityTests(unittest.TestCase):
             horizon=1,
         )
         self.assertEqual(receipt["promotion_status"], "passed")
+
+    def test_native_cuda_forced_autoresets_require_cuda_replay_exactness(self):
+        complete = [
+            {
+                "action_index": action_index,
+                "seed": 101,
+                "horizon": 1,
+                "python_reference_exact": True,
+                "native_cpu_cuda_exact": True,
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_lanes_replay_step_supported": True,
+                "reset_compared": True,
+                "compared_ticks": 1,
+                "terminal_autoreset_evidence": "exact",
+                "rng": {"cursor": 1, "count": 1, "error": 0},
+                "resident_cuda_stream": exact_cuda_stream(),
+                "resident_cuda_observation_checks": exact_cuda_observation_checks(),
+            }
+            for action_index in range(10)
+        ]
+        complete[0]["resident_termination_autoreset"] = {
+            **exact_cuda_autoreset(),
+            "resident_cuda_recorded_replay_exact": False,
+        }
+        complete[1]["resident_truncation_autoreset"] = {
+            **exact_cuda_autoreset(),
+            "resident_cuda_stream": {"mode": "current", "used_non_default_stream": False, "synchronized_before_compare": True},
+        }
+        receipt = build_receipt(
+            cases=complete,
+            backends=["python", "native_cpu", "native_cuda"],
+            expected_actions=list(range(10)),
+            expected_seeds=[101],
+            horizon=1,
+        )
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertEqual(receipt["promotion_status"], "blocked")
+        reasons = {blocker["reason"] for blocker in receipt["blockers"] + receipt["promotion_blockers"]}
+        self.assertIn("termination_cuda_autoreset_evidence_missing", reasons)
+        self.assertIn("truncation_cuda_autoreset_evidence_missing", reasons)
 
     def test_run_suite_uses_nondefault_cuda_stream_when_native_cuda_requested(self):
         original_python = parity._run_original_vs_serial_native
@@ -655,27 +728,14 @@ class FixedActionTraceParityTests(unittest.TestCase):
                 "terminal_autoreset_evidence": "exact",
             }
             if backend_name == "cuda":
-                result["resident_cuda_stream"] = {
-                    "mode": kwargs.get("cuda_stream_mode"),
-                    "used_non_default_stream": kwargs.get("cuda_stream_mode") == "non_default",
-                    "synchronized_before_compare": True,
-                }
-                result["resident_cuda_observation_checks"] = {
-                    "reset_observation_exact": True,
-                    "step_observation_exact": True,
-                    "reward_exact": True,
-                    "terminated_exact": True,
-                    "truncated_exact": True,
-                    "terminal_observation_exact": True,
-                    "reset_observation_sha256": "reset",
-                    "terminal_observation_sha256": "terminal",
-                }
+                result["resident_cuda_stream"] = exact_cuda_stream()
+                result["resident_cuda_observation_checks"] = exact_cuda_observation_checks()
             return result
 
         try:
             parity._run_original_vs_serial_native = exact_python
             parity._run_resident_replay_trace = resident_trace
-            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_cuda_autoreset()
             receipt = run_suite(
                 frozen_root=Path("/ok"),
                 backends=["python", "native_cpu", "native_cuda"],
@@ -746,6 +806,80 @@ class FixedActionTraceParityTests(unittest.TestCase):
                 self.assertIn("fixed_action_trace_parity.py", manifest["source_hashes"])
                 self.assertIn("native_game_lane_vec_env.py", manifest["source_hashes"])
                 self.assertTrue((output / "trace-report.json").is_file())
+        finally:
+            parity.run_suite = original
+
+    def test_main_refuses_to_overwrite_existing_trace_report(self):
+        original = parity.run_suite
+        calls = []
+
+        def unexpected_suite(**_kwargs):
+            calls.append("called")
+            return {"status": "completed", "blockers": []}
+
+        try:
+            parity.run_suite = unexpected_suite
+            with tempfile.TemporaryDirectory(prefix="resident-stream-gate-") as directory:
+                output = Path(directory)
+                report = output / "trace-report.json"
+                report.write_text("old report\n", encoding="utf-8")
+                code = parity.main(
+                    [
+                        "--frozen-root",
+                        ".",
+                        "--backends",
+                        "python,native_cpu,native_cuda",
+                        "--actions",
+                        "0",
+                        "--seeds",
+                        "101",
+                        "--horizon",
+                        "1",
+                        "--output",
+                        str(output),
+                    ]
+                )
+                self.assertEqual(code, 1)
+                self.assertEqual(report.read_text(encoding="utf-8"), "old report\n")
+                self.assertFalse((output / "resident-stream-gate-manifest.json").exists())
+                self.assertEqual(calls, [])
+        finally:
+            parity.run_suite = original
+
+    def test_main_refuses_to_overwrite_existing_manifest(self):
+        original = parity.run_suite
+        calls = []
+
+        def unexpected_suite(**_kwargs):
+            calls.append("called")
+            return {"status": "completed", "blockers": []}
+
+        try:
+            parity.run_suite = unexpected_suite
+            with tempfile.TemporaryDirectory(prefix="resident-stream-gate-") as directory:
+                output = Path(directory)
+                manifest = output / "resident-stream-gate-manifest.json"
+                manifest.write_text("old manifest\n", encoding="utf-8")
+                code = parity.main(
+                    [
+                        "--frozen-root",
+                        ".",
+                        "--backends",
+                        "python,native_cpu,native_cuda",
+                        "--actions",
+                        "0",
+                        "--seeds",
+                        "101",
+                        "--horizon",
+                        "1",
+                        "--output",
+                        str(output),
+                    ]
+                )
+                self.assertEqual(code, 1)
+                self.assertEqual(manifest.read_text(encoding="utf-8"), "old manifest\n")
+                self.assertFalse((output / "trace-report.json").exists())
+                self.assertEqual(calls, [])
         finally:
             parity.run_suite = original
 
