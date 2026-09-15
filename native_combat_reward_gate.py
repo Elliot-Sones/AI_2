@@ -25,6 +25,16 @@ from typing import Any, Iterator
 
 ROOT = Path(__file__).resolve().parent
 AI2CR_TERMS = 14
+ABI_FIELDS = (
+    "scenario",
+    "before_hash",
+    "terms",
+    "total",
+    "returns",
+    "attack_starts",
+    "clean_win",
+    "recovery",
+)
 
 
 class GateError(RuntimeError):
@@ -88,6 +98,12 @@ class GateOutput(C.Structure):
         ("offstage", C.c_int32 * 2),
         ("walkoff", C.c_int32 * 2),
         ("recovery", C.c_int32 * 2),
+    ]
+
+
+class GateAbi(C.Structure):
+    _fields_ = [("sizeof_output", C.c_int32)] + [
+        (f"offset_{name}", C.c_int32) for name in ABI_FIELDS
     ]
 
 
@@ -167,6 +183,12 @@ extern "C" int ai2_gate_run(int scenario, AI2GateOutput *out) {
     cudaFree(device_rc);
     return err == cudaSuccess ? host_rc : -5;
 }
+
+extern "C" int ai2_gate_abi(AI2GateAbi *out) {
+    if (!out) return -1;
+    gate_fill_abi(out);
+    return 0;
+}
 """
     host_wrapper = r"""
 #ifdef __cplusplus
@@ -175,6 +197,11 @@ extern "C" {
 int ai2_gate_run(int scenario, AI2GateOutput *out) {
     return ai2_gate_run_impl(scenario, out);
 }
+int ai2_gate_abi(AI2GateAbi *out) {
+    if (!out) return -1;
+    gate_fill_abi(out);
+    return 0;
+}
 #ifdef __cplusplus
 }
 #endif
@@ -182,6 +209,7 @@ int ai2_gate_run(int scenario, AI2GateOutput *out) {
     wrapper = cuda_wrapper if cuda else host_wrapper
     return cuda_prefix + r"""
 #include "native/combat_reward.h"
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -196,6 +224,30 @@ typedef struct {
     int32_t attack_starts[2], contacts[2], damage_events[2], ko_events[2];
     int32_t clean_win[2], offstage[2], walkoff[2], recovery[2];
 } AI2GateOutput;
+
+typedef struct {
+    int32_t sizeof_output;
+    int32_t offset_scenario;
+    int32_t offset_before_hash;
+    int32_t offset_terms;
+    int32_t offset_total;
+    int32_t offset_returns;
+    int32_t offset_attack_starts;
+    int32_t offset_clean_win;
+    int32_t offset_recovery;
+} AI2GateAbi;
+
+AI2N_HD static inline void gate_fill_abi(AI2GateAbi *out) {
+    out->sizeof_output = (int32_t)sizeof(AI2GateOutput);
+    out->offset_scenario = (int32_t)offsetof(AI2GateOutput, scenario);
+    out->offset_before_hash = (int32_t)offsetof(AI2GateOutput, before_hash);
+    out->offset_terms = (int32_t)offsetof(AI2GateOutput, terms);
+    out->offset_total = (int32_t)offsetof(AI2GateOutput, total);
+    out->offset_returns = (int32_t)offsetof(AI2GateOutput, returns);
+    out->offset_attack_starts = (int32_t)offsetof(AI2GateOutput, attack_starts);
+    out->offset_clean_win = (int32_t)offsetof(AI2GateOutput, clean_win);
+    out->offset_recovery = (int32_t)offsetof(AI2GateOutput, recovery);
+}
 
 AI2N_HD static inline uint64_t gate_hash_bytes(const void *ptr, int count) {
     const unsigned char *p = (const unsigned char *)ptr;
@@ -422,14 +474,45 @@ def _compile_probe(kind: str, build_dir: Path) -> Path:
             "-o",
             str(library),
         ]
-    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    try:
+        subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").splitlines()
+        tail = detail[-1] if detail else f"exit {exc.returncode}"
+        raise GateError(f"{kind} probe compile failed: {tail}") from None
     return library
+
+
+def expected_abi() -> dict[str, int]:
+    return {"sizeof": C.sizeof(GateOutput)} | {
+        f"offset_{name}": int(getattr(GateOutput, name).offset) for name in ABI_FIELDS
+    }
+
+
+def validate_abi(actual: dict[str, int]) -> None:
+    expected = expected_abi()
+    for key, value in expected.items():
+        if actual.get(key) != value:
+            raise GateError(f"ABI mismatch for {key}: expected {value}, got {actual.get(key)}")
+
+
+def _abi_to_dict(abi: GateAbi) -> dict[str, int]:
+    return {"sizeof": int(abi.sizeof_output)} | {
+        f"offset_{name}": int(getattr(abi, f"offset_{name}")) for name in ABI_FIELDS
+    }
 
 
 def _load_runner(library: Path):
     lib = C.CDLL(str(library))
     lib.ai2_gate_run.argtypes = [C.c_int32, C.POINTER(GateOutput)]
     lib.ai2_gate_run.restype = C.c_int32
+    lib.ai2_gate_abi.argtypes = [C.POINTER(GateAbi)]
+    lib.ai2_gate_abi.restype = C.c_int32
+    abi = GateAbi()
+    rc = lib.ai2_gate_abi(C.byref(abi))
+    if rc:
+        raise GateError(f"probe ABI export failed: rc={rc}")
+    validate_abi(_abi_to_dict(abi))
     return lib.ai2_gate_run
 
 
@@ -476,6 +559,111 @@ def output_to_dict(out: GateOutput) -> dict[str, Any]:
     }
 
 
+def _get_path(row: dict[str, Any], path: str) -> Any:
+    value: Any = row
+    for part in path.split("."):
+        while "[" in part:
+            name, rest = part.split("[", 1)
+            if name:
+                value = value[name]
+            index, part = rest.split("]", 1)
+            value = value[int(index)]
+            if part.startswith("."):
+                part = part[1:]
+        if part:
+            value = value[part]
+    return value
+
+
+SEMANTIC_EXPECTATIONS: dict[str, dict[str, Any]] = {
+    "approach_proximity": {
+        "step_rc": 0,
+        "approach_delta": 1.0,
+        "distance": 7.0,
+        "terms[0][0]": 1.0,
+        "terms[1][0]": 1.0,
+        "state_tick": 1,
+    },
+    "attack_contact_damage": {
+        "step_rc": 0,
+        "attack_starts": [1, 0],
+        "contacts": [1, 0],
+        "damage_events": [1, 0],
+        "damage_done": [7.5, 0.0],
+        "damage_taken": [0.0, 7.5],
+        "terms[0][1]": 1.0,
+        "terms[0][2]": 1.0,
+        "terms[0][3]": 7.5,
+        "terms[1][4]": 7.5,
+        "terms[0][5]": 7.5,
+    },
+    "terminal_ko_win_clean": {
+        "step_rc": 0,
+        "terminated": True,
+        "truncated": False,
+        "win_mask": 1,
+        "record.terminated": True,
+        "record.win_mask": 1,
+        "ko_events": [0, 1],
+        "terms[0][6]": 1.0,
+        "terms[1][6]": -1.0,
+        "terms[0][7]": 1.0,
+        "terms[1][7]": -1.0,
+        "terms[0][8]": 1.0,
+        "clean_win": [1, 0],
+    },
+    "fall_walkoff": {
+        "step_rc": 0,
+        "offstage": [1, 0],
+        "walkoff": [1, 0],
+        "recovery": [0, 0],
+        "terms[0][10]": 1.0,
+        "terms[0][11]": 1.0,
+    },
+    "recovery": {
+        "step_rc": 0,
+        "offstage": [0, 0],
+        "walkoff": [0, 0],
+        "recovery": [1, 0],
+        "terms[0][12]": 1.0,
+    },
+    "timeout_truncation": {
+        "step_rc": 0,
+        "terminated": False,
+        "truncated": True,
+        "record.timeout": True,
+        "terms[0][9]": 1.0,
+        "terms[1][9]": 1.0,
+    },
+    "episode_reset": {
+        "reset_rc": 0,
+        "step_rc": 0,
+        "state_tick": 0,
+        "returns": [0.0, 0.0],
+        "term_totals[0]": [0.0] * AI2CR_TERMS,
+        "term_totals[1]": [0.0] * AI2CR_TERMS,
+    },
+    "invalid_config_preserves_state": {
+        "step_rc": 501,
+        "state_bytes_preserved": True,
+        "state_tick": 0,
+        "returns": [0.0, 0.0],
+    },
+}
+
+
+def validate_semantics(scenario_name: str, row: dict[str, Any]) -> None:
+    expected = SEMANTIC_EXPECTATIONS.get(scenario_name)
+    if expected is None:
+        raise GateError(f"unknown scenario semantics: {scenario_name}")
+    for path, value in expected.items():
+        actual = _get_path(row, path)
+        if actual != value:
+            raise GateError(f"{scenario_name} semantic mismatch at {path}: expected {value!r}, got {actual!r}")
+    if scenario_name == "invalid_config_preserves_state" and row["before_hash"] != row["after_hash"]:
+        raise GateError(f"{scenario_name} semantic mismatch: invalid config mutated state bytes")
+
+
 def run_backend(kind: str, build_dir: Path) -> dict[str, Any]:
     runner = _load_runner(_compile_probe(kind, build_dir / kind))
     rows = []
@@ -484,7 +672,9 @@ def run_backend(kind: str, build_dir: Path) -> dict[str, Any]:
         rc = runner(scenario.ident, C.byref(out))
         if rc:
             raise GateError(f"{kind} probe failed for {scenario.name}: rc={rc}")
-        rows.append(output_to_dict(out))
+        row = output_to_dict(out)
+        validate_semantics(scenario.name, row)
+        rows.append(row)
     return {"status": "passed", "scenario_count": len(rows), "rows": rows}
 
 
@@ -530,8 +720,22 @@ def compare_rows(cpu_rows: list[dict[str, Any]], cuda_rows: list[dict[str, Any]]
 
 def _write_new(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(text)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(text)
+    except FileExistsError:
+        raise GateError(f"refusing to overwrite existing artifact: {path}") from None
+
+
+def preflight_output_dir(output_dir: Path) -> None:
+    if output_dir.is_symlink():
+        raise GateError(f"refusing symlinked output dir: {output_dir}")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise GateError(f"output path is not a directory: {output_dir}")
+    for name in ("summary.json", "events.jsonl"):
+        path = output_dir / name
+        if path.exists() or path.is_symlink():
+            raise GateError(f"refusing to overwrite existing artifact: {path}")
 
 
 def _event_rows(
@@ -548,7 +752,10 @@ def _event_rows(
                 "components": list(scenario.components),
                 "cpu": cpu,
                 "cuda": cuda,
-                "exact": cuda is None or mismatch is None,
+                "exact": cuda is not None and mismatch is None,
+                "comparison_status": (
+                    "not_run" if cuda is None else "matched" if mismatch is None else "mismatched"
+                ),
                 "first_mismatch": mismatch,
             }
         )
@@ -562,6 +769,7 @@ def run_gate(
     allow_cuda_skip: bool = False,
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
+    preflight_output_dir(output_dir)
     with tempfile.TemporaryDirectory(prefix="native-combat-reward-gate-build-") as tmp:
         build_dir = Path(tmp)
         cpu = run_backend("cpu", build_dir)
@@ -583,6 +791,7 @@ def run_gate(
 
         summary = {
             "status": status,
+            "passed": status == "passed",
             "gate": "native_combat_reward_gate",
             "config": {
                 "fail_closed": True,
@@ -596,6 +805,9 @@ def run_gate(
             "cpu": {k: v for k, v in cpu.items() if k != "rows"},
             "cuda": {k: v for k, v in cuda.items() if k != "rows"},
             "mismatches": mismatches,
+            "comparison_status": (
+                "matched" if status == "passed" else "mismatched" if mismatches else "not_run"
+            ),
         }
         events = _event_rows(cpu["rows"], cuda.get("rows"))
         _write_new(output_dir / "events.jsonl", "".join(json.dumps(row, sort_keys=True, allow_nan=False) + "\n" for row in events))
