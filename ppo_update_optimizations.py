@@ -126,6 +126,7 @@ def _emit_update_diagnostic(
     minibatch_in_epoch: int,
     minibatch_ordinal: int,
     rollout_data: Any,
+    evaluate_actions_actions: Any,
     log_prob: Any,
     policy_loss: Any,
     value_loss: Any,
@@ -144,6 +145,7 @@ def _emit_update_diagnostic(
     if approx_kl_host is None:
         approx_kl_host = approx_kl_div.detach().cpu().numpy()
     actions = rollout_data.actions
+    old_values = rollout_data.old_values
     old_log_prob = rollout_data.old_log_prob
     row = {
         "epoch": int(epoch),
@@ -165,13 +167,17 @@ def _emit_update_diagnostic(
         "sample_digest": diagnostic_minibatch_digest(
             observations=rollout_data.observations,
             actions=actions,
+            evaluate_actions_actions=evaluate_actions_actions,
             old_log_prob=old_log_prob,
+            old_values=old_values,
             advantages=rollout_data.advantages,
             returns=rollout_data.returns,
         ),
         "actions": diagnostic_array_summary(actions),
+        "evaluate_actions_actions": diagnostic_array_summary(evaluate_actions_actions),
         "log_prob": diagnostic_array_summary(log_prob),
         "old_log_prob": diagnostic_array_summary(old_log_prob),
+        "old_values": diagnostic_array_summary(old_values),
     }
     sink(row)
 
@@ -300,6 +306,7 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
                         minibatch_in_epoch=minibatch_in_epoch,
                         minibatch_ordinal=minibatch_ordinal,
                         rollout_data=rollout_data,
+                        evaluate_actions_actions=actions,
                         log_prob=log_prob,
                         policy_loss=policy_loss,
                         value_loss=value_loss,
@@ -328,6 +335,7 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
                 minibatch_in_epoch=minibatch_in_epoch,
                 minibatch_ordinal=minibatch_ordinal,
                 rollout_data=rollout_data,
+                evaluate_actions_actions=actions,
                 log_prob=log_prob,
                 policy_loss=policy_loss,
                 value_loss=value_loss,

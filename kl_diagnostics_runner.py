@@ -10,9 +10,11 @@ cloud instances, change checkpoint defaults, or disable the target-KL safeguard.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 
 
@@ -45,8 +47,8 @@ class KLDiagnosticConfig:
             raise ValueError("Sept-9 replay geometry is fixed at 64 lanes x 512 steps x 4 epochs")
         if self.batch_size not in (8192, 16384):
             raise ValueError("batch_size must be one of the qualified contact minibatch arms")
-        if self.update_mode not in ("deferred_metrics", "sb3"):
-            raise ValueError("update_mode must be deferred_metrics or sb3")
+        if self.update_mode != "deferred_metrics":
+            raise ValueError("KL diagnostics only instrument update_mode=deferred_metrics; sb3 has no validated trace path")
         if self.target_kl != 0.01:
             raise ValueError("target_kl must remain the contact safeguard value 0.01")
         if self.rollouts <= 0 or self.rollouts > 4:
@@ -71,20 +73,52 @@ class JSONLDiagnosticSink:
         self.path = Path(path)
         self.limit = limit
         self.count = 0
+        self._closed = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            raise FileExistsError(f"refusing to mix KL diagnostics into existing trace: {self.path}")
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.",
+            suffix=".tmp",
+            dir=str(self.path.parent),
+        )
+        os.close(fd)
+        self._tmp = Path(tmp_name)
+        self._stream = self._tmp.open("w", encoding="utf8")
 
     def __call__(self, row: dict[str, Any]) -> None:
+        if self._closed:
+            raise RuntimeError("cannot write to a closed KL diagnostic sink")
         if self.limit is not None and self.count >= self.limit:
             return
-        with self.path.open("a", encoding="utf8") as stream:
-            stream.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+        self._stream.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
         self.count += 1
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._stream.flush()
+        os.fsync(self._stream.fileno())
+        self._stream.close()
+        try:
+            os.link(self._tmp, self.path)
+        finally:
+            self._tmp.unlink(missing_ok=True)
+            self._closed = True
+
+    def abort(self) -> None:
+        if self._closed:
+            return
+        self._stream.close()
+        self._tmp.unlink(missing_ok=True)
+        self._closed = True
 
 
 def replay_plan(config: KLDiagnosticConfig) -> dict[str, Any]:
     config.validate()
     return {
         "schema_version": SCHEMA_VERSION,
+        "status": "dry_run_unverified" if config.dry_run else "configured",
         "dry_run": bool(config.dry_run),
         "checkpoint": {
             "path": config.checkpoint,
@@ -112,13 +146,30 @@ def replay_plan(config: KLDiagnosticConfig) -> dict[str, Any]:
             "seed": config.seed,
             "rollouts": config.rollouts,
         },
+        "verification": {
+            "checkpoint_loaded": False,
+            "rollouts_collected": False,
+            "update_executed": False,
+        },
     }
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf8")
+    data = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False).encode("utf8") + b"\n"
+    if path.exists():
+        raise FileExistsError(f"refusing to overwrite existing KL diagnostic artifact: {path}")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
@@ -151,14 +202,25 @@ def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
 
     total_timesteps = config.rollouts * config.n_steps * config.lanes
     _total, callback = model._setup_learn(total_timesteps=total_timesteps, callback=Callback(), reset_num_timesteps=False)
-    for _ in range(config.rollouts):
-        if not model.collect_rollouts(model.env, callback, model.rollout_buffer, model.n_steps):
-            raise RuntimeError("rollout collection stopped before diagnostics completed")
-        model.train()
+    try:
+        for _ in range(config.rollouts):
+            if not model.collect_rollouts(model.env, callback, model.rollout_buffer, model.n_steps):
+                raise RuntimeError("rollout collection stopped before diagnostics completed")
+            model.train()
+        sink.close()
+    except Exception:
+        sink.abort()
+        raise
 
     return {
         **replay_plan(config),
         "dry_run": False,
+        "status": "replay_complete",
+        "verification": {
+            "checkpoint_loaded": True,
+            "rollouts_collected": True,
+            "update_executed": True,
+        },
         "result": {
             "trace_rows": sink.count,
             "last_update_diagnostics": dict(model.last_update_diagnostics),

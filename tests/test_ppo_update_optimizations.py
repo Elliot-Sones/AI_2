@@ -260,8 +260,84 @@ class PPOUpdateParityTests(unittest.TestCase):
         self.assertEqual(row["sample_count"], 3)
         self.assertRegex(row["sample_digest"], r"^[0-9a-f]{64}$")
         self.assertEqual(row["actions"]["shape"], [3, 10])
+        self.assertEqual(row["evaluate_actions_actions"]["shape"], [3, 10])
+        self.assertIn("mean", row["old_values"])
         self.assertIn("mean", row["log_prob"])
         self.assertIn("mean", row["old_log_prob"])
+
+    def test_update_diagnostic_digest_includes_old_values_and_evaluated_actions(self):
+        module = self.module
+        torch = self.torch
+        candidate = self.make_model(target_kl=0.02)
+        self.instrument(candidate, stop_after=0)
+        rollout_data = next(candidate.rollout_buffer.get(candidate.batch_size))
+        actions = rollout_data.actions
+        values, log_prob, entropy = candidate.policy.evaluate_actions(rollout_data.observations, actions)
+        loss, policy_loss, value_loss, entropy_loss, clip_fraction, approx_kl_div = module.ppo_loss(
+            values, log_prob, entropy, rollout_data.advantages, rollout_data.old_log_prob,
+            rollout_data.old_values, rollout_data.returns, 0.12, None, candidate.ent_coef,
+            candidate.vf_coef, candidate.normalize_advantage,
+        )
+        rows = []
+
+        module._emit_update_diagnostic(
+            rows.append,
+            epoch=0,
+            minibatch_in_epoch=0,
+            minibatch_ordinal=0,
+            rollout_data=rollout_data,
+            evaluate_actions_actions=actions,
+            log_prob=log_prob,
+            policy_loss=policy_loss,
+            value_loss=value_loss,
+            entropy_loss=entropy_loss,
+            clip_fraction=clip_fraction,
+            approx_kl_div=approx_kl_div,
+            target_kl=0.02,
+            optimizer_step_executed=False,
+            early_stop=True,
+            gradient_norm=None,
+            learning_rate=0.003,
+            approx_kl_host=approx_kl_div.detach().cpu().numpy(),
+        )
+
+        row = rows[0]
+        self.assertEqual(
+            row["sample_digest"],
+            module.diagnostic_minibatch_digest(
+                observations=rollout_data.observations,
+                actions=rollout_data.actions,
+                evaluate_actions_actions=actions,
+                old_log_prob=rollout_data.old_log_prob,
+                old_values=rollout_data.old_values,
+                advantages=rollout_data.advantages,
+                returns=rollout_data.returns,
+            ),
+        )
+        self.assertNotEqual(
+            row["sample_digest"],
+            module.diagnostic_minibatch_digest(
+                observations=rollout_data.observations,
+                actions=rollout_data.actions,
+                evaluate_actions_actions=actions + torch.full_like(actions, 0.01),
+                old_log_prob=rollout_data.old_log_prob,
+                old_values=rollout_data.old_values,
+                advantages=rollout_data.advantages,
+                returns=rollout_data.returns,
+            ),
+        )
+        self.assertNotEqual(
+            row["sample_digest"],
+            module.diagnostic_minibatch_digest(
+                observations=rollout_data.observations,
+                actions=rollout_data.actions,
+                evaluate_actions_actions=actions,
+                old_log_prob=rollout_data.old_log_prob,
+                old_values=rollout_data.old_values + torch.full_like(rollout_data.old_values, 0.01),
+                advantages=rollout_data.advantages,
+                returns=rollout_data.returns,
+            ),
+        )
 
     def test_update_diagnostics_records_executed_step_gradient_norm(self):
         candidate = self.make_model(target_kl=0.02)
