@@ -119,6 +119,42 @@ def _diagnostic_float(value: Any) -> float:
     return float(value)
 
 
+def _tensor_cuda_device_indexes(*values: Any) -> list[int]:
+    import torch as th
+
+    devices = set()
+    for value in values:
+        if th.is_tensor(value) and value.device.type == "cuda":
+            devices.add(th.cuda.current_device() if value.device.index is None else value.device.index)
+    return sorted(devices)
+
+
+def _reject_stateful_post_step_kl_modules(policy: Any) -> None:
+    import torch as th
+
+    for module in policy.modules():
+        if module is policy or not module.training:
+            continue
+        if isinstance(module, th.nn.modules.batchnorm._BatchNorm):
+            raise RuntimeError(
+                "post-step KL diagnostics do not support training BatchNorm modules; "
+                "the extra policy evaluation would mutate running statistics"
+            )
+
+
+def post_step_approx_kl(policy: Any, rollout_data: Any, actions: Any) -> Any:
+    """Measure KL after an optimizer step without consuming caller RNG state."""
+    import torch as th
+
+    _reject_stateful_post_step_kl_modules(policy)
+    devices = _tensor_cuda_device_indexes(rollout_data.observations, actions, rollout_data.old_log_prob)
+    with th.random.fork_rng(devices=devices):
+        with th.no_grad():
+            _values, post_log_prob, _entropy = policy.evaluate_actions(rollout_data.observations, actions)
+            log_ratio = post_log_prob - rollout_data.old_log_prob
+            return th.mean((th.exp(log_ratio) - 1) - log_ratio)
+
+
 def _emit_update_diagnostic(
     sink: Callable[[dict[str, Any]], Any] | None,
     *,
@@ -139,6 +175,7 @@ def _emit_update_diagnostic(
     gradient_norm: Any,
     learning_rate: float,
     approx_kl_host: Any = None,
+    post_step_approx_kl_host: Any = None,
 ) -> None:
     if sink is None:
         return
@@ -152,6 +189,7 @@ def _emit_update_diagnostic(
         "minibatch_in_epoch": int(minibatch_in_epoch),
         "minibatch_ordinal": int(minibatch_ordinal),
         "pre_step_approx_kl": _diagnostic_float(approx_kl_host),
+        "post_step_approx_kl": None if post_step_approx_kl_host is None else _diagnostic_float(post_step_approx_kl_host),
         "target_kl": None if target_kl is None else float(target_kl),
         "target_kl_threshold": None if target_kl is None else float(1.5 * target_kl),
         "optimizer_step_executed": bool(optimizer_step_executed),
@@ -329,6 +367,9 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
             loss.backward()
             gradient_norm = th.nn.utils.clip_grad_norm_(model.policy.parameters(), model.max_grad_norm)
             model.policy.optimizer.step()
+            post_step_kl_host = None
+            if diagnostic_sink is not None:
+                post_step_kl_host = post_step_approx_kl(model.policy, rollout_data, actions).detach().cpu().numpy()
             _emit_update_diagnostic(
                 diagnostic_sink,
                 epoch=epoch,
@@ -348,6 +389,7 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
                 gradient_norm=gradient_norm,
                 learning_rate=model.policy.optimizer.param_groups[0]["lr"],
                 approx_kl_host=approx_kl_host,
+                post_step_approx_kl_host=post_step_kl_host,
             )
             minibatch_ordinal += 1
 

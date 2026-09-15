@@ -172,6 +172,14 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> None:
         tmp_path.unlink(missing_ok=True)
 
 
+def preflight_replay_artifacts(config: KLDiagnosticConfig) -> None:
+    """Fail before replay touches CUDA/checkpoints if output artifacts exist."""
+    config.validate()
+    for path in (Path(config.output), config.trace_path):
+        if path.exists():
+            raise FileExistsError(f"refusing to overwrite existing KL diagnostic artifact: {path}")
+
+
 def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
     import torch
     from stable_baselines3.common.callbacks import BaseCallback
@@ -263,6 +271,8 @@ def config_from_args(args: argparse.Namespace) -> KLDiagnosticConfig:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = config_from_args(args)
+    if not config.dry_run:
+        preflight_replay_artifacts(config)
     payload = replay_plan(config) if config.dry_run else run_replay(config)
     write_json(config.output, payload)
     return 0

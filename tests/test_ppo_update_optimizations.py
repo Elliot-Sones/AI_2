@@ -229,7 +229,29 @@ class PPOUpdateParityTests(unittest.TestCase):
         candidate = copy.deepcopy(reference)
         candidate.update_diagnostic_sink = None
 
-        self.compare_updates(reference, candidate, repeats=1, stop_after=1)
+        evaluations, _gradients = self.compare_updates(reference, candidate, repeats=1, stop_after=1)
+        self.assertEqual(len(evaluations), 2)
+
+    def test_enabled_diagnostics_preserve_stochastic_policy_state_optimizer_logs_and_rng(self):
+        reference = self.make_model(stochastic=True)
+        candidate = copy.deepcopy(reference)
+        rows = []
+        candidate.update_diagnostic_sink = rows.append
+
+        initial_rng = self.rng_state()
+        self.PPO.train(reference)
+        reference_rng = self.rng_state()
+        self.restore_rng(initial_rng)
+        self.module.deferred_metrics_train(candidate)
+
+        self.assertGreater(len(rows), 0)
+        self.assertTrue(all(row["optimizer_step_executed"] for row in rows))
+        self.assertTrue(all(row["post_step_approx_kl"] is not None for row in rows))
+        self.assert_tree_equal(reference_rng, self.rng_state())
+        self.assert_tree_equal(reference.policy.state_dict(), candidate.policy.state_dict())
+        self.assert_tree_equal(reference.policy.optimizer.state_dict(), candidate.policy.optimizer.state_dict())
+        self.assert_tree_equal(dict(reference.logger.name_to_value), dict(candidate.logger.name_to_value))
+        self.assertEqual(reference._n_updates, candidate._n_updates)
 
     def test_update_diagnostics_records_attempted_minibatch_and_kl_stop(self):
         candidate = self.make_model(target_kl=0.02)
@@ -250,6 +272,7 @@ class PPOUpdateParityTests(unittest.TestCase):
         self.assertGreater(row["pre_step_approx_kl"], row["target_kl_threshold"])
         self.assertFalse(row["optimizer_step_executed"])
         self.assertTrue(row["early_stop"])
+        self.assertIsNone(row["post_step_approx_kl"])
         self.assertIn("policy_loss", row)
         self.assertIn("value_loss", row)
         self.assertIn("entropy_loss", row)
@@ -264,6 +287,52 @@ class PPOUpdateParityTests(unittest.TestCase):
         self.assertIn("mean", row["old_values"])
         self.assertIn("mean", row["log_prob"])
         self.assertIn("mean", row["old_log_prob"])
+
+    def test_update_diagnostics_records_truthful_post_step_kl_for_executed_step(self):
+        candidate = self.make_model(target_kl=0.02)
+        rows = []
+        candidate.update_diagnostic_sink = rows.append
+        self.instrument(candidate, stop_after=1)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.module.deferred_metrics_train(candidate)
+
+        executed = rows[0]
+        self.assertTrue(executed["optimizer_step_executed"])
+        self.assertFalse(executed["early_stop"])
+        self.assertIsNotNone(executed["post_step_approx_kl"])
+        self.assertNotEqual(executed["pre_step_approx_kl"], executed["post_step_approx_kl"])
+
+        replay = self.make_model(target_kl=0.02)
+        self.instrument(replay, stop_after=1)
+        rollout_data = next(replay.rollout_buffer.get(replay.batch_size))
+        actions = rollout_data.actions
+        values, log_prob, entropy = replay.policy.evaluate_actions(rollout_data.observations, actions)
+        loss, *_ = self.module.ppo_loss(
+            values, log_prob, entropy, rollout_data.advantages, rollout_data.old_log_prob,
+            rollout_data.old_values, rollout_data.returns, 0.12, None, replay.ent_coef,
+            replay.vf_coef, replay.normalize_advantage,
+        )
+        replay.policy.optimizer.zero_grad()
+        loss.backward()
+        self.torch.nn.utils.clip_grad_norm_(replay.policy.parameters(), replay.max_grad_norm)
+        replay.policy.optimizer.step()
+        with self.torch.no_grad():
+            _values, post_log_prob, _entropy = replay.policy.evaluate_actions(rollout_data.observations, actions)
+            post_log_ratio = post_log_prob - rollout_data.old_log_prob
+            expected_post_kl = self.torch.mean((self.torch.exp(post_log_ratio) - 1) - post_log_ratio)
+        self.assertAlmostEqual(executed["post_step_approx_kl"], float(expected_post_kl), places=6)
+
+    def test_post_step_kl_rejects_training_batchnorm_to_protect_stateful_modules(self):
+        torch = self.torch
+        policy = torch.nn.Sequential(torch.nn.BatchNorm1d(3))
+        rollout_data = type("RolloutData", (), {
+            "observations": torch.zeros((2, 3)),
+            "old_log_prob": torch.zeros(2),
+        })()
+
+        with self.assertRaisesRegex(RuntimeError, "BatchNorm"):
+            self.module.post_step_approx_kl(policy, rollout_data, torch.zeros((2, 1)))
 
     def test_update_diagnostic_digest_includes_old_values_and_evaluated_actions(self):
         module = self.module
@@ -299,6 +368,7 @@ class PPOUpdateParityTests(unittest.TestCase):
             gradient_norm=None,
             learning_rate=0.003,
             approx_kl_host=approx_kl_div.detach().cpu().numpy(),
+            post_step_approx_kl_host=None,
         )
 
         row = rows[0]

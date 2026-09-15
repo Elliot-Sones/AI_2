@@ -95,6 +95,35 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
 
             self.assertEqual(json.loads(output.read_text()), {"status": "first"})
 
+    def test_main_preflights_output_and_trace_before_real_replay(self):
+        module = importlib.import_module("kl_diagnostics_runner")
+        original_run_replay = module.run_replay
+        calls = []
+
+        def fake_run_replay(_config):
+            calls.append("called")
+            return {"status": "should not be written"}
+
+        module.run_replay = fake_run_replay
+        try:
+            for existing_name in ("receipt.json", "trace.jsonl"):
+                with self.subTest(existing_name=existing_name), tempfile.TemporaryDirectory() as tmp:
+                    output = Path(tmp) / "receipt.json"
+                    trace = Path(tmp) / "trace.jsonl"
+                    (Path(tmp) / existing_name).write_text("already here\n")
+
+                    with self.assertRaisesRegex(FileExistsError, existing_name):
+                        module.main([
+                            "--checkpoint", "/tmp/canonical-contact-checkpoint.zip",
+                            "--expected-sha256", "a" * 64,
+                            "--output", str(output),
+                            "--trace", str(trace),
+                        ])
+
+                    self.assertEqual(calls, [])
+        finally:
+            module.run_replay = original_run_replay
+
     def test_run_replay_cleans_trace_temp_when_setup_learn_fails(self):
         module = importlib.import_module("kl_diagnostics_runner")
 
