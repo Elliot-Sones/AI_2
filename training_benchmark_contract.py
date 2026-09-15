@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,8 @@ _REQUIRED_PATHS = (
     "system.hardware.accelerator_model",
     "system.hardware.accelerator_count",
     "system.hardware.cpu_model",
+    "system.software.command",
+    "system.software.runtime",
     "workload.unit",
     "workload.timing_scope",
     "workload.included_stages",
@@ -55,6 +58,7 @@ _REQUIRED_PATHS = (
     "workload.overlap.mode",
     "workload.overlap.evidence",
     "workload.environment.env_id",
+    "workload.environment.semantics_hash",
     "workload.environment.observation_contract",
     "workload.environment.action_contract",
     "workload.environment.tick_semantics",
@@ -65,6 +69,10 @@ _REQUIRED_PATHS = (
     "workload.rollout.num_envs",
     "workload.rollout.horizon",
     "workload.rollout.transitions_per_batch",
+    "workload.source_provenance.runner",
+    "workload.source_provenance.sources",
+    "workload.source_provenance.command",
+    "workload.source_provenance.runtime",
     "algorithm.optimizer",
     "algorithm.learning_rate",
     "algorithm.gamma",
@@ -104,6 +112,7 @@ _THROUGHPUT_PATHS = (
     "system.hardware.accelerator_model",
     "system.hardware.accelerator_count",
     "system.hardware.cpu_model",
+    "workload.environment.semantics_hash",
     "workload.environment.env_id",
     "workload.environment.observation_contract",
     "workload.environment.action_contract",
@@ -122,6 +131,7 @@ _THROUGHPUT_PATHS = (
 
 _LEARNING_PATHS = (
     "workload.environment.env_id",
+    "workload.environment.semantics_hash",
     "workload.environment.observation_contract",
     "workload.environment.action_contract",
     "workload.environment.tick_semantics",
@@ -193,7 +203,7 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
         raise ContractError(f"schema_version must be {SCHEMA_VERSION}")
 
     for path in ("system.hardware.accelerator_model", "system.hardware.cpu_model"):
-        if not _non_empty_string(_get(receipt, path)):
+        if not _known_hardware_string(_get(receipt, path)):
             raise ContractError(f"{path} must be a non-empty string")
 
     for path in _POSITIVE_INTEGER_PATHS:
@@ -251,8 +261,19 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
             )
     receipt["measurement"]["derived_rate"] = derived_rate
 
-    _require_dict(_get(receipt, "workload.warmup_policy"), "workload.warmup_policy")
-    _require_dict(_get(receipt, "workload.synchronization"), "workload.synchronization")
+    _require_evidence_object(_get(receipt, "system.software.runtime"), "system.software.runtime")
+    _require_evidence_object(_get(receipt, "workload.source_provenance.sources"), "workload.source_provenance.sources")
+    _require_evidence_object(_get(receipt, "workload.source_provenance.runtime"), "workload.source_provenance.runtime")
+    for path in (
+        "system.software.command",
+        "workload.source_provenance.runner",
+        "workload.source_provenance.command",
+    ):
+        if not _non_empty_string(_get(receipt, path)):
+            raise ContractError(f"{path} must be a non-empty string")
+
+    _require_evidence_object(_get(receipt, "workload.warmup_policy"), "workload.warmup_policy")
+    _require_evidence_object(_get(receipt, "workload.synchronization"), "workload.synchronization")
     _require_dict(_get(receipt, "workload.overlap"), "workload.overlap")
     overlap_mode = _get(receipt, "workload.overlap.mode")
     if overlap_mode not in _ALLOWED_OVERLAP_MODES:
@@ -336,6 +357,14 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
     parallel_agents = config["games"] * 2
     transitions_per_batch = parallel_agents * config["n_steps"]
     minibatches = transitions_per_batch // config["batch_size"]
+    runtime = {
+        "python": provenance.get("python"),
+        "packages": provenance.get("packages", {}),
+        "cuda": provenance.get("cuda_version"),
+        "policy_device": provenance.get("policy_device"),
+        "matmul_tf32": provenance.get("matmul_tf32"),
+    }
+    command = provenance.get("command") or "config-backed ai2 native benchmark invocation"
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "system": {
@@ -351,6 +380,8 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
                 "packages": provenance.get("packages", {}),
                 "policy_device": provenance.get("policy_device"),
                 "matmul_tf32": provenance.get("matmul_tf32"),
+                "command": command,
+                "runtime": runtime,
             },
         },
         "workload": {
@@ -419,10 +450,13 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
                 "warmup_rollouts": config["warmup_rollouts"],
             },
             "source_provenance": {
+                "runner": "benchmark_native_combat_training.py",
                 "sources": provenance["sources"],
                 "ppo_update": provenance["ppo_update"],
                 "benchmark_schema": result.get("schema"),
                 "backend": backend_name,
+                "command": command,
+                "runtime": runtime,
                 "exclusions": provenance.get("exclusions"),
                 "limitation": provenance.get("limitation"),
             },
@@ -534,8 +568,13 @@ def _json_safe_copy(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except OSError as exc:
+        raise ContractError(f"could not read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ContractError(f"{path} is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ContractError(f"{path} must contain a JSON object")
     return payload
@@ -550,10 +589,29 @@ def _emit_json(payload: dict[str, Any], output: Path | None) -> int:
         print(json.dumps({"error": f"refusing to overwrite {output}"}, sort_keys=True))
         return CLI_OUTPUT_EXISTS
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(output.name + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        handle.write(text)
-    os.replace(temporary, output)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(text)
+        if output.exists():
+            print(json.dumps({"error": f"refusing to overwrite {output}"}, sort_keys=True))
+            return CLI_OUTPUT_EXISTS
+        os.replace(temporary_path, output)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
     return 0
 
 
@@ -697,6 +755,56 @@ def _validate_quality_target(value: Any) -> None:
 
 def _non_empty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _known_hardware_string(value: Any) -> bool:
+    if not _non_empty_string(value):
+        return False
+    normalized = value.strip().casefold().replace("_", "-").replace(" ", "-")
+    return normalized not in {
+        "unknown",
+        "unknown-cpu-model",
+        "not-available",
+        "n/a",
+        "na",
+        "generic",
+        "none",
+        "null",
+    }
+
+
+def _require_evidence_object(value: Any, name: str) -> dict[str, Any]:
+    obj = _require_dict(value, name)
+    if not obj:
+        raise ContractError(f"{name} must contain provenance evidence")
+    for key, item in obj.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ContractError(f"{name} keys must be non-empty strings")
+        _require_evidence_value(item, f"{name}.{key}")
+    return obj
+
+
+def _require_evidence_value(value: Any, name: str) -> None:
+    if value is None:
+        raise ContractError(f"{name} must not be empty")
+    if isinstance(value, str):
+        if not value.strip():
+            raise ContractError(f"{name} must be a non-empty string")
+        return
+    if isinstance(value, dict):
+        _require_evidence_object(value, name)
+        return
+    if isinstance(value, list):
+        if not value:
+            raise ContractError(f"{name} must be a non-empty list")
+        for index, item in enumerate(value):
+            _require_evidence_value(item, f"{name}[{index}]")
+        return
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return
+    raise ContractError(f"{name} must contain JSON provenance evidence")
 
 
 def _counter_key(value: str) -> str:

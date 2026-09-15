@@ -6,13 +6,20 @@ The Puffer producer must provide:
 
 - Exact command, Puffer commit, AI2 commit, and CUDA/PyTorch/runtime versions.
 - GPU model and count from the measured host.
+- Concrete CPU model from the measured host. Sentinel values such as `unknown`,
+  `unknown-cpu-model`, `n/a`, or `generic` are invalid because two unknown CPUs
+  cannot prove a fair hardware comparison.
 - Raw `agent_transitions` and `elapsed_seconds` from the measured wall-clock interval.
 - Timing scope and included stages, including graph warmups and anything excluded from timing.
 - Async overlap evidence from a CUDA trace or event timeline when rollout/update overlap is claimed.
 - Actor staleness and replay/update semantics.
-- Environment parity evidence against AI2, including observation/action contracts and tick semantics.
+- Environment parity evidence against AI2, including the actual game semantics
+  hash, observation/action contracts, and tick semantics.
 - Model architecture, parameter count, precision, rollout geometry, minibatches, PPO epochs, and sample reuse.
 - Quality evidence for fixed-transition and fixed-wall-clock gates in the original AI2 game.
+- Non-empty source, command, and runtime provenance under both `system.software`
+  and `workload.source_provenance`. Runner commands and commits only need to be
+  present; they are not required to equal AI2's values for throughput comparison.
 
 Use `puffer-receipt.template.json` as a starting point. Fields left as `null` are intentionally invalid: validation should fail until the producer replaces every placeholder with measured evidence.
 

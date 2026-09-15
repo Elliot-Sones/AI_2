@@ -12,7 +12,8 @@
       "python": null,
       "torch": null,
       "cuda": null,
-      "command": null
+      "command": null,
+      "runtime": null
     }
   },
   "workload": {
@@ -42,6 +43,7 @@
     },
     "environment": {
       "env_id": null,
+      "semantics_hash": null,
       "observation_contract": null,
       "action_contract": null,
       "tick_semantics": null,
@@ -57,6 +59,12 @@
       "num_envs": null,
       "horizon": null,
       "transitions_per_batch": null
+    },
+    "source_provenance": {
+      "runner": null,
+      "sources": null,
+      "command": null,
+      "runtime": null
     }
   },
   "algorithm": {

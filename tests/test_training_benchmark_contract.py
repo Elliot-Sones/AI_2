@@ -1,6 +1,7 @@
 import io
 import json
 import math
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -41,6 +42,9 @@ THROUGHPUT_MISMATCH_CASES = {
         "system": {"hardware": {"accelerator_count": 2}}
     },
     "system.hardware.cpu_model": {"system": {"hardware": {"cpu_model": "other-cpu"}}},
+    "workload.environment.semantics_hash": {
+        "workload": {"environment": {"semantics_hash": "different-game-code"}}
+    },
     "workload.environment.env_id": {
         "workload": {"environment": {"env_id": "OtherBrawl"}}
     },
@@ -90,6 +94,14 @@ def receipt(**overrides):
                 "accelerator_model": "RTX 4090",
                 "accelerator_count": 1,
                 "cpu_model": "test-cpu",
+            },
+            "software": {
+                "command": "python benchmark.py --measured",
+                "runtime": {
+                    "python": "3.10.19",
+                    "torch": "2.4.1",
+                    "cuda": "12.4",
+                },
             }
         },
         "workload": {
@@ -101,6 +113,7 @@ def receipt(**overrides):
             "overlap": {"mode": "none", "evidence": ["not_applicable"]},
             "environment": {
                 "env_id": "WarehouseBrawl",
+                "semantics_hash": "ai2-env-sha256-test",
                 "observation_contract": "native_full_v1",
                 "action_contract": "discrete_21_v1",
                 "tick_semantics": "one_transition_per_agent_action",
@@ -115,6 +128,16 @@ def receipt(**overrides):
                 "num_envs": 1024,
                 "horizon": 128,
                 "transitions_per_batch": 131072,
+            },
+            "source_provenance": {
+                "runner": "benchmark.py",
+                "sources": {"benchmark.py": "source-sha256-test"},
+                "command": "python benchmark.py --measured",
+                "runtime": {
+                    "python": "3.10.19",
+                    "torch": "2.4.1",
+                    "cuda": "12.4",
+                },
             },
         },
         "algorithm": {
@@ -217,6 +240,12 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "system.hardware.cpu_model"):
             validate_receipt(raw)
 
+    def test_rejects_unknown_sentinel_cpu_models(self):
+        for value in ("unknown", "unknown-cpu-model", "not available", "n/a", "generic"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ContractError, "system.hardware.cpu_model"):
+                    validate_receipt(receipt(system={"hardware": {"cpu_model": value}}))
+
     def test_derives_rate_and_returns_json_safe_deep_copy(self):
         raw = receipt()
         normalized = validate_receipt(raw)
@@ -301,6 +330,41 @@ class ValidationTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaisesRegex(ContractError, path):
                     validate_receipt(receipt(**overrides))
+
+    def test_rejects_semantically_empty_provenance_and_protocol_objects(self):
+        invalid_cases = (
+            ("workload.warmup_policy", {"workload": {"warmup_policy": {"mode": ""}}}),
+            (
+                "workload.synchronization",
+                {"workload": {"synchronization": {"device": "cuda", "method": None}}},
+            ),
+            ("system.software.command", {"system": {"software": {"command": ""}}}),
+            (
+                "workload.source_provenance.command",
+                {"workload": {"source_provenance": {"command": None}}},
+            ),
+        )
+
+        for expected, overrides in invalid_cases:
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(ContractError, expected):
+                    validate_receipt(receipt(**overrides))
+
+        empty_cases = (
+            ("workload.warmup_policy", lambda raw: raw["workload"].update(warmup_policy={})),
+            ("workload.synchronization", lambda raw: raw["workload"].update(synchronization={})),
+            ("system.software.runtime", lambda raw: raw["system"]["software"].update(runtime={})),
+            (
+                "workload.source_provenance.sources",
+                lambda raw: raw["workload"]["source_provenance"].update(sources={}),
+            ),
+        )
+        for expected, corrupt in empty_cases:
+            with self.subTest(expected=expected):
+                raw = receipt()
+                corrupt(raw)
+                with self.assertRaisesRegex(ContractError, expected):
+                    validate_receipt(raw)
 
     def test_rejects_unknown_timing_scope_overlap_mode_and_bad_stages(self):
         invalid_cases = (
@@ -537,7 +601,7 @@ class ComparisonTests(unittest.TestCase):
         result = comparison_with(
             {
                 "workload": {
-                    "environment": {"observation_contract": "puffer_observation_v2"}
+                    "environment": {"semantics_hash": "different-game-code"}
                 }
             }
         )
@@ -545,10 +609,10 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(result["throughput_comparable"])
         self.assertFalse(result["learning_behavior_comparable"])
         self.assertIn(
-            "workload.environment.observation_contract", result["throughput_blockers"]
+            "workload.environment.semantics_hash", result["throughput_blockers"]
         )
         self.assertIn(
-            "workload.environment.observation_contract",
+            "workload.environment.semantics_hash",
             result["learning_blockers"],
         )
 
@@ -599,6 +663,10 @@ class ComparisonTests(unittest.TestCase):
     def test_learning_mismatch_classes_block_learning_comparison(self):
         cases = (
             ("workload.environment.env_id", {"workload": {"environment": {"env_id": "OtherBrawl"}}}),
+            (
+                "workload.environment.semantics_hash",
+                {"workload": {"environment": {"semantics_hash": "different-game-code"}}},
+            ),
             (
                 "workload.environment.observation_contract",
                 {"workload": {"environment": {"observation_contract": "puffer_observation_v2"}}},
@@ -933,6 +1001,19 @@ class NativeAdapterTests(unittest.TestCase):
             normalized["workload"]["model"]["raw_action_distribution"],
         )
         self.assertEqual("AMD EPYC 9354P 32-Core Processor", normalized["system"]["hardware"]["cpu_model"])
+        self.assertEqual("e" * 64, normalized["workload"]["environment"]["semantics_hash"])
+        self.assertEqual(
+            "benchmark_native_combat_training.py",
+            normalized["workload"]["source_provenance"]["runner"],
+        )
+        self.assertEqual(
+            "config-backed ai2 native benchmark invocation",
+            normalized["system"]["software"]["command"],
+        )
+        self.assertEqual(
+            "3.10.19",
+            normalized["system"]["software"]["runtime"]["python"],
+        )
         self.assertEqual(
             {
                 "env_trace_parity": False,
@@ -1035,6 +1116,41 @@ class CLITests(unittest.TestCase):
             converted_receipt = validate_receipt(json.loads(converted.read_text(encoding="utf-8")))
             self.assertEqual("native_cuda", converted_receipt["workload"]["source_provenance"]["backend"])
             self.assertEqual(128, converted_receipt["measurement"]["agent_transitions"])
+
+    def test_cli_contract_errors_are_structured_for_bad_input_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            missing = root / "missing.json"
+            invalid = root / "invalid.json"
+            invalid.write_text("{not json", encoding="utf-8")
+
+            for path in (missing, invalid):
+                with self.subTest(path=path.name):
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        self.assertEqual(contract.CLI_CONTRACT_ERROR, contract.main(["validate", str(path)]))
+                    payload = json.loads(stdout.getvalue())
+                    self.assertIn("error", payload)
+                    self.assertNotIn("Traceback", stdout.getvalue())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlink support required")
+    def test_cli_output_tempfile_is_unique_exclusive_and_does_not_clobber_old_tmp_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "receipt.json"
+            output = root / "validated.json"
+            victim = root / "victim.txt"
+            legacy_tmp = root / "validated.json.tmp"
+            source.write_text(json.dumps(receipt()), encoding="utf-8")
+            victim.write_text("preserve-victim", encoding="utf-8")
+            os.symlink(victim, legacy_tmp)
+
+            self.assertEqual(0, contract.main(["validate", str(source), "--output", str(output)]))
+
+            self.assertEqual("preserve-victim", victim.read_text(encoding="utf-8"))
+            self.assertTrue(legacy_tmp.is_symlink())
+            self.assertTrue(output.is_file())
+            validate_receipt(json.loads(output.read_text(encoding="utf-8")))
 
     def test_cli_refuses_overwrite_and_marks_non_comparable_pair_distinctly(self):
         with tempfile.TemporaryDirectory() as temporary:
