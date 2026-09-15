@@ -15,8 +15,29 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "UTMIST-AI2-main"))
+_PATH_ENTRIES_ADDED = []
+
+
+def add_test_path(path: Path) -> None:
+    entry = str(path)
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
+        _PATH_ENTRIES_ADDED.append(entry)
+
+
+def restore_test_paths() -> None:
+    for entry in reversed(_PATH_ENTRIES_ADDED):
+        try:
+            sys.path.remove(entry)
+        except ValueError:
+            pass
+    _PATH_ENTRIES_ADDED.clear()
+
+
+add_test_path(ROOT)
+add_test_path(ROOT / "UTMIST-AI2-main")
+
+_MISSING = object()
 
 
 REAL_IMPORT_PREFIXES = (
@@ -60,6 +81,37 @@ def purge_stubbed_imports():
         is_repo_module_loaded_under_stubs = name == "train" or name.startswith("environment")
         if is_unit_test_dummy or is_synthetic_module or is_repo_module_loaded_under_stubs:
             sys.modules.pop(name, None)
+
+
+def capture_repo_game_modules():
+    return {
+        name: sys.modules.get(name, _MISSING)
+        for name in list(sys.modules)
+        if name == "train" or name == "environment" or name.startswith("environment.")
+    }
+
+
+def repo_game_modules_loaded_since(snapshot):
+    loaded = {}
+    for name in list(sys.modules):
+        if not (name == "train" or name == "environment" or name.startswith("environment.")):
+            continue
+        module = sys.modules[name]
+        if snapshot.get(name, _MISSING) is module:
+            continue
+        loaded[name] = module
+    return loaded
+
+
+def restore_repo_game_modules(snapshot, loaded):
+    for name, module in sorted(loaded.items(), key=lambda item: item[0].count("."), reverse=True):
+        if sys.modules.get(name) is not module:
+            continue
+        previous = snapshot.get(name, _MISSING)
+        if previous is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
 
 
 def install_test_assets_guard():
@@ -224,23 +276,45 @@ class ClassicRewardImportIsolationTest(unittest.TestCase):
 class ClassicRewardIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.module_snapshot = capture_repo_game_modules()
+        cls.loaded_repo_modules = {}
         cls.created_assets_dir = install_test_assets_guard()
-        (
-            cls.np,
-            cls.SubprocVecEnv,
-            cls.train,
-            cls.SelfPlayWarehouseBrawl,
-            cls.WarehouseBrawl,
-        ) = import_real_stack()
+        try:
+            (
+                cls.np,
+                cls.SubprocVecEnv,
+                cls.train,
+                cls.SelfPlayWarehouseBrawl,
+                cls.WarehouseBrawl,
+            ) = import_real_stack()
+            cls.loaded_repo_modules = repo_game_modules_loaded_since(cls.module_snapshot)
+        except Exception:
+            cls.loaded_repo_modules = repo_game_modules_loaded_since(cls.module_snapshot)
+            restore_repo_game_modules(cls.module_snapshot, cls.loaded_repo_modules)
+            restore_test_paths()
+            created_assets_dir = getattr(cls, "created_assets_dir", None)
+            if created_assets_dir is not None:
+                try:
+                    created_assets_dir.rmdir()
+                except OSError:
+                    pass
+            raise
 
     @classmethod
     def tearDownClass(cls):
-        created_assets_dir = getattr(cls, "created_assets_dir", None)
-        if created_assets_dir is not None:
-            try:
-                created_assets_dir.rmdir()
-            except OSError:
-                pass
+        try:
+            restore_repo_game_modules(
+                getattr(cls, "module_snapshot", {}),
+                getattr(cls, "loaded_repo_modules", {}),
+            )
+        finally:
+            restore_test_paths()
+            created_assets_dir = getattr(cls, "created_assets_dir", None)
+            if created_assets_dir is not None:
+                try:
+                    created_assets_dir.rmdir()
+                except OSError:
+                    pass
 
     def make_env(self, rewards):
         env = self.train.make_combat_env(phase_config(self.train, rewards), combat_params(), device="cpu")
@@ -300,6 +374,37 @@ class ClassicRewardIntegrationTest(unittest.TestCase):
             self.assertNotEqual(after_reward[0]["manager_id"], after_reward[1]["manager_id"])
         finally:
             vec_env.close()
+
+
+class ClassicRewardPostTeardownImportIsolationTest(unittest.TestCase):
+    def test_different_source_environment_imports_after_integration_teardown(self):
+        snapshot = capture_repo_game_modules()
+        with tempfile.TemporaryDirectory(prefix="ai2-env-sentinel-") as directory:
+            package = Path(directory) / "environment"
+            package.mkdir()
+            (package / "__init__.py").write_text("")
+            (package / "environment.py").write_text(
+                "SENTINEL_SOURCE = 'post-classic-integration-teardown'\n"
+                "class WarehouseBrawl:\n"
+                "    pass\n"
+            )
+            sys.path.insert(0, directory)
+            try:
+                for name in list(sys.modules):
+                    if name == "environment" or name.startswith("environment."):
+                        sys.modules.pop(name, None)
+                import importlib
+
+                importlib.invalidate_caches()
+                sentinel = importlib.import_module("environment.environment")
+                self.assertEqual(sentinel.SENTINEL_SOURCE, "post-classic-integration-teardown")
+                self.assertTrue(Path(sentinel.__file__).resolve().is_relative_to(package.resolve()))
+            finally:
+                try:
+                    sys.path.remove(directory)
+                except ValueError:
+                    pass
+                restore_repo_game_modules(snapshot, capture_repo_game_modules())
 
 
 if __name__ == "__main__":
