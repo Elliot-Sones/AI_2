@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -92,3 +94,56 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
                 module.write_json(output, {"status": "second"})
 
             self.assertEqual(json.loads(output.read_text()), {"status": "first"})
+
+    def test_run_replay_cleans_trace_temp_when_setup_learn_fails(self):
+        module = importlib.import_module("kl_diagnostics_runner")
+
+        class FakeModel:
+            env = object()
+            rollout_buffer = object()
+            last_update_diagnostics = {}
+
+            def _setup_learn(self, **_kwargs):
+                raise RuntimeError("setup failed after sink creation")
+
+        fake_model = FakeModel()
+        replacements = {
+            "torch": types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True)),
+            "stable_baselines3": types.ModuleType("stable_baselines3"),
+            "stable_baselines3.common": types.ModuleType("stable_baselines3.common"),
+            "stable_baselines3.common.callbacks": types.SimpleNamespace(BaseCallback=type("BaseCallback", (), {})),
+            "native_contact_lane_vec_env": types.SimpleNamespace(
+                build_contact_env=lambda lanes, device, seed: {"lanes": lanes, "device": device, "seed": seed}
+            ),
+            "native_curriculum_ppo": types.SimpleNamespace(
+                NativeCurriculumPPO=types.SimpleNamespace(
+                    load_contact_checkpoint=lambda *_args, **_kwargs: fake_model
+                )
+            ),
+            "tensor_ppo": types.SimpleNamespace(
+                TensorVecEnv=lambda raw_env, device: {"raw_env": raw_env, "device": device}
+            ),
+        }
+        previous = {name: sys.modules.get(name) for name in replacements}
+        try:
+            sys.modules.update(replacements)
+            with tempfile.TemporaryDirectory() as tmp:
+                trace = Path(tmp) / "trace.jsonl"
+                config = module.KLDiagnosticConfig(
+                    checkpoint="/tmp/canonical-contact-checkpoint.zip",
+                    expected_sha256="a" * 64,
+                    output=str(Path(tmp) / "receipt.json"),
+                    trace=str(trace),
+                )
+
+                with self.assertRaisesRegex(RuntimeError, "setup failed"):
+                    module.run_replay(config)
+
+                self.assertFalse(trace.exists())
+                self.assertEqual(list(Path(tmp).glob(f".{trace.name}.*.tmp")), [])
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = value

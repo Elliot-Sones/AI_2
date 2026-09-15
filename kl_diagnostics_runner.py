@@ -194,15 +194,15 @@ def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
         update_mode=config.update_mode,
     )
     sink = JSONLDiagnosticSink(config.trace_path, limit=config.max_diagnostics)
-    model.update_diagnostic_sink = sink
-
-    class Callback(BaseCallback):
-        def _on_step(self) -> bool:
-            return True
-
-    total_timesteps = config.rollouts * config.n_steps * config.lanes
-    _total, callback = model._setup_learn(total_timesteps=total_timesteps, callback=Callback(), reset_num_timesteps=False)
     try:
+        model.update_diagnostic_sink = sink
+
+        class Callback(BaseCallback):
+            def _on_step(self) -> bool:
+                return True
+
+        total_timesteps = config.rollouts * config.n_steps * config.lanes
+        _total, callback = model._setup_learn(total_timesteps=total_timesteps, callback=Callback(), reset_num_timesteps=False)
         for _ in range(config.rollouts):
             if not model.collect_rollouts(model.env, callback, model.rollout_buffer, model.n_steps):
                 raise RuntimeError("rollout collection stopped before diagnostics completed")
