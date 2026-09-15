@@ -109,6 +109,19 @@ def require_cuda(device: str, *, torch_module=None):
     return torch_module.device('cuda', index)
 
 
+def _linux_cpu_model(cpuinfo: str | None = None) -> str:
+    if cpuinfo is None:
+        try:
+            cpuinfo = Path('/proc/cpuinfo').read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            return 'unknown-cpu-model'
+    for line in cpuinfo.splitlines():
+        key, separator, value = line.partition(':')
+        if separator and key.strip().lower() == 'model name' and value.strip():
+            return value.strip()
+    return 'unknown-cpu-model'
+
+
 class OriginalGameBatch:
     """Uninstrumented original CPU games; NumPy-only, safe in spawn workers.
 
@@ -605,6 +618,7 @@ def provenance(config, frozen_root, device):
                                       expected_version=SB3_VERSION, expected_train_sha256=SB3_TRAIN_SHA256,
                                       **sb3_train_source_metadata())),
                 system=platform.platform(), python=platform.python_version(), cpu_count=os.cpu_count(),
+                cpu_model=_linux_cpu_model(),
                 cpu_affinity=sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None,
                 packages={name: importlib.metadata.version(name) for name in ('torch', 'stable_baselines3', 'numpy', 'pymunk', 'pygame')},
                 cuda_version=torch.version.cuda, gpu=torch.cuda.get_device_name(device), policy_device=str(device),

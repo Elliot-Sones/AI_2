@@ -103,6 +103,18 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                              'tensor_ppo.py', 'tensor_rollout_buffer.py'):
                     digest = hashlib.sha256((self.mod.ROOT/name).read_bytes()).hexdigest()
                     self.assertEqual(result['sources'][name], digest)
+                self.assertTrue(result['cpu_model'].strip())
+                self.assertNotEqual(result['cpu_model'], result['system'])
+
+    def test_linux_cpu_model_parser_uses_model_name_and_falls_back_explicitly(self):
+        cpuinfo = "processor\t: 0\nmodel name\t: AMD EPYC 9354P 32-Core Processor\ncpu MHz\t: 3000\n"
+
+        self.assertEqual(
+            "AMD EPYC 9354P 32-Core Processor",
+            self.mod._linux_cpu_model(cpuinfo),
+        )
+        self.assertEqual("unknown-cpu-model", self.mod._linux_cpu_model(""))
+        self.assertEqual("unknown-cpu-model", self.mod._linux_cpu_model("processor: 0\n"))
 
     def test_cuda_gate_prevents_environment_or_model_creation(self):
         fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
@@ -288,6 +300,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                     },
                 },
                 'system': 'test-system',
+                'cpu_model': 'test-cpu-model',
                 'python': '3.10.19',
                 'cpu_count': 12,
                 'packages': {'torch': '2.4.1', 'stable_baselines3': '2.5.0', 'numpy': '2.1.1'},
@@ -348,6 +361,8 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                                  canonical['timing']['elapsed_seconds'])
                 self.assertEqual('metadata-only test',
                                  canonical['system']['hardware']['accelerator_model'])
+                self.assertEqual('test-cpu-model',
+                                 canonical['system']['hardware']['cpu_model'])
             final_result_index = max(index for index, event in enumerate(write_events)
                                      if event == ('result.json', 'run', 'passed'))
             first_sidecar_index = min(index for index, event in enumerate(write_events)

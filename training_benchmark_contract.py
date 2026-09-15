@@ -30,8 +30,8 @@ AI2_BOX10_BUTTONS = (
     "s/down",
     "d/right",
     "space/jump",
-    "h/pickup_drop",
-    "l/dodge_backdash",
+    "h/pickup-drop",
+    "l/dash-dodge",
     "j/light",
     "k/heavy",
     "g/taunt",
@@ -46,6 +46,7 @@ _REQUIRED_PATHS = (
     "schema_version",
     "system.hardware.accelerator_model",
     "system.hardware.accelerator_count",
+    "system.hardware.cpu_model",
     "workload.unit",
     "workload.timing_scope",
     "workload.included_stages",
@@ -190,6 +191,10 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
 
     if receipt["schema_version"] != SCHEMA_VERSION:
         raise ContractError(f"schema_version must be {SCHEMA_VERSION}")
+
+    for path in ("system.hardware.accelerator_model", "system.hardware.cpu_model"):
+        if not _non_empty_string(_get(receipt, path)):
+            raise ContractError(f"{path} must be a non-empty string")
 
     for path in _POSITIVE_INTEGER_PATHS:
         _positive_int(_get(receipt, path), path)
@@ -337,7 +342,7 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
             "hardware": {
                 "accelerator_model": provenance["gpu"],
                 "accelerator_count": 1,
-                "cpu_model": provenance.get("system", "unknown"),
+                "cpu_model": provenance["cpu_model"],
                 "cpu_count": provenance.get("cpu_count"),
                 "cuda_version": provenance.get("cuda_version"),
             },
@@ -378,7 +383,7 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
                     "type": "box",
                     "shape": [10],
                     "dtype": "float32",
-                    "range": [-1.0, 1.0],
+                    "range": [0.0, 1.0],
                     "button_threshold": 0.5,
                     "buttons": list(AI2_BOX10_BUTTONS),
                 },
@@ -397,6 +402,11 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
                     "activation": "torch.nn.Tanh",
                     "distribution": "diagonal_gaussian_box_actions",
                     "shared_policy": "both_players",
+                },
+                "raw_action_distribution": {
+                    "type": "diagonal_gaussian",
+                    "shape": [10],
+                    "postprocess": "clamp_to_box_then_threshold_buttons",
                 },
                 "parameter_count": backend["initial_policy"]["parameter_count"],
                 "precision": "fp32",
@@ -566,6 +576,25 @@ def _positive_int(value: Any, name: str) -> int:
     return value
 
 
+def _nonnegative_finite(value: Any, name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ContractError(f"{name} must be numeric")
+    as_float = float(value)
+    if not math.isfinite(as_float):
+        raise ContractError(f"{name} must be finite")
+    if as_float < 0:
+        raise ContractError(f"{name} must be nonnegative")
+    return as_float
+
+
+def _nonnegative_int(value: Any, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ContractError(f"{name} must be a nonnegative integer")
+    if value < 0:
+        raise ContractError(f"{name} must be a nonnegative integer")
+    return value
+
+
 def _require_dict(value: Any, name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ContractError(f"{name} must be an object")
@@ -731,6 +760,7 @@ def _validate_native_provenance(config: dict[str, Any], provenance: dict[str, An
         "environment_sha256",
         "attack_assets_sha256",
         "gpu",
+        "cpu_model",
         "workload",
         "exclusions",
         "limitation",
@@ -776,20 +806,20 @@ def _validate_native_backend(
         "n_steps",
         "batch_size",
         "n_epochs",
-        "warmup_rollouts",
         "measured_rollouts",
     ):
         _positive_int(config.get(key), f"config.{key}")
+    _nonnegative_int(config.get("warmup_rollouts"), "config.warmup_rollouts")
     for key in (
         "learning_rate",
         "gamma",
         "gae_lambda",
         "clip_range",
-        "ent_coef",
-        "vf_coef",
         "max_grad_norm",
     ):
         _positive_finite(config.get(key), f"config.{key}")
+    for key in ("ent_coef", "vf_coef"):
+        _nonnegative_finite(config.get(key), f"config.{key}")
     if config["batch_size"] <= 1:
         raise ContractError("config.batch_size must exceed one")
     transitions_per_rollout = config["games"] * config["n_steps"] * 2
@@ -807,12 +837,12 @@ def _validate_native_backend(
     expected_rows = config["warmup_rollouts"] + config["measured_rollouts"]
     if len(rows) != expected_rows:
         raise ContractError("rollouts length must match warmup plus measured rollouts")
+    for row in rows:
+        _validate_native_rollout_row(row, config, transitions_per_rollout)
     measured = [row for row in rows if row.get("measured") is True]
     warmups = [row for row in rows if row.get("measured") is False]
     if len(measured) != config["measured_rollouts"] or len(warmups) != config["warmup_rollouts"]:
         raise ContractError("measured rollout count must match config")
-    for row in rows:
-        _validate_native_rollout_row(row, config, transitions_per_rollout)
 
     summary = _require_dict(backend.get("summary"), "summary")
     expected_summary = {

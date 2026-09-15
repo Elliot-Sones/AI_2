@@ -210,6 +210,13 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "workload.warmup_policy"):
             validate_receipt(raw)
 
+    def test_requires_cpu_model_for_hardware_comparison(self):
+        raw = receipt()
+        del raw["system"]["hardware"]["cpu_model"]
+
+        with self.assertRaisesRegex(ContractError, "system.hardware.cpu_model"):
+            validate_receipt(raw)
+
     def test_derives_rate_and_returns_json_safe_deep_copy(self):
         raw = receipt()
         normalized = validate_receipt(raw)
@@ -851,6 +858,7 @@ def native_result(**overrides):
                 },
             },
             "system": "Linux-6.8-test",
+            "cpu_model": "AMD EPYC 9354P 32-Core Processor",
             "python": "3.10.19",
             "cpu_count": 32,
             "packages": {"torch": "2.4.1", "stable_baselines3": "2.5.0", "numpy": "2.1.1"},
@@ -898,7 +906,7 @@ class NativeAdapterTests(unittest.TestCase):
                 "type": "box",
                 "shape": [10],
                 "dtype": "float32",
-                "range": [-1.0, 1.0],
+                "range": [0.0, 1.0],
                 "button_threshold": 0.5,
                 "buttons": [
                     "w/up",
@@ -906,8 +914,8 @@ class NativeAdapterTests(unittest.TestCase):
                     "s/down",
                     "d/right",
                     "space/jump",
-                    "h/pickup_drop",
-                    "l/dodge_backdash",
+                    "h/pickup-drop",
+                    "l/dash-dodge",
                     "j/light",
                     "k/heavy",
                     "g/taunt",
@@ -915,6 +923,16 @@ class NativeAdapterTests(unittest.TestCase):
             },
             normalized["workload"]["environment"]["action_contract"],
         )
+        self.assertEqual([0.0, 1.0], normalized["workload"]["environment"]["action_contract"]["range"])
+        self.assertEqual(
+            {
+                "type": "diagonal_gaussian",
+                "shape": [10],
+                "postprocess": "clamp_to_box_then_threshold_buttons",
+            },
+            normalized["workload"]["model"]["raw_action_distribution"],
+        )
+        self.assertEqual("AMD EPYC 9354P 32-Core Processor", normalized["system"]["hardware"]["cpu_model"])
         self.assertEqual(
             {
                 "env_trace_parity": False,
@@ -938,8 +956,10 @@ class NativeAdapterTests(unittest.TestCase):
             ("summary totals", lambda raw: raw["backends"][0]["summary"].update(player_transitions=127)),
             ("provenance.sources", lambda raw: raw["provenance"]["sources"].clear()),
             ("provenance.gpu", lambda raw: raw["provenance"].update(gpu="")),
+            ("provenance.cpu_model", lambda raw: raw["provenance"].update(cpu_model="")),
             ("provenance.environment_sha256", lambda raw: raw["provenance"].update(environment_sha256="")),
             ("config", lambda raw: raw["provenance"].update(config={"games": 99})),
+            ("rollout rows", lambda raw: raw["backends"][0]["rollouts"].__setitem__(1, "not-a-row")),
         )
 
         for expected, corrupt in cases:
@@ -948,6 +968,19 @@ class NativeAdapterTests(unittest.TestCase):
                 corrupt(raw)
                 with self.assertRaisesRegex(ContractError, expected):
                     ai2_native_receipt(raw, "native_cuda")
+
+    def test_ai2_native_receipt_accepts_zero_warmup_and_zero_optional_coefficients(self):
+        raw = native_result()
+        raw["config"].update(warmup_rollouts=0, ent_coef=0.0, vf_coef=0.0)
+        raw["provenance"]["config"] = dict(raw["config"])
+        backend = raw["backends"][0]
+        backend["rollouts"] = [dict(row, rollout=index, measured=True) for index, row in enumerate(backend["rollouts"][1:])]
+
+        receipt = ai2_native_receipt(raw, "native_cuda")
+
+        self.assertEqual(0, receipt["workload"]["warmup_policy"]["rollouts"])
+        self.assertEqual(0.0, receipt["algorithm"]["entropy_coef"])
+        self.assertEqual(0.0, receipt["algorithm"]["value_coef"])
 
 
 class CLITests(unittest.TestCase):
