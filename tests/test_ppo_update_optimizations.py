@@ -30,6 +30,22 @@ class PPOUpdateInterfaceTests(unittest.TestCase):
     def test_opt_in_update_module_exists(self):
         self.assertIsNotNone(importlib.util.find_spec("ppo_update_optimizations"))
 
+    def test_diagnostic_summary_and_digest_helpers_are_dependency_light(self):
+        module = importlib.import_module("ppo_update_optimizations")
+        actions = np.asarray([[1.0, -1.0], [0.5, 0.25]], dtype=np.float32)
+        old_log_prob = np.asarray([-0.7, -0.2], dtype=np.float32)
+
+        summary = module.diagnostic_array_summary(actions)
+        digest = module.diagnostic_minibatch_digest(actions=actions, old_log_prob=old_log_prob)
+
+        self.assertEqual(summary["shape"], [2, 2])
+        self.assertEqual(summary["dtype"], "float32")
+        self.assertAlmostEqual(summary["mean"], 0.1875)
+        self.assertAlmostEqual(summary["min"], -1.0)
+        self.assertAlmostEqual(summary["max"], 1.0)
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        self.assertEqual(digest, module.diagnostic_minibatch_digest(actions=actions, old_log_prob=old_log_prob))
+
 
 class PPOUpdateParityTests(unittest.TestCase):
     device = "cpu"
@@ -207,6 +223,61 @@ class PPOUpdateParityTests(unittest.TestCase):
                 messages = output.getvalue().splitlines()
                 self.assertEqual(messages[0], messages[1])
                 self.assertIn("Early stopping", messages[0])
+
+    def test_disabled_update_diagnostics_preserve_exact_control_behavior(self):
+        reference = self.make_model(target_kl=0.02)
+        candidate = copy.deepcopy(reference)
+        candidate.update_diagnostic_sink = None
+
+        self.compare_updates(reference, candidate, repeats=1, stop_after=1)
+
+    def test_update_diagnostics_records_attempted_minibatch_and_kl_stop(self):
+        candidate = self.make_model(target_kl=0.02)
+        rows = []
+        candidate.update_diagnostic_sink = rows.append
+        self.instrument(candidate, stop_after=0)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.module.deferred_metrics_train(candidate)
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["epoch"], 0)
+        self.assertEqual(row["minibatch_ordinal"], 0)
+        self.assertEqual(row["minibatch_in_epoch"], 0)
+        self.assertEqual(row["target_kl"], 0.02)
+        self.assertEqual(row["target_kl_threshold"], 0.03)
+        self.assertGreater(row["pre_step_approx_kl"], row["target_kl_threshold"])
+        self.assertFalse(row["optimizer_step_executed"])
+        self.assertTrue(row["early_stop"])
+        self.assertIn("policy_loss", row)
+        self.assertIn("value_loss", row)
+        self.assertIn("entropy_loss", row)
+        self.assertIn("entropy", row)
+        self.assertIn("clip_fraction", row)
+        self.assertIsNone(row["gradient_norm"])
+        self.assertEqual(row["learning_rate"], 0.003)
+        self.assertEqual(row["sample_count"], 3)
+        self.assertRegex(row["sample_digest"], r"^[0-9a-f]{64}$")
+        self.assertEqual(row["actions"]["shape"], [3, 10])
+        self.assertIn("mean", row["log_prob"])
+        self.assertIn("mean", row["old_log_prob"])
+
+    def test_update_diagnostics_records_executed_step_gradient_norm(self):
+        candidate = self.make_model(target_kl=0.02)
+        rows = []
+        candidate.update_diagnostic_sink = rows.append
+        self.instrument(candidate, stop_after=1)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.module.deferred_metrics_train(candidate)
+
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(rows[0]["optimizer_step_executed"])
+        self.assertFalse(rows[0]["early_stop"])
+        self.assertGreaterEqual(rows[0]["gradient_norm"], 0.0)
+        self.assertFalse(rows[1]["optimizer_step_executed"])
+        self.assertTrue(rows[1]["early_stop"])
 
     def test_invalid_distribution_still_raises_before_optimizer_update(self):
         reference = self.make_model()

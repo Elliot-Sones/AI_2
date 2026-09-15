@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import lru_cache
+import hashlib
 from typing import Any
 
 
@@ -63,6 +64,116 @@ def sb3_train_source_metadata() -> dict[str, Any]:
 
     version, digest, supported = _source_metadata(stable_baselines3.__version__, stable_baselines3.PPO.train)
     return {"version": version, "train_sha256": digest, "supported": supported}
+
+
+def _diagnostic_array(value: Any) -> Any:
+    import numpy as np
+
+    detach = getattr(value, "detach", None)
+    if detach is not None:
+        value = detach()
+    cpu = getattr(value, "cpu", None)
+    if cpu is not None:
+        value = cpu()
+    numpy = getattr(value, "numpy", None)
+    if numpy is not None:
+        value = numpy()
+    return np.ascontiguousarray(value)
+
+
+def diagnostic_array_summary(value: Any) -> dict[str, Any]:
+    """Small host summary for opt-in PPO update diagnostics."""
+    import numpy as np
+
+    array = _diagnostic_array(value)
+    if array.size == 0:
+        return {"shape": list(array.shape), "dtype": str(array.dtype), "mean": None,
+                "std": None, "min": None, "max": None}
+    numeric = array.astype(np.float64, copy=False)
+    return {
+        "shape": list(array.shape),
+        "dtype": str(array.dtype),
+        "mean": float(numeric.mean()),
+        "std": float(numeric.std()),
+        "min": float(numeric.min()),
+        "max": float(numeric.max()),
+    }
+
+
+def diagnostic_minibatch_digest(**arrays: Any) -> str:
+    """Stable digest of the sampled minibatch without storing sample payloads."""
+    digest = hashlib.sha256()
+    for name in sorted(arrays):
+        array = _diagnostic_array(arrays[name])
+        digest.update(name.encode("utf8"))
+        digest.update(str(array.dtype).encode("ascii"))
+        digest.update(repr(tuple(array.shape)).encode("ascii"))
+        digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _diagnostic_float(value: Any) -> float:
+    item = getattr(value, "item", None)
+    if item is not None:
+        value = item()
+    return float(value)
+
+
+def _emit_update_diagnostic(
+    sink: Callable[[dict[str, Any]], Any] | None,
+    *,
+    epoch: int,
+    minibatch_in_epoch: int,
+    minibatch_ordinal: int,
+    rollout_data: Any,
+    log_prob: Any,
+    policy_loss: Any,
+    value_loss: Any,
+    entropy_loss: Any,
+    clip_fraction: Any,
+    approx_kl_div: Any,
+    target_kl: float | None,
+    optimizer_step_executed: bool,
+    early_stop: bool,
+    gradient_norm: Any,
+    learning_rate: float,
+    approx_kl_host: Any = None,
+) -> None:
+    if sink is None:
+        return
+    if approx_kl_host is None:
+        approx_kl_host = approx_kl_div.detach().cpu().numpy()
+    actions = rollout_data.actions
+    old_log_prob = rollout_data.old_log_prob
+    row = {
+        "epoch": int(epoch),
+        "minibatch_in_epoch": int(minibatch_in_epoch),
+        "minibatch_ordinal": int(minibatch_ordinal),
+        "pre_step_approx_kl": _diagnostic_float(approx_kl_host),
+        "target_kl": None if target_kl is None else float(target_kl),
+        "target_kl_threshold": None if target_kl is None else float(1.5 * target_kl),
+        "optimizer_step_executed": bool(optimizer_step_executed),
+        "early_stop": bool(early_stop),
+        "policy_loss": _diagnostic_float(policy_loss.detach()),
+        "value_loss": _diagnostic_float(value_loss.detach()),
+        "entropy_loss": _diagnostic_float(entropy_loss.detach()),
+        "entropy": -_diagnostic_float(entropy_loss.detach()),
+        "clip_fraction": _diagnostic_float(clip_fraction.detach()),
+        "gradient_norm": None if gradient_norm is None else _diagnostic_float(gradient_norm),
+        "learning_rate": float(learning_rate),
+        "sample_count": int(actions.shape[0]),
+        "sample_digest": diagnostic_minibatch_digest(
+            observations=rollout_data.observations,
+            actions=actions,
+            old_log_prob=old_log_prob,
+            advantages=rollout_data.advantages,
+            returns=rollout_data.returns,
+        ),
+        "actions": diagnostic_array_summary(actions),
+        "log_prob": diagnostic_array_summary(log_prob),
+        "old_log_prob": diagnostic_array_summary(old_log_prob),
+    }
+    sink(row)
 
 
 def ppo_loss(
@@ -151,14 +262,16 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
     clip_range = model.clip_range(model._current_progress_remaining)
     clip_range_vf = (None if model.clip_range_vf is None else
                      model.clip_range_vf(model._current_progress_remaining))
+    diagnostic_sink = getattr(model, "update_diagnostic_sink", None)
 
     metric_rows = []
     continue_training = True
+    minibatch_ordinal = 0
     for epoch in range(model.n_epochs):
         # SB3 reports KL only from the last attempted epoch, including the
         # minibatch that triggers an early stop without an optimizer step.
         last_epoch_start = len(metric_rows)
-        for rollout_data in model.rollout_buffer.get(model.batch_size):
+        for minibatch_in_epoch, rollout_data in enumerate(model.rollout_buffer.get(model.batch_size)):
             actions = rollout_data.actions
             if isinstance(model.action_space, spaces.Discrete):
                 actions = rollout_data.actions.long().flatten()
@@ -172,20 +285,63 @@ def deferred_metrics_train(model: Any, *, loss_function: Callable[..., Any] | No
             metric_rows.append(th.stack((entropy_loss.detach(), policy_loss.detach(), value_loss.detach(),
                                          clip_fraction.detach(), approx_kl_div.detach())))
 
+            approx_kl_host = None
+            early_stop = False
             if model.target_kl is not None:
                 # Preserve the exact SB3 host-side NumPy comparison, before
                 # zero_grad/backward/step. This synchronization is intentional.
                 approx_kl_host = approx_kl_div.detach().cpu().numpy()
                 if approx_kl_host > 1.5 * model.target_kl:
                     continue_training = False
+                    early_stop = True
+                    _emit_update_diagnostic(
+                        diagnostic_sink,
+                        epoch=epoch,
+                        minibatch_in_epoch=minibatch_in_epoch,
+                        minibatch_ordinal=minibatch_ordinal,
+                        rollout_data=rollout_data,
+                        log_prob=log_prob,
+                        policy_loss=policy_loss,
+                        value_loss=value_loss,
+                        entropy_loss=entropy_loss,
+                        clip_fraction=clip_fraction,
+                        approx_kl_div=approx_kl_div,
+                        target_kl=model.target_kl,
+                        optimizer_step_executed=False,
+                        early_stop=True,
+                        gradient_norm=None,
+                        learning_rate=model.policy.optimizer.param_groups[0]["lr"],
+                        approx_kl_host=approx_kl_host,
+                    )
+                    minibatch_ordinal += 1
                     if model.verbose >= 1:
                         print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_host:.2f}")
                     break
 
             model.policy.optimizer.zero_grad()
             loss.backward()
-            th.nn.utils.clip_grad_norm_(model.policy.parameters(), model.max_grad_norm)
+            gradient_norm = th.nn.utils.clip_grad_norm_(model.policy.parameters(), model.max_grad_norm)
             model.policy.optimizer.step()
+            _emit_update_diagnostic(
+                diagnostic_sink,
+                epoch=epoch,
+                minibatch_in_epoch=minibatch_in_epoch,
+                minibatch_ordinal=minibatch_ordinal,
+                rollout_data=rollout_data,
+                log_prob=log_prob,
+                policy_loss=policy_loss,
+                value_loss=value_loss,
+                entropy_loss=entropy_loss,
+                clip_fraction=clip_fraction,
+                approx_kl_div=approx_kl_div,
+                target_kl=model.target_kl,
+                optimizer_step_executed=True,
+                early_stop=early_stop,
+                gradient_norm=gradient_norm,
+                learning_rate=model.policy.optimizer.param_groups[0]["lr"],
+                approx_kl_host=approx_kl_host,
+            )
+            minibatch_ordinal += 1
 
         model._n_updates += 1
         if not continue_training:

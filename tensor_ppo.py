@@ -476,6 +476,11 @@ class TensorPPO(_SB3PPO):  # type: ignore[misc,valid-type]
         return cls.from_sb3(stock_model, env)
 
     def train(self) -> None:
+        if getattr(self, "update_diagnostic_sink", None) is not None:
+            from ppo_update_optimizations import deferred_metrics_train
+
+            deferred_metrics_train(self)
+            return
         original_buffer = self.rollout_buffer
         self.rollout_buffer = _TensorRolloutStatsProxy(original_buffer)
         try:
