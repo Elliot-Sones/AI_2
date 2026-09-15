@@ -39,7 +39,8 @@ class Runtime:
         self.lib, self.n, self.cuda = lib, games, cuda
         prefix = "ai2g_lanes_cuda_" if cuda else "ai2g_lanes_cpu_"
         self.f = {name: getattr(lib, prefix + name) for name in (
-            "create", "destroy", "reset", "step", "drain", "lane_get", "lane_set", "replay_reset")}
+            "create", "destroy", "reset", "step", "drain", "lane_get", "lane_set",
+            "replay_reset", "replay_step", "rng_status")}
         extra = [V] if cuda else []
         specs = {
             "create": [C.POINTER(nav.Config), C.POINTER(game.PlatformTable), INT32, INT32, D, C.POINTER(INT32)],
@@ -49,6 +50,8 @@ class Runtime:
             "lane_get": [V, INT32, C.POINTER(Lane)] + extra,
             "lane_set": [V, INT32, C.POINTER(Lane)] + extra,
             "replay_reset": [V, INT32, C.POINTER(nav.Draw), INT32, C.POINTER(F)] + extra,
+            "replay_step": [V, INT32, C.POINTER(F), C.POINTER(nav.Draw), INT32] + [C.POINTER(F)] * 3 + [C.POINTER(B)] * 2 + extra,
+            "rng_status": [V, INT32, C.POINTER(INT32), C.POINTER(INT32), C.POINTER(INT32), C.POINTER(INT32)] + extra,
         }
         for name, args in specs.items():
             self.f[name].argtypes = args
@@ -131,6 +134,31 @@ class Runtime:
         out = self.pointers()[0]
         address = C.cast(out, V).value + index * 128 * C.sizeof(F)
         rc = self.f["replay_reset"](self.h, index, arr, len(arr), C.cast(address, C.POINTER(F)), *self.extra)
+        self.copy_outputs()
+        return rc
+
+    def rng_status(self, index):
+        mode, cursor, count, error = INT32(), INT32(), INT32(), INT32()
+        rc = self.f["rng_status"](self.h, index, C.byref(mode), C.byref(cursor),
+                                  C.byref(count), C.byref(error), *self.extra)
+        return rc, (mode.value, cursor.value, count.value, error.value)
+
+    def replay_step(self, index, actions, draws):
+        actions = np.asarray(actions, np.float32)
+        arr = (nav.Draw * len(draws))(*(nav.Draw(k, 0, a, b, value) for k, a, b, value in draws))
+        if self.cuda:
+            with self.torch.cuda.stream(self.stream):
+                device_actions = self.torch.as_tensor(actions, device="cuda")
+            action_ptr = C.cast(device_actions.data_ptr(), C.POINTER(F))
+        else:
+            action_ptr = ptr(actions)
+        offsets = [index * 128 * C.sizeof(F), index * 128 * C.sizeof(F), index * 2 * C.sizeof(F),
+                   index * C.sizeof(B), index * C.sizeof(B)]
+        outputs = [
+            C.cast(C.cast(pointer, V).value + offset, C.POINTER(B if pos > 2 else F))
+            for pos, (pointer, offset) in enumerate(zip(self.pointers(), offsets))
+        ]
+        rc = self.f["replay_step"](self.h, index, action_ptr, arr, len(arr), *outputs, *self.extra)
         self.copy_outputs()
         return rc
 
@@ -464,6 +492,42 @@ class HostLaneTests(unittest.TestCase):
                 self.assertEqual(bytes(h.get(index).game), bytes(ref.state))
         self.assertEqual([h.get(index).rng.cursor for index in range(2)], [11, 11])
         self.assertEqual(h.drain()[3:], ([0, 0], [200, 200]))
+
+    def test_replay_step_consumes_exact_tape_and_restores_generated_mode(self):
+        reference = Runtime(self.lib, self.ref, cuda=self.cuda)
+        replay = Runtime(self.lib, self.ref, cuda=self.cuda)
+        self.addCleanup(reference.close)
+        self.addCleanup(replay.close)
+        seeds = (77, 79)
+        self.assertEqual(reference.reset(seeds), 0)
+        self.assertEqual(replay.reset(seeds), 0)
+        action = np.zeros((2, 10), np.float32)
+        action[0, 7] = 1
+        draw = [(3, 1, 12, 7)]
+        self.assertEqual(reference.replay_step(0, action, draw), 0)
+        self.assertEqual(reference.rng_status(0), (0, (0, 1, 1, 0)))
+        self.assertEqual(replay.replay_step(0, action, draw), 0)
+        self.assertEqual(replay.rng_status(0), (0, (0, 1, 1, 0)))
+        np.testing.assert_array_equal(replay.obs[0], reference.obs[0])
+        np.testing.assert_array_equal(replay.terminal[0], reference.terminal[0])
+        np.testing.assert_array_equal(replay.rewards[0], reference.rewards[0])
+        self.assertEqual((replay.terminated[0], replay.truncated[0]), (reference.terminated[0], reference.truncated[0]))
+        self.assertEqual(replay.get(0).rng.mode, 1)
+        self.assertEqual(replay.step(), 0)
+        self.assertEqual(replay.get(0).rng.mode, 1)
+
+    def test_replay_step_zero_draw_status_is_explicit_and_generated_rng_does_not_leak(self):
+        h = self.runtime
+        self.assertEqual(h.reset(), 0)
+        before = h.get(0)
+        action = np.zeros((2, 10), np.float32)
+        self.assertEqual(h.replay_step(0, action, []), 0)
+        after = h.get(0)
+        self.assertEqual(h.rng_status(0), (0, (0, 0, 0, 0)))
+        self.assertEqual(after.rng.mode, 1)
+        self.assertEqual(list(after.rng.s), list(before.rng.s))
+        self.assertEqual(after.rng.cursor, before.rng.cursor)
+        self.assertEqual(after.rng.count, before.rng.count)
 
     def test_autoreset_rng_failure_keeps_valid_terminal_record_and_no_fake_reset(self):
         h = self.runtime

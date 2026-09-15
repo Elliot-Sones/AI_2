@@ -16,11 +16,13 @@ struct AI2GLanesCuda {
     AI2GPlatformTable *table;
     AI2GEpisodeRecord *records;
     int *counters; /* stored records, lost records */
+    int *replay_status; /* mode, cursor, count, error per lane for the last diagnostic replay step. */
     int32_t *errors;
     uint64_t *valid_steps, *seeds;
     uint8_t *mask;
     AI2NDraw **tapes; /* Host array containing separately-owned device pointers. */
     int *tape_counts;
+    int *tape_capacities;
     cudaEvent_t ready;
 };
 
@@ -57,6 +59,33 @@ __global__ void ai2g_lanes_replay_kernel(AI2GLane *lane, AI2NConfig cfg, double 
                                          const AI2NDraw *draws, int count, float *obs) {
     ai2n_rng_replay(&lane->rng, draws, count);
     ai2g_lane_begin(lane, &cfg, scale, obs, 1);
+}
+
+__global__ void ai2g_lanes_configure_episode_kernel(AI2GLane *lanes, int index,
+                                                    int player0_stocks, int player1_stocks,
+                                                    int max_timesteps) {
+    if (player0_stocks >= 0) lanes[index].game.scene.players[0].ms.stocks = player0_stocks;
+    if (player1_stocks >= 0) lanes[index].game.scene.players[1].ms.stocks = player1_stocks;
+    if (max_timesteps > 0) lanes[index].game.max_timesteps = max_timesteps;
+}
+
+__global__ void ai2g_lanes_replay_step_kernel(AI2GLane *lanes, int index, AI2NConfig cfg,
+                                              const AI2GPlatformTable *table, double scale,
+                                              const float *actions, const AI2NDraw *draws, int draw_count,
+                                              float *obs, float *terminal, float *rewards,
+                                              uint8_t *terminated, uint8_t *truncated,
+                                              AI2GEpisodeRecord *records, int capacity, int *counters,
+                                              int *status) {
+    AI2NRng saved = lanes[index].rng;
+    int rc;
+    ai2n_rng_replay(&lanes[index].rng, draws, draw_count);
+    rc = ai2g_lane_step(&lanes[index], index, &cfg, table, scale, actions, obs, terminal, rewards,
+        terminated, truncated, records, capacity, counters, counters + 1);
+    status[0] = lanes[index].rng.mode;
+    status[1] = lanes[index].rng.cursor;
+    status[2] = lanes[index].rng.count;
+    status[3] = lanes[index].rng.error ? lanes[index].rng.error : rc;
+    lanes[index].rng = saved;
 }
 
 static int ai2g_cuda_fail(AI2GLanesCuda *h, cudaError_t error) {
@@ -100,7 +129,7 @@ static cudaError_t ai2g_cuda_release(AI2GLanesCuda *h) {
 #define AI2G_FREE(p) do { if ((p)) { err = cudaFree(p); if (first == cudaSuccess && err != cudaSuccess) first = err; } } while (0)
     if (h->tapes) for (i = 0; i < h->games; ++i) AI2G_FREE(h->tapes[i]);
     AI2G_FREE(h->lanes); AI2G_FREE(h->table); AI2G_FREE(h->records);
-    AI2G_FREE(h->counters); AI2G_FREE(h->errors); AI2G_FREE(h->valid_steps);
+    AI2G_FREE(h->counters); AI2G_FREE(h->replay_status); AI2G_FREE(h->errors); AI2G_FREE(h->valid_steps);
     AI2G_FREE(h->seeds); AI2G_FREE(h->mask);
 #undef AI2G_FREE
     if (h->ready) {
@@ -108,6 +137,7 @@ static cudaError_t ai2g_cuda_release(AI2GLanesCuda *h) {
         if (first == cudaSuccess && err != cudaSuccess) first = err;
     }
     free(h->tapes); free(h->tape_counts);
+    free(h->tape_capacities);
     return first;
 }
 
@@ -133,7 +163,10 @@ extern "C" void *ai2g_lanes_cuda_create(const AI2NConfig *cfg, const AI2GPlatfor
     h->cfg = *cfg; h->games = games; h->capacity = capacity; h->scale = scale;
     h->tapes = (AI2NDraw**)calloc((size_t)games, sizeof(AI2NDraw*));
     h->tape_counts = (int*)calloc((size_t)games, sizeof(int));
-    if (!h->tapes || !h->tape_counts) { free(h->tapes); free(h->tape_counts); free(h); return 0; }
+    h->tape_capacities = (int*)calloc((size_t)games, sizeof(int));
+    if (!h->tapes || !h->tape_counts || !h->tape_capacities) {
+        free(h->tapes); free(h->tape_counts); free(h->tape_capacities); free(h); return 0;
+    }
 #define AI2G_CREATE_CHECK(expr) do { err = (expr); if (err != cudaSuccess) goto fail; } while (0)
     AI2G_CREATE_CHECK(cudaGetDevice(&h->device));
     /* Recursive contact helpers need stack space; only increase the owning
@@ -144,6 +177,7 @@ extern "C" void *ai2g_lanes_cuda_create(const AI2NConfig *cfg, const AI2GPlatfor
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->table, sizeof(AI2GPlatformTable)));
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->records, (size_t)capacity * sizeof(AI2GEpisodeRecord)));
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->counters, 2 * sizeof(int)));
+    AI2G_CREATE_CHECK(cudaMalloc((void**)&h->replay_status, (size_t)games * 4 * sizeof(int)));
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->errors, (size_t)games * sizeof(int32_t)));
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->valid_steps, (size_t)games * sizeof(uint64_t)));
     AI2G_CREATE_CHECK(cudaMalloc((void**)&h->seeds, (size_t)games * sizeof(uint64_t)));
@@ -152,6 +186,7 @@ extern "C" void *ai2g_lanes_cuda_create(const AI2NConfig *cfg, const AI2GPlatfor
     AI2G_CREATE_CHECK(cudaMemcpy(h->table, table, sizeof(*table), cudaMemcpyHostToDevice));
     AI2G_CREATE_CHECK(cudaMemset(h->lanes, 0, (size_t)games * sizeof(AI2GLane)));
     AI2G_CREATE_CHECK(cudaMemset(h->counters, 0, 2 * sizeof(int)));
+    AI2G_CREATE_CHECK(cudaMemset(h->replay_status, 0, (size_t)games * 4 * sizeof(int)));
     AI2G_CREATE_CHECK(cudaEventRecord(h->ready, 0));
     AI2G_CREATE_CHECK(cudaEventSynchronize(h->ready));
     if (rc) *rc = 0;
@@ -282,7 +317,7 @@ extern "C" int ai2g_lanes_cuda_replay_reset(void *handle, int index, const AI2ND
     if (!h || !obs) return AI2N_ERR_NULL;
     if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
     if (!ai2g_lane_draws_valid(draws, count)) return AI2N_ERR_RNG;
-    if ((size_t)count > SIZE_MAX / sizeof(*tape)) return AI2N_ERR_CAPACITY;
+    if ((size_t)count > SIZE_MAX / sizeof(AI2NDraw)) return AI2N_ERR_CAPACITY;
     if ((rc = ai2g_cuda_begin(h, s))) return rc;
     /* Setup-only synchronization permits replacing just this lane's tape. */
     if ((err = cudaStreamSynchronize(s)) != cudaSuccess) return ai2g_cuda_fail(h, err);
@@ -300,6 +335,82 @@ extern "C" int ai2g_lanes_cuda_replay_reset(void *handle, int index, const AI2ND
         return ai2g_cuda_fail(h, err);
     }
     h->tapes[index] = tape; h->tape_counts[index] = count;
+    h->tape_capacities[index] = count;
     ai2g_lanes_replay_kernel<<<1, 1, 0, s>>>(h->lanes + index, h->cfg, h->scale, tape, count, obs);
     return ai2g_cuda_end(h, s, 1);
+}
+
+extern "C" int ai2g_lanes_cuda_configure_episode(void *handle, int index, int player0_stocks,
+                                                  int player1_stocks, int max_timesteps, void *stream) {
+    AI2GLanesCuda *h = (AI2GLanesCuda*)handle;
+    cudaStream_t s = (cudaStream_t)stream;
+    int rc;
+    if (!h) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    if ((rc = ai2g_cuda_begin(h, s))) return rc;
+    ai2g_lanes_configure_episode_kernel<<<1, 1, 0, s>>>(h->lanes, index, player0_stocks, player1_stocks, max_timesteps);
+    return ai2g_cuda_end(h, s, 1);
+}
+
+extern "C" int ai2g_lanes_cuda_rng_status(void *handle, int index, int *mode, int *cursor,
+                                           int *count, int *error, void *stream) {
+    AI2GLanesCuda *h = (AI2GLanesCuda*)handle;
+    cudaStream_t s = (cudaStream_t)stream;
+    int status[4], rc;
+    cudaError_t err;
+    if (!h || !mode || !cursor || !count || !error) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    if ((rc = ai2g_cuda_begin(h, s))) return rc;
+    err = cudaMemcpyAsync(status, h->replay_status + (size_t)index * 4, sizeof(status), cudaMemcpyDeviceToHost, s);
+    if (err != cudaSuccess) return ai2g_cuda_fail(h, err);
+    if ((err = cudaStreamSynchronize(s)) != cudaSuccess) return ai2g_cuda_fail(h, err);
+    if ((rc = ai2g_cuda_end(h, s, 1))) return rc;
+    *mode = status[0]; *cursor = status[1]; *count = status[2]; *error = status[3];
+    return 0;
+}
+
+extern "C" int ai2g_lanes_cuda_replay_step(void *handle, int index, const float *actions,
+                                            const AI2NDraw *draws, int count, float *obs,
+                                            float *terminal, float *rewards, uint8_t *terminated,
+                                            uint8_t *truncated, void *stream) {
+    AI2GLanesCuda *h = (AI2GLanesCuda*)handle;
+    cudaStream_t s = (cudaStream_t)stream;
+    int rc, status[4];
+    cudaError_t err;
+    if (!h || !actions || !obs || !terminal || !rewards || !terminated || !truncated) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    if (!ai2g_lane_draws_valid(draws, count)) return AI2N_ERR_RNG;
+    if ((size_t)count > SIZE_MAX / sizeof(AI2NDraw)) return AI2N_ERR_CAPACITY;
+    if ((rc = ai2g_cuda_begin(h, s))) return rc;
+    if (count > h->tape_capacities[index]) {
+        AI2NDraw *replacement = 0;
+        if ((err = cudaStreamSynchronize(s)) != cudaSuccess) return ai2g_cuda_fail(h, err);
+        if ((err = cudaMalloc((void**)&replacement, (size_t)count * sizeof(*replacement))) != cudaSuccess)
+            return ai2g_cuda_fail(h, err);
+        if (h->tapes[index] && (err = cudaFree(h->tapes[index])) != cudaSuccess) {
+            cudaFree(replacement);
+            return ai2g_cuda_fail(h, err);
+        }
+        h->tapes[index] = replacement;
+        h->tape_capacities[index] = count;
+    }
+    h->tape_counts[index] = count;
+    if (count) {
+        if ((err = cudaMemcpyAsync(h->tapes[index], draws, (size_t)count * sizeof(*draws), cudaMemcpyHostToDevice, s)) != cudaSuccess)
+            return ai2g_cuda_fail(h, err);
+    }
+    ai2g_lanes_replay_step_kernel<<<1, 1, 0, s>>>(h->lanes, index, h->cfg, h->table, h->scale,
+        actions, h->tapes[index], count, obs, terminal, rewards, terminated, truncated, h->records, h->capacity,
+        h->counters, h->replay_status + (size_t)index * 4);
+    err = cudaGetLastError();
+    if (err != cudaSuccess) return ai2g_cuda_fail(h, err);
+    if ((err = cudaMemcpyAsync(status, h->replay_status + (size_t)index * 4, sizeof(status), cudaMemcpyDeviceToHost, s)) != cudaSuccess) {
+        return ai2g_cuda_fail(h, err);
+    }
+    if ((err = cudaStreamSynchronize(s)) != cudaSuccess) {
+        return ai2g_cuda_fail(h, err);
+    }
+    if ((rc = ai2g_cuda_end(h, s, 1))) return rc;
+    if (status[3]) return status[3] == AI2N_ERR_RNG ? AI2N_ERR_RNG : status[3];
+    return status[1] == status[2] ? 0 : AI2N_ERR_RNG;
 }

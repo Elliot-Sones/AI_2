@@ -81,6 +81,69 @@ class GameEnvTests(unittest.TestCase):
         finally:
             env.close()
 
+    def test_replay_step_binding_reports_exact_rng_and_restores_generated_mode(self):
+        backend = GameLaneBackend(1, 'cpu')
+        try:
+            obs = torch.empty((2, 64), dtype=torch.float32)
+            terminal = torch.empty_like(obs)
+            rewards = torch.empty(2, dtype=torch.float32)
+            terminated = torch.empty(2, dtype=torch.bool)
+            truncated = torch.empty(2, dtype=torch.bool)
+            backend.reset([11, 11], obs)
+            actions = torch.zeros((2, 10), dtype=torch.float32)
+            actions[0, 7] = 1
+            backend.replay_step(
+                0, actions, [(3, 1, 12, 7)],
+                obs, terminal, rewards, terminated, truncated,
+            )
+            self.assertEqual(backend.rng_status(0), {"mode": 0, "cursor": 1, "count": 1, "error": 0})
+            backend.step(torch.zeros((2, 10), dtype=torch.float32), obs, terminal, rewards, terminated, truncated)
+        finally:
+            backend.close()
+
+    def test_replay_reset_binding_starts_lane_from_recorded_tape(self):
+        backend = GameLaneBackend(1, 'cpu')
+        try:
+            reset_obs = torch.empty((2, 64), dtype=torch.float32)
+            generated_obs = torch.empty_like(reset_obs)
+            reset_tape = [(1, 1, 0, 0)] + [
+                item
+                for _ in range(2)
+                for item in (
+                    (2, 2.6, 6.5, 4.5),
+                    (3, 500, 700, 600),
+                    (3, 0, 350, 1),
+                )
+            ]
+            backend.replay_reset(0, reset_tape, reset_obs)
+            backend.reset([0, 0], generated_obs)
+            torch.testing.assert_close(reset_obs, generated_obs, rtol=0, atol=0)
+            with self.assertRaises(ValueError):
+                backend.replay_reset(1, [], reset_obs)
+            with self.assertRaises(ValueError):
+                backend.replay_reset(0, [(1, 1, 0, float('nan'))], reset_obs)
+        finally:
+            backend.close()
+
+    def test_replay_step_binding_validation_fails_closed(self):
+        backend = GameLaneBackend(1, 'cpu')
+        try:
+            obs = torch.empty((2, 64), dtype=torch.float32)
+            terminal = torch.empty_like(obs)
+            rewards = torch.empty(2, dtype=torch.float32)
+            terminated = torch.empty(2, dtype=torch.bool)
+            truncated = torch.empty(2, dtype=torch.bool)
+            backend.reset([11, 11], obs)
+            with self.assertRaises(ValueError):
+                backend.replay_step(1, torch.zeros((2, 10)), [], obs, terminal, rewards, terminated, truncated)
+            with self.assertRaises(ValueError):
+                backend.replay_step(0, torch.zeros((1, 10)), [], obs, terminal, rewards, terminated, truncated)
+            with self.assertRaises(ValueError):
+                backend.replay_step(0, torch.zeros((2, 10)), [(3, 1, 12, float('nan'))],
+                                    obs, terminal, rewards, terminated, truncated)
+        finally:
+            backend.close()
+
     def test_compile_cache_hash_covers_linked_navigation_source(self):
         original_read = Path.read_bytes
 

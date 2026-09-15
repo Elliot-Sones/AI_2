@@ -196,6 +196,10 @@ int ai2g_lanes_cpu_drain(void*, AI2GEpisodeRecord*, int, int*, int*, int32_t*, u
 int ai2g_lanes_cpu_lane_get(void*, int, AI2GLane*);
 int ai2g_lanes_cpu_lane_set(void*, int, const AI2GLane*);
 int ai2g_lanes_cpu_replay_reset(void*, int, const AI2NDraw*, int, float*);
+int ai2g_lanes_cpu_configure_episode(void*, int, int, int, int);
+int ai2g_lanes_cpu_replay_step(void*, int, const float*, const AI2NDraw*, int,
+                               float*, float*, float*, uint8_t*, uint8_t*);
+int ai2g_lanes_cpu_rng_status(void*, int, int*, int*, int*, int*);
 size_t ai2g_lanes_cuda_lane_size(void);
 size_t ai2g_lanes_cuda_record_size(void);
 void *ai2g_lanes_cuda_create(const AI2NConfig*, const AI2GPlatformTable*, int, int, double, int*);
@@ -206,6 +210,10 @@ int ai2g_lanes_cuda_drain(void*, AI2GEpisodeRecord*, int, int*, int*, int32_t*, 
 int ai2g_lanes_cuda_lane_get(void*, int, AI2GLane*, void*);
 int ai2g_lanes_cuda_lane_set(void*, int, const AI2GLane*, void*);
 int ai2g_lanes_cuda_replay_reset(void*, int, const AI2NDraw*, int, float*, void*);
+int ai2g_lanes_cuda_configure_episode(void*, int, int, int, int, void*);
+int ai2g_lanes_cuda_replay_step(void*, int, const float*, const AI2NDraw*, int,
+                                float*, float*, float*, uint8_t*, uint8_t*, void*);
+int ai2g_lanes_cuda_rng_status(void*, int, int*, int*, int*, int*, void*);
 int ai2g_lanes_cuda_synchronize(void*, void*);
 int ai2g_lanes_cuda_last_cuda_error(void*);
 int ai2g_lanes_cuda_device(void*);

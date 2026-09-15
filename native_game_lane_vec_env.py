@@ -22,6 +22,7 @@ import time
 import numpy as np
 
 from native_game_episode import GameReference, ROOT, D, INT32
+import native_navigation_episode as nav
 from native_lane_vec_env import NativeLaneEnv, frozen_spaces
 
 
@@ -155,9 +156,46 @@ class GameLaneBackend:
         self.reset_fn = getattr(self.lib, prefix + "reset")
         self.reset_fn.restype = INT32
         self.reset_fn.argtypes = [C.c_void_p] * (5 if self.kind == "cuda" else 4)
+        self.replay_reset_fn = getattr(self.lib, prefix + "replay_reset")
+        self.replay_reset_fn.restype = INT32
+        self.replay_reset_fn.argtypes = [
+            C.c_void_p,
+            INT32,
+            C.c_void_p,
+            INT32,
+            C.c_void_p,
+        ] + ([C.c_void_p] if self.kind == "cuda" else [])
+        self.configure_episode_fn = getattr(self.lib, prefix + "configure_episode")
+        self.configure_episode_fn.restype = INT32
+        self.configure_episode_fn.argtypes = [
+            C.c_void_p,
+            INT32,
+            INT32,
+            INT32,
+            INT32,
+        ] + ([C.c_void_p] if self.kind == "cuda" else [])
         self.step_fn = getattr(self.lib, prefix + "step")
         self.step_fn.restype = INT32
         self.step_fn.argtypes = [C.c_void_p] * (8 if self.kind == "cuda" else 7)
+        self.replay_step_fn = getattr(self.lib, prefix + "replay_step")
+        self.replay_step_fn.restype = INT32
+        self.replay_step_fn.argtypes = [
+            C.c_void_p,
+            INT32,
+            C.c_void_p,
+            C.c_void_p,
+            INT32,
+            C.c_void_p,
+            C.c_void_p,
+            C.c_void_p,
+            C.c_void_p,
+            C.c_void_p,
+        ] + ([C.c_void_p] if self.kind == "cuda" else [])
+        self.rng_status_fn = getattr(self.lib, prefix + "rng_status")
+        self.rng_status_fn.restype = INT32
+        self.rng_status_fn.argtypes = [C.c_void_p, INT32] + [C.c_void_p] * 4 + (
+            [C.c_void_p] if self.kind == "cuda" else []
+        )
         self.drain_fn = getattr(self.lib, prefix + "drain")
         self.drain_fn.restype = INT32
         self.drain_fn.argtypes = [
@@ -228,6 +266,27 @@ class GameLaneBackend:
             )
         return C.c_void_p(tensor.data_ptr())
 
+    def _draw_array(self, draws):
+        rows = []
+        for draw in draws:
+            if isinstance(draw, dict):
+                row = (draw["kind"], draw.get("a", 0.0), draw.get("b", 0.0), draw["value"])
+            else:
+                row = draw
+            if len(row) == 5:
+                kind, _pad, a, b, value = row
+            else:
+                kind, a, b, value = row
+            if any(not np.isfinite(float(value)) for value in (a, b, value)):
+                raise ValueError("replay draws must be finite")
+            rows.append(nav.Draw(int(kind), 0, float(a), float(b), float(value)))
+        return (nav.Draw * len(rows))(*rows)
+
+    def _game_index(self, index):
+        if type(index) is not int or index < 0 or index >= self.games:
+            raise ValueError("game index out of range")
+        return index
+
     def reset(self, seeds, obs):
         seeds = np.asarray(seeds)
         if seeds.shape != (self.lanes,):
@@ -243,6 +302,52 @@ class GameLaneBackend:
                 "reset",
             )
         self.errors.fill(0)
+
+    def replay_reset(self, game_index, draws, obs):
+        game_index = self._game_index(game_index)
+        draw_array = self._draw_array(draws)
+        op = self._ptr(obs, (2, 64), self.torch.float32)
+        with self._guard():
+            if self.kind == "cuda":
+                self.torch.cuda.current_stream(self.device)
+                obs.record_stream(self.torch.cuda.current_stream(self.device))
+            self._check(
+                self.replay_reset_fn(
+                    *self._args(
+                        game_index,
+                        C.c_void_p(C.addressof(draw_array)) if len(draw_array) else C.c_void_p(),
+                        len(draw_array),
+                        op,
+                    )
+                ),
+                "replay_reset",
+            )
+
+    def configure_episode(self, game_index, *, stocks=None, max_timesteps=None):
+        game_index = self._game_index(game_index)
+        if stocks is None:
+            player0_stocks, player1_stocks = -1, -1
+        else:
+            if (
+                not isinstance(stocks, (list, tuple))
+                or len(stocks) != 2
+                or any(type(value) is not int or value < -1 for value in stocks)
+            ):
+                raise ValueError("stocks must be two integers >= -1")
+            player0_stocks, player1_stocks = stocks
+        if max_timesteps is None:
+            limit = -1
+        elif type(max_timesteps) is not int or max_timesteps <= 0:
+            raise ValueError("max_timesteps must be a positive integer")
+        else:
+            limit = max_timesteps
+        with self._guard():
+            self._check(
+                self.configure_episode_fn(
+                    *self._args(game_index, player0_stocks, player1_stocks, limit)
+                ),
+                "configure_episode",
+            )
 
     def step(self, actions, obs, terminal, rewards, terminated, truncated):
         t = self.torch
@@ -267,6 +372,67 @@ class GameLaneBackend:
             self._check(self.step_fn(*self._args(*pointers)), "step")
             terminated.copy_(self._terminated[:, None].expand(-1, 2).reshape(-1))
             truncated.copy_(self._truncated[:, None].expand(-1, 2).reshape(-1))
+
+    def replay_step(self, game_index, actions, draws, obs, terminal, rewards, terminated, truncated):
+        t = self.torch
+        game_index = self._game_index(game_index)
+        draw_array = self._draw_array(draws)
+        action_ptr = self._ptr(actions, (2, 10), t.float32)
+        pointers = [
+            action_ptr,
+            C.c_void_p(C.addressof(draw_array)) if len(draw_array) else C.c_void_p(),
+            len(draw_array),
+            self._ptr(obs, (2, 64), t.float32),
+            self._ptr(terminal, (2, 64), t.float32),
+            self._ptr(rewards, (2,), t.float32),
+        ]
+        self._ptr(terminated, (2,), t.bool)
+        self._ptr(truncated, (2,), t.bool)
+        if self.kind == "cuda":
+            done = self._terminated[game_index:game_index + 1]
+            trunc = self._truncated[game_index:game_index + 1]
+            pointers.extend([C.c_void_p(done.data_ptr()), C.c_void_p(trunc.data_ptr())])
+        else:
+            done_byte, trunc_byte = C.c_uint8(), C.c_uint8()
+            pointers.extend([C.byref(done_byte), C.byref(trunc_byte)])
+        with self._guard():
+            if self.kind == "cuda":
+                stream = t.cuda.current_stream(self.device)
+                for tensor in (actions, obs, terminal, rewards, terminated, truncated):
+                    tensor.record_stream(stream)
+            self._check(
+                self.replay_step_fn(*self._args(game_index, *pointers)),
+                "replay_step",
+            )
+            if self.kind == "cuda":
+                terminated.copy_(done.expand(2).to(dtype=t.bool))
+                truncated.copy_(trunc.expand(2).to(dtype=t.bool))
+            else:
+                terminated.fill_(bool(done_byte.value))
+                truncated.fill_(bool(trunc_byte.value))
+
+    def rng_status(self, game_index):
+        game_index = self._game_index(game_index)
+        mode, cursor, count, error = INT32(), INT32(), INT32(), INT32()
+        with self._guard():
+            self._check(
+                self.rng_status_fn(
+                    *self._args(
+                        game_index,
+                        C.byref(mode),
+                        C.byref(cursor),
+                        C.byref(count),
+                        C.byref(error),
+                    )
+                ),
+                "rng_status",
+            )
+        return {
+            "mode": int(mode.value),
+            "cursor": int(cursor.value),
+            "count": int(count.value),
+            "error": int(error.value),
+        }
 
     def drain(self):
         count, overflow = INT32(), INT32()

@@ -1,0 +1,549 @@
+import copy
+import tempfile
+import types
+import unittest
+from pathlib import Path
+
+import fixed_action_trace_parity as parity
+from fixed_action_trace_parity import (
+    build_fixed_action_suite,
+    build_receipt,
+    compare_trace_pair,
+    run_suite,
+    three_way_exact_allowed,
+)
+
+
+def exact_autoreset():
+    return {
+        "status": "exact",
+        "same_step_autoreset": True,
+        "same_step_reset_obs_exact": True,
+        "healthy_subsequent_step": True,
+    }
+
+
+class FixedActionTraceParityTests(unittest.TestCase):
+    def test_suite_covers_all_ten_actions(self):
+        suite = build_fixed_action_suite(seeds=[101], horizon=12)
+        self.assertEqual({case["action_index"] for case in suite["cases"]}, set(range(10)))
+        self.assertTrue(all(case["horizon"] == 12 for case in suite["cases"]))
+
+    def test_mismatch_is_blocker_not_warning(self):
+        left = {"action_index": 6, "frames": [{"state_id": "dodge", "x": 0.0}]}
+        right = {"action_index": 6, "frames": [{"state_id": "idle", "x": 0.0}]}
+        result = compare_trace_pair(left, right, atol=0.0)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "blocker")
+        self.assertIn("action_index=6", result["message"])
+
+    def test_report_requires_high_risk_indices(self):
+        suite = build_fixed_action_suite(seeds=[101], horizon=12)
+        high_risk = {case["action_index"] for case in suite["cases"] if case["trace_required"]}
+        self.assertTrue({5, 6, 7, 8, 9} <= high_risk)
+
+    def test_receipt_separates_original_replay_from_resident_claims(self):
+        cases = [
+            {
+                "action_index": action_index,
+                "seed": 101,
+                "horizon": 12,
+                "python_reference_exact": True,
+                "native_cpu_cuda_exact": None,
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_lanes_replay_step_supported": False,
+                "reset_compared": True,
+                "compared_ticks": 12,
+                "terminal_autoreset_evidence": "not_exercised",
+                "rng": {"cursor": 7, "count": 7, "error": 0},
+            }
+            for action_index in range(10)
+        ]
+        receipt = build_receipt(
+            cases=cases,
+            backends=["python", "native_cpu"],
+            expected_actions=list(range(10)),
+            expected_seeds=[101],
+            horizon=12,
+        )
+        self.assertTrue(receipt["python_reference_exact"])
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertIsNone(receipt["native_cpu_cuda_exact"])
+        self.assertTrue(receipt["resident_cpu_generated_rng_recorded"])
+        self.assertFalse(receipt["resident_lanes_replay_step_supported"])
+        self.assertFalse(receipt["three_way_exact"])
+        self.assertEqual(receipt["promotion_status"], "blocked")
+        self.assertIn("termination_autoreset_evidence_missing", {b["reason"] for b in receipt["blockers"]})
+
+    def test_three_way_exact_requires_every_layer_and_exact_rng_consumption(self):
+        complete = [
+            {
+                "action_index": action_index,
+                "seed": seed,
+                "horizon": 12,
+                "python_reference_exact": True,
+                "native_cpu_cuda_exact": True,
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_lanes_replay_step_supported": True,
+                "reset_compared": True,
+                "compared_ticks": 12,
+                "terminal_autoreset_evidence": "exact",
+                "rng": {"cursor": 5, "count": 5, "error": 0},
+            }
+            for action_index in range(10)
+            for seed in (101, 102)
+        ]
+        complete[0]["resident_termination_autoreset"] = exact_autoreset()
+        complete[1]["resident_truncation_autoreset"] = exact_autoreset()
+        self.assertTrue(
+            three_way_exact_allowed(
+                complete,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+        for bad_update in (
+            {"python_reference_exact": False},
+            {"native_cpu_cuda_exact": None},
+            {"resident_cpu_recorded_replay_exact": False},
+            {"resident_cpu_generated_rng_recorded": False},
+            {"resident_lanes_replay_step_supported": False},
+            {"horizon": 11},
+            {"reset_compared": False},
+            {"compared_ticks": 0},
+            {"compared_ticks": 11},
+            {"terminal_autoreset_evidence": "missing"},
+            {"rng": {"cursor": 4, "count": 5, "error": 0}},
+            {"rng": {"cursor": 5, "count": 5, "error": 1}},
+        ):
+            bad = copy.deepcopy(complete)
+            bad[0].update(bad_update)
+            self.assertFalse(
+                three_way_exact_allowed(
+                    bad,
+                    expected_actions=list(range(10)),
+                    expected_seeds=[101, 102],
+                    horizon=12,
+                ),
+                bad_update,
+            )
+        missing_seed = [case for case in complete if case["seed"] != 102]
+        self.assertFalse(
+            three_way_exact_allowed(
+                missing_seed,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+        missing_action = [case for case in complete if case["action_index"] != 9]
+        self.assertFalse(
+            three_way_exact_allowed(
+                missing_action,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+        missing_termination = copy.deepcopy(complete)
+        missing_termination[0].pop("resident_termination_autoreset")
+        self.assertFalse(
+            three_way_exact_allowed(
+                missing_termination,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+        missing_truncation = copy.deepcopy(complete)
+        missing_truncation[1].pop("resident_truncation_autoreset")
+        self.assertFalse(
+            three_way_exact_allowed(
+                missing_truncation,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+        stale_same_step_reset = copy.deepcopy(complete)
+        stale_same_step_reset[0]["resident_termination_autoreset"] = {
+            "status": "exact",
+            "same_step_autoreset": True,
+            "same_step_reset_obs_exact": False,
+            "healthy_subsequent_step": True,
+        }
+        self.assertFalse(
+            three_way_exact_allowed(
+                stale_same_step_reset,
+                expected_actions=list(range(10)),
+                expected_seeds=[101, 102],
+                horizon=12,
+            )
+        )
+
+    def test_receipt_blocks_missing_python_or_resident_cpu_requested_evidence(self):
+        base = {
+            "action_index": 0,
+            "seed": 101,
+            "horizon": 12,
+            "python_reference_exact": True,
+            "native_cpu_cuda_exact": None,
+            "resident_cpu_recorded_replay_exact": True,
+            "resident_cpu_generated_rng_recorded": True,
+            "resident_lanes_replay_step_supported": False,
+            "reset_compared": True,
+            "compared_ticks": 12,
+            "terminal_autoreset_evidence": "not_exercised",
+            "rng": {"cursor": 5, "count": 5, "error": 0},
+        }
+        no_python = build_receipt(
+            cases=[{**base, "python_reference_exact": None}],
+            backends=["native_cpu"],
+            expected_actions=[0],
+            expected_seeds=[101],
+            horizon=12,
+        )
+        self.assertEqual(no_python["status"], "blocked")
+        self.assertIn("python_reference_backend_missing", {b["reason"] for b in no_python["blockers"]})
+
+        no_resident = build_receipt(
+            cases=[{**base, "resident_cpu_generated_rng_recorded": False}],
+            backends=["python", "native_cpu"],
+            expected_actions=[0],
+            expected_seeds=[101],
+            horizon=12,
+        )
+        self.assertEqual(no_resident["status"], "blocked")
+        self.assertIn("resident_cpu_generated_rng_missing", {b["reason"] for b in no_resident["blockers"]})
+
+    def test_receipt_blocks_incomplete_per_case_evidence(self):
+        base = {
+            "action_index": 0,
+            "seed": 101,
+            "horizon": 12,
+            "python_reference_exact": True,
+            "native_cpu_cuda_exact": None,
+            "resident_cpu_recorded_replay_exact": True,
+            "resident_cpu_generated_rng_recorded": True,
+            "resident_lanes_replay_step_supported": False,
+            "reset_compared": True,
+            "compared_ticks": 12,
+            "terminal_autoreset_evidence": "not_exercised",
+            "rng": {"cursor": 5, "count": 5, "error": 0},
+        }
+        bad_cases = (
+            ({"reset_compared": False}, "reset_not_compared"),
+            ({"compared_ticks": 0}, "compared_ticks_incomplete"),
+            ({"compared_ticks": 11}, "compared_ticks_incomplete"),
+            ({"terminal_autoreset_evidence": "missing"}, "terminal_autoreset_evidence_missing"),
+            ({"rng": {"cursor": 4, "count": 5, "error": 0}}, "rng_consumption_inexact"),
+            ({"rng": {"cursor": 5, "count": 5, "error": 1}}, "rng_consumption_inexact"),
+        )
+        for bad_update, reason in bad_cases:
+            with self.subTest(reason=reason, bad_update=bad_update):
+                receipt = build_receipt(
+                    cases=[{**base, **bad_update}],
+                    backends=["python", "native_cpu"],
+                    expected_actions=[0],
+                    expected_seeds=[101],
+                    horizon=12,
+                )
+                self.assertEqual(receipt["status"], "blocked")
+                self.assertIn(reason, {blocker["reason"] for blocker in receipt["blockers"]})
+
+    def test_bool_numeric_evidence_is_rejected_for_status_and_three_way(self):
+        base = {
+            "action_index": 0,
+            "seed": 101,
+            "horizon": 1,
+            "python_reference_exact": True,
+            "native_cpu_cuda_exact": True,
+            "resident_cpu_recorded_replay_exact": True,
+            "resident_cpu_generated_rng_recorded": True,
+            "resident_lanes_replay_step_supported": True,
+            "reset_compared": True,
+            "compared_ticks": 1,
+            "terminal_autoreset_evidence": "exact",
+            "rng": {"cursor": 1, "count": 1, "error": 0},
+        }
+        forged_cases = (
+            ({"action_index": True}, "invalid_action_seed_case"),
+            ({"seed": True}, "invalid_action_seed_case"),
+            ({"horizon": True}, "horizon_mismatch"),
+            ({"compared_ticks": True}, "compared_ticks_incomplete"),
+            ({"rng": {"cursor": 1, "count": True, "error": 0}}, "rng_consumption_inexact"),
+            ({"rng": {"cursor": 1, "count": 1, "error": False}}, "rng_consumption_inexact"),
+        )
+        for bad_update, reason in forged_cases:
+            with self.subTest(reason=reason, bad_update=bad_update):
+                forged = {**base, **bad_update}
+                receipt = build_receipt(
+                    cases=[forged],
+                    backends=["python", "native_cpu"],
+                    expected_actions=[1 if bad_update.get("action_index") is True else 0],
+                    expected_seeds=[1 if bad_update.get("seed") is True else 101],
+                    horizon=1,
+                )
+                self.assertEqual(receipt["status"], "blocked")
+                self.assertIn(reason, {blocker["reason"] for blocker in receipt["blockers"]})
+                self.assertFalse(
+                    three_way_exact_allowed(
+                        [forged],
+                        expected_actions=[1 if bad_update.get("action_index") is True else 0],
+                        expected_seeds=[1 if bad_update.get("seed") is True else 101],
+                        horizon=1,
+                    )
+                )
+
+    def test_missing_capture_dependency_is_explicit_blocker(self):
+        original = parity._run_original_vs_serial_native
+
+        def missing_dependency(_case, _frozen_root):
+            raise ModuleNotFoundError("No module named 'pymunk'")
+
+        try:
+            parity._run_original_vs_serial_native = missing_dependency
+            receipt = run_suite(
+                frozen_root=Path("/missing"),
+                backends=["python", "native_cpu"],
+                actions=[0],
+                seeds=[101],
+                horizon=1,
+            )
+        finally:
+            parity._run_original_vs_serial_native = original
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertFalse(receipt["python_reference_exact"])
+        blockers = {blocker["reason"]: blocker for blocker in receipt["blockers"]}
+        self.assertIn("missing_capture_dependency", blockers)
+        self.assertIn("pymunk", blockers["missing_capture_dependency"]["first_divergence"])
+
+    def test_resident_cpu_replay_step_uses_recorded_draws_and_actions(self):
+        original = parity._run_original_vs_serial_native
+        resident = parity._run_resident_replay_trace
+        forced = parity._run_forced_autoreset_evidence
+
+        def exact_python(_case, _frozen_root):
+            return {
+                "python_reference_exact": True,
+                "document": {
+                    "reset": {
+                        "draws": [{"kind": 1, "a": 1, "b": 0, "value": 1}],
+                        "outputs": {
+                            "obs": {"0": [0.0] * 64, "1": [0.0] * 64},
+                            "rewards": {"0": 0.0, "1": 0.0},
+                            "terminated": False,
+                            "truncated": False,
+                        },
+                    },
+                    "ticks": [
+                        {
+                            "actions": [[[1.0] + [0.0] * 9, [0.0] * 10][0], [0.0] * 10],
+                            "draws": [{"kind": 3, "a": 1, "b": 12, "value": 7}],
+                            "outputs": {
+                                "obs": {"0": [1.0] * 64, "1": [2.0] * 64},
+                                "rewards": {"0": 3.0, "1": 4.0},
+                                "terminated": False,
+                                "truncated": False,
+                            },
+                        },
+                        {
+                            "actions": [[0.0] * 10, [0.0] * 10],
+                            "draws": [],
+                            "outputs": {
+                                "obs": {"0": [5.0] * 64, "1": [6.0] * 64},
+                                "rewards": {"0": 7.0, "1": 8.0},
+                                "terminated": True,
+                                "truncated": False,
+                            },
+                        },
+                    ],
+                },
+                "compared_ticks": 2,
+                "reset_compared": True,
+                "first_divergence": None,
+                "rng": {"cursor": 2, "count": 2, "error": 0},
+                "terminal_autoreset_evidence": "not_exercised",
+            }
+
+        calls = []
+
+        def resident_trace(case, document, backend_name):
+            calls.append(
+                (
+                    backend_name,
+                    document["reset"]["draws"],
+                    [row["actions"] for row in document["ticks"]],
+                    [row["draws"] for row in document["ticks"]],
+                )
+            )
+            return {
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_cpu_recorded_replay_trace": {
+                    "ticks": case["horizon"],
+                    "mode": "recorded_draw_replay",
+                    "terminal_observation_checked": True,
+                },
+                "resident_cpu_generated_rng_trace": {
+                    "ticks": case["horizon"],
+                    "mode": "recorded_draw_replay",
+                    "terminal_observation_checked": True,
+                },
+                "resident_cpu_generated_rng_alias_note": (
+                    "deprecated compatibility alias; use resident_cpu_recorded_replay_exact/trace"
+                ),
+                "resident_lanes_replay_step_supported": True,
+                "native_cpu_cuda_exact": None,
+                "native_cpu_cuda_exact_note": "native_cuda backend not requested",
+                "rng": {"cursor": 0, "count": 0, "error": 0},
+                "terminal_autoreset_evidence": "exact",
+            }
+
+        try:
+            parity._run_original_vs_serial_native = exact_python
+            parity._run_resident_replay_trace = resident_trace
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            receipt = run_suite(
+                frozen_root=Path("/ok"),
+                backends=["python", "native_cpu"],
+                actions=[0],
+                seeds=[101],
+                horizon=2,
+            )
+        finally:
+            parity._run_original_vs_serial_native = original
+            parity._run_resident_replay_trace = resident
+            parity._run_forced_autoreset_evidence = forced
+        self.assertEqual(receipt["status"], "completed")
+        self.assertTrue(receipt["resident_cpu_generated_rng_recorded"])
+        self.assertEqual(receipt["promotion_status"], "blocked")
+        self.assertIn("native_cuda_replay_unverified", {b["reason"] for b in receipt["promotion_blockers"]})
+        self.assertEqual(receipt["cases"][0]["resident_cpu_recorded_replay_trace"]["mode"], "recorded_draw_replay")
+        self.assertIn("deprecated compatibility alias", receipt["cases"][0]["resident_cpu_generated_rng_alias_note"])
+        self.assertEqual(calls[0][0], "cpu")
+        self.assertEqual(calls[0][1], [{"kind": 1, "a": 1, "b": 0, "value": 1}])
+        self.assertEqual(calls[0][3][0], [{"kind": 3, "a": 1, "b": 12, "value": 7}])
+
+    def test_native_cuda_exact_requires_actual_resident_cuda_replay(self):
+        original = parity._run_original_vs_serial_native
+        resident = parity._run_resident_replay_trace
+        forced = parity._run_forced_autoreset_evidence
+
+        def exact_python(_case, _frozen_root):
+            return {
+                "python_reference_exact": True,
+                "document": {
+                    "reset": {
+                        "draws": [],
+                        "outputs": {
+                            "obs": {"0": [0.0] * 64, "1": [0.0] * 64},
+                            "rewards": {"0": 0.0, "1": 0.0},
+                            "terminated": False,
+                            "truncated": False,
+                        },
+                    },
+                    "ticks": [
+                        {
+                            "actions": [[0.0] * 10, [0.0] * 10],
+                            "draws": [],
+                            "outputs": {
+                                "obs": {"0": [0.0] * 64, "1": [0.0] * 64},
+                                "rewards": {"0": 0.0, "1": 0.0},
+                                "terminated": False,
+                                "truncated": False,
+                            },
+                        }
+                    ],
+                },
+                "compared_ticks": 1,
+                "reset_compared": True,
+                "first_divergence": None,
+                "rng": {"cursor": 0, "count": 0, "error": 0},
+                "terminal_autoreset_evidence": "exact",
+            }
+
+        calls = []
+
+        def resident_trace(case, document, backend_name):
+            calls.append(backend_name)
+            trace = {
+                "mode": "recorded_draw_replay",
+                "backend": backend_name,
+                "ticks": 1,
+                "valid_steps": [1],
+                "final_observation_sha256": "same",
+                "final_rewards": [0.0, 0.0],
+                "terminated_count": 0,
+                "truncated_count": 0,
+                "terminal_observation_checked": False,
+                "rng_statuses": [{"tick": 1, "mode": 0, "cursor": 0, "count": 0, "error": 0, "expected_count": 0}],
+                "reset_draw_count": 0,
+                "tick_draw_count": 0,
+            }
+            return {
+                "resident_cpu_recorded_replay_exact": True,
+                "resident_cpu_generated_rng_recorded": True,
+                "resident_cpu_recorded_replay_trace": trace,
+                "resident_cpu_generated_rng_trace": trace,
+                "resident_cpu_generated_rng_alias_note": (
+                    "deprecated compatibility alias; use resident_cpu_recorded_replay_exact/trace"
+                ),
+                "resident_lanes_replay_step_supported": True,
+                "rng": {"cursor": 0, "count": 0, "error": 0},
+                "terminal_autoreset_evidence": "exact",
+            }
+
+        try:
+            parity._run_original_vs_serial_native = exact_python
+            parity._run_resident_replay_trace = resident_trace
+            parity._run_forced_autoreset_evidence = lambda *args, **kwargs: exact_autoreset()
+            receipt = run_suite(
+                frozen_root=Path("/ok"),
+                backends=["python", "native_cpu", "native_cuda"],
+                actions=[0],
+                seeds=[101],
+                horizon=1,
+            )
+        finally:
+            parity._run_original_vs_serial_native = original
+            parity._run_resident_replay_trace = resident
+            parity._run_forced_autoreset_evidence = forced
+        self.assertEqual(receipt["status"], "completed")
+        self.assertEqual(calls, ["cpu", "cuda"])
+        self.assertTrue(receipt["native_cpu_cuda_exact"])
+        self.assertEqual(receipt["promotion_status"], "passed")
+        self.assertEqual(receipt["promotion_blockers"], [])
+
+    def test_gdown_fuzzy_compatibility_shim_preserves_older_download_signature(self):
+        calls = []
+        fake_gdown = types.SimpleNamespace()
+
+        def download(*args, **kwargs):
+            calls.append((args, kwargs))
+            return "ok"
+
+        fake_gdown.download = download
+        parity._install_gdown_fuzzy_compat(fake_gdown)
+        self.assertEqual(fake_gdown.download("url", output="asset.zip", fuzzy=True), "ok")
+        self.assertEqual(calls, [(("url",), {"output": "asset.zip"})])
+
+    def test_capture_root_adapter_exposes_environment_assets_without_mutating_source(self):
+        with tempfile.TemporaryDirectory(prefix="capture-root-source-") as source_dir:
+            source = Path(source_dir)
+            env = source / "UTMIST-AI2-main" / "environment"
+            assets = env / "assets"
+            assets.mkdir(parents=True)
+            (env / "environment.py").write_text("# fixture\n")
+            with parity._prepared_capture_root(source) as prepared:
+                self.assertNotEqual(prepared, source)
+                self.assertTrue((prepared / "UTMIST-AI2-main").exists())
+                self.assertTrue((prepared / "assets").exists())
+            self.assertFalse((source / "assets").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

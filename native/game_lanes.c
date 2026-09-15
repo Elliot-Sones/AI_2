@@ -11,6 +11,8 @@ typedef struct {
     AI2GEpisodeRecord *records;
     AI2NDraw **tapes;
     int *tape_counts;
+    int *replay_status;
+    int *replay_status_valid;
 } AI2GLanesCpu;
 
 size_t ai2g_lanes_cpu_lane_size(void) { return sizeof(AI2GLane); }
@@ -21,7 +23,8 @@ int ai2g_lanes_cpu_destroy(void *handle) {
     int i;
     if (!h) return AI2N_ERR_NULL;
     if (h->tapes) for (i = 0; i < h->games; ++i) free(h->tapes[i]);
-    free(h->lanes); free(h->records); free(h->tapes); free(h->tape_counts); free(h);
+    free(h->lanes); free(h->records); free(h->tapes); free(h->tape_counts);
+    free(h->replay_status); free(h->replay_status_valid); free(h);
     return 0;
 }
 
@@ -39,7 +42,9 @@ void *ai2g_lanes_cpu_create(const AI2NConfig *cfg, const AI2GPlatformTable *tabl
     h->records = (AI2GEpisodeRecord*)calloc((size_t)capacity, sizeof(AI2GEpisodeRecord));
     h->tapes = (AI2NDraw**)calloc((size_t)games, sizeof(AI2NDraw*));
     h->tape_counts = (int*)calloc((size_t)games, sizeof(int));
-    if (!h->lanes || !h->records || !h->tapes || !h->tape_counts) {
+    h->replay_status = (int*)calloc((size_t)games * 4, sizeof(int));
+    h->replay_status_valid = (int*)calloc((size_t)games, sizeof(int));
+    if (!h->lanes || !h->records || !h->tapes || !h->tape_counts || !h->replay_status || !h->replay_status_valid) {
         ai2g_lanes_cpu_destroy(h); return 0;
     }
     if (rc) *rc = 0;
@@ -122,4 +127,64 @@ int ai2g_lanes_cpu_replay_reset(void *handle, int index, const AI2NDraw *draws, 
     free(h->tapes[index]); h->tapes[index] = tape; h->tape_counts[index] = count;
     ai2n_rng_replay(&h->lanes[index].rng, tape, count);
     return ai2g_lane_begin(&h->lanes[index], &h->cfg, h->scale, obs, 1);
+}
+
+int ai2g_lanes_cpu_configure_episode(void *handle, int index, int player0_stocks, int player1_stocks, int max_timesteps) {
+    AI2GLanesCpu *h = (AI2GLanesCpu*)handle;
+    AI2GLane *lane;
+    if (!h) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    lane = h->lanes + index;
+    if (player0_stocks >= 0) lane->game.scene.players[0].ms.stocks = player0_stocks;
+    if (player1_stocks >= 0) lane->game.scene.players[1].ms.stocks = player1_stocks;
+    if (max_timesteps > 0) lane->game.max_timesteps = max_timesteps;
+    return 0;
+}
+
+int ai2g_lanes_cpu_rng_status(void *handle, int index, int *mode, int *cursor, int *count, int *error) {
+    AI2GLanesCpu *h = (AI2GLanesCpu*)handle;
+    int *s;
+    if (!h || !mode || !cursor || !count || !error) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    s = h->replay_status + (size_t)index * 4;
+    if (h->replay_status_valid[index]) {
+        *mode = s[0]; *cursor = s[1]; *count = s[2]; *error = s[3];
+    } else {
+        *mode = h->lanes[index].rng.mode;
+        *cursor = h->lanes[index].rng.cursor;
+        *count = h->lanes[index].rng.count;
+        *error = h->lanes[index].rng.error;
+    }
+    return 0;
+}
+
+int ai2g_lanes_cpu_replay_step(void *handle, int index, const float *actions, const AI2NDraw *draws,
+                               int count, float *obs, float *terminal, float *rewards,
+                               uint8_t *terminated, uint8_t *truncated) {
+    AI2GLanesCpu *h = (AI2GLanesCpu*)handle;
+    AI2NDraw *tape = 0;
+    AI2NRng saved;
+    int rc, *s;
+    if (!h || !actions || !obs || !terminal || !rewards || !terminated || !truncated) return AI2N_ERR_NULL;
+    if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
+    if (!ai2g_lane_draws_valid(draws, count)) return AI2N_ERR_RNG;
+    if (count) {
+        if ((size_t)count > SIZE_MAX / sizeof(*tape)) return AI2N_ERR_CAPACITY;
+        tape = (AI2NDraw*)malloc((size_t)count * sizeof(*tape));
+        if (!tape) return AI2N_ERR_CAPACITY;
+        memcpy(tape, draws, (size_t)count * sizeof(*tape));
+    }
+    saved = h->lanes[index].rng;
+    ai2n_rng_replay(&h->lanes[index].rng, tape, count);
+    rc = ai2g_lane_step(&h->lanes[index], index, &h->cfg, &h->table, h->scale, actions,
+        obs, terminal, rewards, terminated, truncated, h->records, h->capacity, &h->count, &h->overflow);
+    s = h->replay_status + (size_t)index * 4;
+    s[0] = h->lanes[index].rng.mode; s[1] = h->lanes[index].rng.cursor;
+    s[2] = h->lanes[index].rng.count; s[3] = h->lanes[index].rng.error;
+    h->replay_status_valid[index] = 1;
+    h->lanes[index].rng = saved;
+    if (saved.mode == 0) h->lanes[index].rng.draws = h->tapes[index];
+    free(tape);
+    if (!rc && (s[3] || s[1] != s[2])) return AI2N_ERR_RNG;
+    return rc;
 }
