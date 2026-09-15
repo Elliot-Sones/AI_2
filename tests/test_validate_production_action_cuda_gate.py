@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import importlib
-import inspect
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -57,18 +57,95 @@ class ProductionActionCudaGateTests(unittest.TestCase):
             self.assertNotEqual(code, 0)
             self.assertFalse(target.exists())
 
-    def test_gate_source_uses_production_policy_ppo_and_export_load_path(self):
+    def test_gate_declares_all_production_action_arms(self):
         gate = self.subject()
-        source = inspect.getsource(gate)
-        self.assertIn("CurriculumPolicy", source)
-        self.assertIn("NativeCurriculumPPO", source)
-        self.assertIn("benchmark_native_contact_training", source)
-        self.assertIn("export_actor", source)
-        self.assertIn("load_actor", source)
-        self.assertIn("load_contact_checkpoint", source)
-        self.assertNotIn("GaussianBox10", source)
-        self.assertNotIn("Bernoulli10", source)
-        self.assertNotIn("class Toy", source)
+        self.assertEqual(
+            gate.ACTION_ARMS,
+            ("G_keep", "G_neutral", "B_neutral", "B_projected"),
+        )
+
+    def test_success_path_spies_on_checkpoint_load_for_every_arm(self):
+        gate = self.subject()
+        calls = []
+
+        class Learner:
+            @classmethod
+            def load_contact_checkpoint(cls, checkpoint, env, **kwargs):
+                calls.append((checkpoint, env, kwargs))
+                return SimpleNamespace(action_ab_arm=kwargs["action_ab_arm"])
+
+        env = object()
+        checkpoint = Path("canonical.zip")
+        for arm in gate.ACTION_ARMS:
+            model = gate.load_production_checkpoint(
+                Learner,
+                checkpoint=checkpoint,
+                expected_sha256="a" * 64,
+                env=env,
+                arm=arm,
+                update_mode="sb3",
+            )
+            self.assertEqual(model.action_ab_arm, arm)
+
+        self.assertEqual([call[2]["action_ab_arm"] for call in calls], list(gate.ACTION_ARMS))
+        self.assertTrue(all(call[0] == checkpoint for call in calls))
+        self.assertTrue(all(call[2]["expected_sha256"] == "a" * 64 for call in calls))
+        self.assertTrue(all(call[2]["joint"] is True for call in calls))
+
+    def test_success_path_spies_on_export_and_load_actor_mismatch_rejection(self):
+        gate = self.subject()
+        calls = []
+
+        class Model:
+            def export_actor(self, path):
+                calls.append(("export_actor", path.name))
+                path.write_bytes(b"actor")
+                return {"action_head": "gaussian", "action_ab_arm": "G_keep"}
+
+        def load_actor(path, *, device, expected_action_head=None, expected_action_ab_arm=None):
+            calls.append(("load_actor", path.name, str(device), expected_action_head, expected_action_ab_arm))
+            if expected_action_head == "bernoulli_10":
+                raise ValueError("Exported actor action head differs from expected action head")
+            if expected_action_ab_arm == "B_projected":
+                raise ValueError("Exported actor action arm differs from expected action arm")
+            return SimpleNamespace(action_head="gaussian"), {"action_head": "gaussian", "action_ab_arm": "G_keep"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = gate.export_and_verify_actor(
+                Model(),
+                load_actor,
+                arm="G_keep",
+                expected_head="gaussian",
+                device="cuda:0",
+                work_dir=Path(directory),
+            )
+
+        self.assertEqual(result["metadata_action_head"], "gaussian")
+        self.assertEqual(result["metadata_action_ab_arm"], "G_keep")
+        self.assertEqual(len(result["mismatch_rejections"]), 2)
+        self.assertEqual(calls[0][0], "export_actor")
+        self.assertEqual([call[0] for call in calls].count("load_actor"), 3)
+
+    def test_cuda_success_requires_checkpoint_argument(self):
+        gate = self.subject()
+        args = SimpleNamespace(
+            checkpoint=None,
+            expected_sha256=gate.CANONICAL_CHECKPOINT_SHA256,
+            update_mode="sb3",
+            _argv=["validate_production_action_cuda_gate.py", "--output", "receipt.json"],
+        )
+        fake_torch = SimpleNamespace(
+            device=lambda *parts: "cuda:0",
+            cuda=SimpleNamespace(
+                current_device=lambda: 0,
+                set_device=lambda device: None,
+                get_device_name=lambda device: "Fake CUDA",
+            ),
+            version=SimpleNamespace(cuda="fake"),
+        )
+        with patch.object(gate, "_require_real_torch", return_value=fake_torch):
+            with self.assertRaisesRegex(ValueError, "checkpoint"):
+                gate.run_cuda_gate(args, Path.cwd())
 
 
 if __name__ == "__main__":

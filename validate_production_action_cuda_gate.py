@@ -49,7 +49,8 @@ SOURCE_FILES = (
     "tensor_rollout_buffer.py",
 )
 PACKAGE_NAMES = ("torch", "stable-baselines3", "numpy", "gymnasium", "pymunk")
-ACTION_ARMS = ("G_keep", "B_neutral")
+CANONICAL_CHECKPOINT_SHA256 = "301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6"
+ACTION_ARMS = ("G_keep", "G_neutral", "B_neutral", "B_projected")
 
 
 def sha256_file(path: Path) -> str:
@@ -132,6 +133,64 @@ def _tensor_hash(tensor) -> str:
     return hashlib.sha256(contiguous).hexdigest()
 
 
+def bind_checkpoint(checkpoint: Path | None, expected_sha256: str) -> dict:
+    if checkpoint is None:
+        raise ValueError("successful production action gate requires --checkpoint")
+    if not isinstance(expected_sha256, str) or len(expected_sha256) != 64:
+        raise ValueError("checkpoint expected SHA256 must be explicit")
+    path = Path(checkpoint)
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("checkpoint must be an existing regular file")
+    digest = sha256_file(path)
+    if digest != expected_sha256:
+        raise ValueError(f"checkpoint SHA256 mismatch: expected {expected_sha256}, got {digest}")
+    return {"path": str(path.resolve()), "sha256": digest, "bytes": path.stat().st_size}
+
+
+def load_production_checkpoint(learner_cls, *, checkpoint: Path, expected_sha256: str, env, arm: str, update_mode: str):
+    return learner_cls.load_contact_checkpoint(
+        checkpoint,
+        env,
+        expected_sha256=expected_sha256,
+        update_mode=update_mode,
+        joint=True,
+        action_ab_arm=arm,
+    )
+
+
+def export_and_verify_actor(model, load_actor_fn, *, arm: str, expected_head: str, device, work_dir: Path) -> dict:
+    actor_path = work_dir / f"{arm}-actor.pt"
+    metadata = model.export_actor(actor_path)
+    actor, loaded = load_actor_fn(
+        actor_path,
+        device=device,
+        expected_action_head=expected_head,
+        expected_action_ab_arm=arm,
+    )
+    if actor.action_head != expected_head or loaded["action_ab_arm"] != arm or metadata["action_ab_arm"] != arm:
+        raise AssertionError(f"{arm}.export/load metadata did not round-trip")
+    mismatch_rejections: list[str] = []
+    other_head = "bernoulli_10" if expected_head == "gaussian" else "gaussian"
+    try:
+        load_actor_fn(actor_path, device=device, expected_action_head=other_head)
+    except ValueError as exc:
+        mismatch_rejections.append(str(exc))
+    else:
+        raise AssertionError(f"{arm}.export load accepted wrong expected action head")
+    try:
+        load_actor_fn(actor_path, device=device, expected_action_ab_arm="B_projected" if arm != "B_projected" else "G_keep")
+    except ValueError as exc:
+        mismatch_rejections.append(str(exc))
+    else:
+        raise AssertionError(f"{arm}.export load accepted wrong expected action arm")
+    return {
+        "actor_sha256": sha256_file(actor_path),
+        "metadata_action_head": loaded["action_head"],
+        "metadata_action_ab_arm": loaded["action_ab_arm"],
+        "mismatch_rejections": mismatch_rejections,
+    }
+
+
 def _build_fixture_env(device):
     import numpy as np
     from gymnasium import spaces
@@ -179,32 +238,24 @@ def _build_fixture_env(device):
     return Fixture()
 
 
-def _validate_arm(arm: str, device, work_dir: Path) -> dict:
+def _validate_arm(arm: str, device, work_dir: Path, *, checkpoint: Path, expected_sha256: str, update_mode: str) -> dict:
     import benchmark_native_contact_training
-    from curriculum_ppo import ACTION_EXPERIMENT_ARMS, CurriculumPolicy, load_actor
+    from curriculum_ppo import ACTION_EXPERIMENT_ARMS, load_actor
     from native_curriculum_ppo import COMBAT_MASK, NativeCurriculumPPO
     from stable_baselines3.common.callbacks import BaseCallback
-    from stable_baselines3.common.logger import configure
     from tensor_ppo import TensorVecEnv
 
     expected_head = ACTION_EXPERIMENT_ARMS[arm]["action_head"]
     raw_env = _build_fixture_env(device)
     env = TensorVecEnv(raw_env, device=device)
-    model = NativeCurriculumPPO(
-        policy=CurriculumPolicy,
+    model = load_production_checkpoint(
+        NativeCurriculumPPO,
+        checkpoint=checkpoint,
+        expected_sha256=expected_sha256,
         env=env,
-        update_mode="sb3",
-        action_ab_arm=arm,
-        policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
-        seed=173,
+        arm=arm,
+        update_mode=update_mode,
     )
-    model.set_logger(configure(folder=None, format_strings=[]))
-
-    if expected_head == "bernoulli_10":
-        with torch.no_grad():
-            model.policy.action_net.bias.copy_(
-                torch.tensor([-2.0, 2.0, 0.0, 0.25, -0.25, 3.0, 2.0, 1.0, 3.0, 3.0], device=device)
-            )
 
     class Callback(BaseCallback):
         def _on_step(self):
@@ -269,28 +320,18 @@ def _validate_arm(arm: str, device, work_dir: Path) -> dict:
     if metrics.get("action_head") != expected_head:
         raise AssertionError(f"{arm}.benchmark action metrics did not observe expected action head")
 
-    actor_path = work_dir / f"{arm}-actor.pt"
-    metadata = model.export_actor(actor_path)
-    actor, loaded = load_actor(actor_path, device=device, expected_action_head=expected_head, expected_action_ab_arm=arm)
-    if actor.action_head != expected_head or loaded["action_ab_arm"] != arm or metadata["action_ab_arm"] != arm:
-        raise AssertionError(f"{arm}.export/load metadata did not round-trip")
-    mismatch_rejections: list[str] = []
-    other_head = "bernoulli_10" if expected_head == "gaussian" else "gaussian"
-    try:
-        load_actor(actor_path, device=device, expected_action_head=other_head)
-    except ValueError as exc:
-        mismatch_rejections.append(str(exc))
-    else:
-        raise AssertionError(f"{arm}.export load accepted wrong expected action head")
-    try:
-        load_actor(actor_path, device=device, expected_action_ab_arm="B_projected" if arm != "B_projected" else "G_keep")
-    except ValueError as exc:
-        mismatch_rejections.append(str(exc))
-    else:
-        raise AssertionError(f"{arm}.export load accepted wrong expected action arm")
+    export_load = export_and_verify_actor(
+        model,
+        load_actor,
+        arm=arm,
+        expected_head=expected_head,
+        device=device,
+        work_dir=work_dir,
+    )
 
     wrong_checkpoint = work_dir / f"{arm}-wrong-checkpoint.zip"
     wrong_checkpoint.write_bytes(b"wrong checkpoint bytes\n")
+    checkpoint_mismatch_rejections: list[str] = []
     try:
         NativeCurriculumPPO.load_contact_checkpoint(
             wrong_checkpoint,
@@ -301,7 +342,7 @@ def _validate_arm(arm: str, device, work_dir: Path) -> dict:
             action_ab_arm=arm,
         )
     except ValueError as exc:
-        mismatch_rejections.append(str(exc))
+        checkpoint_mismatch_rejections.append(str(exc))
     else:
         raise AssertionError(f"{arm}.checkpoint hash gate accepted wrong checkpoint bytes")
 
@@ -310,6 +351,7 @@ def _validate_arm(arm: str, device, work_dir: Path) -> dict:
         "action_head": expected_head,
         "policy_class": type(model.policy).__name__,
         "learner_class": type(model).__name__,
+        "checkpoint_load": "NativeCurriculumPPO.load_contact_checkpoint",
         "forward": {
             "sampled_actions_cuda": sampled_actions.device.type == "cuda",
             "deterministic_actions_cuda": deterministic_actions.device.type == "cuda",
@@ -334,20 +376,18 @@ def _validate_arm(arm: str, device, work_dir: Path) -> dict:
         },
         "active_control_mask": [bool(value) for value in COMBAT_MASK],
         "benchmark_action_metrics": metrics,
-        "export_load": {
-            "actor_sha256": sha256_file(actor_path),
-            "metadata_action_head": loaded["action_head"],
-            "metadata_action_ab_arm": loaded["action_ab_arm"],
-            "mismatch_rejections": mismatch_rejections,
-        },
+        "export_load": export_load,
+        "checkpoint_mismatch_rejections": checkpoint_mismatch_rejections,
     }
 
 
 def run_cuda_gate(args: argparse.Namespace, root: Path) -> dict:
     real_torch = _require_real_torch()
+    checkpoint = bind_checkpoint(args.checkpoint, args.expected_sha256)
     device = real_torch.device("cuda", real_torch.cuda.current_device())
     real_torch.cuda.set_device(device)
     receipt = base_receipt(args, root, "passed", gating=True)
+    receipt["checkpoint"] = checkpoint
     receipt["cuda"].update({
         "device": str(device),
         "device_name": real_torch.cuda.get_device_name(device),
@@ -355,7 +395,17 @@ def run_cuda_gate(args: argparse.Namespace, root: Path) -> dict:
     })
     with tempfile.TemporaryDirectory(prefix="ai2-production-action-gate-") as directory:
         work_dir = Path(directory)
-        receipt["arms"] = [_validate_arm(arm, device, work_dir) for arm in ACTION_ARMS]
+        receipt["arms"] = [
+            _validate_arm(
+                arm,
+                device,
+                work_dir,
+                checkpoint=Path(checkpoint["path"]),
+                expected_sha256=checkpoint["sha256"],
+                update_mode=args.update_mode,
+            )
+            for arm in ACTION_ARMS
+        ]
     receipt["claims"] = {
         "no_training_performed": True,
         "policy_and_action_tensors_cuda_finite": True,
@@ -369,6 +419,9 @@ def run_cuda_gate(args: argparse.Namespace, root: Path) -> dict:
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path, help="new JSON receipt path; must not exist or be a symlink")
+    parser.add_argument("--checkpoint", type=Path, help="canonical calibrated production checkpoint zip")
+    parser.add_argument("--expected-sha256", default=CANONICAL_CHECKPOINT_SHA256, help="expected checkpoint SHA256")
+    parser.add_argument("--update-mode", default="sb3", choices=("sb3", "deferred_metrics"))
     parser.add_argument(
         "--allow-cuda-skip",
         action="store_true",
