@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlphaGo to KataGo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+pre{background:var(--codebg);color:var(--codeink);padding:14px 16px;border-radius:4px;overflow-x:auto;font-size:13px;line-height:1.55;margin:16px 0}
+pre code{background:none;padding:0;color:inherit}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 1 of 8</b></p>
+  <h1>AlphaGo to KataGo</h1>
+  <p class="dateline">Researched 2026-09-15 against the original papers and official pages. Numbers that come from a single secondary source are marked "reported".</p>
+  <p class="lede">The AlphaGo family is the cleanest demonstration that an agent playing against itself can climb from random play to superhuman skill. The search machinery does not fit a real-time fighting game, but four of its training ideas do, and one late descendant, KataGo, is the best practical recipe for cheap self-play training ever published.</p>
+</header>
+<main>
+
+<h2>The family in one table</h2>
+<div class="tw"><table>
+<thead><tr><th>System</th><th>Year</th><th>Human data?</th><th>Self-play</th><th>Promotion gate</th><th>Big idea</th></tr></thead>
+<tbody>
+<tr><td>AlphaGo</td><td>2016</td><td>Yes, 30M positions</td><td>Against random past checkpoints</td><td>None formal</td><td>Bootstrap from humans, then improve by self-play</td></tr>
+<tr><td>AlphaGo Zero</td><td>2017</td><td>None</td><td>Best checkpoint generates all games</td><td>Beat champion 55% over 400 games</td><td>Search is the teacher; the network imitates its own search</td></tr>
+<tr><td>AlphaZero</td><td>2018</td><td>None</td><td>Latest network, always</td><td>Removed</td><td>Same recipe works for Go, chess, and shogi</td></tr>
+<tr><td>MuZero</td><td>2020</td><td>None</td><td>Same as AlphaZero</td><td>None</td><td>Learns its own model of the game; no rules needed</td></tr>
+<tr><td>KataGo</td><td>2019+</td><td>None</td><td>Latest network</td><td>None</td><td>Same strength for roughly 50x less compute</td></tr>
+</tbody>
+</table></div>
+
+<div class="def"><b>Terms used on this page.</b> A <b>policy</b> is the function that picks moves. A <b>checkpoint</b> is a saved copy of the network at some point in training. <b>Self-play</b> means the agent's training opponent is a copy of itself. <b>MCTS</b> (Monte Carlo Tree Search) simulates many possible futures before committing to a move, like a chess player reading out lines.</div>
+
+<h2>AlphaGo: why they started from human games</h2>
+<p>Go gives one reward, win or lose, after roughly 200 moves. An agent starting from random play almost never wins for a meaningful reason, so there is nothing to learn from. AlphaGo solved this cold-start problem by copying humans first.</p>
+<ol>
+<li><strong>Supervised policy.</strong> A network learned to predict the next move of strong amateur players from 30 million board positions. It reached about 57% prediction accuracy. This is imitation, not reinforcement learning.</li>
+<li><strong>Self-play policy.</strong> That network then played games against randomly selected older copies of itself and was updated by policy gradient toward moves that led to wins. Playing against a pool of past versions, rather than only the newest one, was already there in 2016 to keep the opponent varied.</li>
+<li><strong>Value network.</strong> A separate network learned to look at a position and guess who wins, trained on 30 million positions from the self-play games.</li>
+<li><strong>Search at match time.</strong> MCTS combined all of the above to pick actual moves. It beat Lee Sedol 4 to 1 in March 2016.</li>
+</ol>
+<p>The lesson that survives: when the useful event is too rare for a fresh agent to ever produce, seed the policy with imitation and let reinforcement learning refine it. AlphaStar, and the modern Smash Bros. agent slippi-ai, both reuse this move (reports 3 and 4).</p>
+
+<h2>AlphaGo Zero: the loop that needs no humans</h2>
+<p>A year later the same team removed the human data entirely. AlphaGo Zero starts from random weights and runs one loop:</p>
+<ol>
+<li>The current <em>best</em> network plays games against itself. For each move it runs MCTS with 1,600 simulations. Search produces a better move choice than the raw network would make alone.</li>
+<li>Every position, the search's move preferences, and the final game result go into a buffer holding the most recent 500,000 games. Older games are thrown away, because they were played by a weaker agent and would teach stale lessons.</li>
+<li>The network trains to match two targets at once: predict the search's move preferences (policy head) and predict the game winner (value head). One network, two output heads.</li>
+<li><strong>The gate.</strong> Every so often the freshly trained candidate plays 400 games against the current best network. Only if it wins at least 55% does it become the new best and take over generating self-play games. If it loses, training continues and the old best keeps its job.</li>
+</ol>
+<p>Two exploration details matter. For the first 30 moves of every self-play game, moves are <em>sampled</em> in proportion to search visit counts rather than played greedily, so openings stay varied. And random Dirichlet noise is mixed into the search's starting preferences, so every legal move gets tried occasionally.</p>
+<div class="note"><span class="lb">The core idea, in plain terms</span><p>Search acts as a teacher. On every move, thinking ahead produces a slightly better decision than the network's instinct. Training makes the instinct match the thought-out decision. Next iteration, search starts from a better instinct and produces even better decisions. The agent bootstraps itself upward with no outside teacher.</p></div>
+<p>This exact mechanism does not transfer to AI_2, because at 30 frames per second there is no time to simulate futures before each button press, and your PPO setup has no search component. What transfers is everything around it: the data window, the gate, the sampled-vs-greedy distinction, and injected exploration noise.</p>
+
+<h2>AlphaZero: they removed the gate</h2>
+<p>AlphaZero simplified the loop: no evaluation arena, no "best" copy. The single latest network generates all self-play games and is updated continuously. The paper states this directly, and the same recipe reached superhuman play in Go, chess, and shogi within hours on thousands of TPUs. Search dropped to 800 simulations per move, and the exploration noise was scaled to each game's move count.</p>
+<div class="call"><span class="lb">What to take from the gate story</span><p>The field's two strongest systems disagree about gating: AlphaGo Zero gated at 55%, AlphaZero removed the gate and was fine. KataGo also runs gateless. The honest reading is that gating buys safety against a broken checkpoint poisoning your training data, at the cost of machinery and delay. For AI_2 the analogous decision is which checkpoints are allowed into the self-play opponent pool. A cheap arena check before pool admission, some fixed win-rate over a few hundred games against a pool sample, is the AlphaGo Zero position. Admitting every 500k-step snapshot blindly, as the current config does, is the AlphaZero position. Both are defensible; the difference only matters if a bad snapshot can enter the pool.</p></div>
+
+<h2>MuZero, in one paragraph</h2>
+<p>MuZero kept the whole AlphaZero loop but replaced the real game rules inside the search with a small learned model: one function encodes the observation into a hidden state, another predicts what the hidden state becomes after an action, a third predicts policy, value, and reward from it. Search runs inside the learned model. This mattered because it extended the recipe to Atari, where the rules are not available as code you can query. It does not change the training-strategy picture for AI_2.</p>
+
+<h2>KataGo: the budget version, and the most useful one here</h2>
+<p>KataGo is an open-source AlphaZero-style Go program by David Wu. Its claim to fame is efficiency: it surpassed ELF OpenGo, a system trained with roughly 74 GPU-years, using about 1.4 GPU-years. The paper ablates where the roughly 50x saving came from, and the biggest items are training-signal ideas, not engineering.</p>
+<div class="tw"><table>
+<thead><tr><th>Technique</th><th>What it is</th><th class="r">Reported gain</th></tr></thead>
+<tbody>
+<tr><td>Auxiliary targets</td><td>Besides win/lose, the network also predicts which player owns each board point and the final score margin</td><td class="r">~1.65x</td></tr>
+<tr><td>Global pooling architecture</td><td>Lets the net see whole-board context cheaply</td><td class="r">~1.6x</td></tr>
+<tr><td>Game-specific input features</td><td>Hand-built features like liberties and ladders</td><td class="r">~1.55x</td></tr>
+<tr><td>Playout cap randomization</td><td>25% of moves get deep search (600 simulations), 75% get shallow (100)</td><td class="r">~1.37x</td></tr>
+<tr><td>Auxiliary policy target</td><td>Also predict the opponent's next move</td><td class="r">~1.3x</td></tr>
+</tbody>
+</table></div>
+<p><strong>Why auxiliary targets work.</strong> Win/lose is one bit of signal per game. Ownership and score are hundreds of numbers per position, and they explain <em>why</em> a position is winning. The gradient from these extra predictions shapes the same shared network body that the policy uses, so the policy learns from a far denser signal at almost no extra cost. This is the single most transferable idea in the lineage.</p>
+<p><strong>The built-in curriculum.</strong> KataGo trains on a mix of board sizes at once, weighted toward small boards early (reported: 19x19 starts at ~37.5% of games and rises to ~50%). Small boards give short, cheap, informative games; the full board dominates later. It also randomizes komi (the scoring handicap) and sometimes starts games from handicap positions. Difficulty and variety are baked into the data distribution rather than scheduled in stages.</p>
+
+<h2>What transfers to AI_2, and what does not</h2>
+<div class="tw"><table>
+<thead><tr><th>Does not transfer</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>MCTS at decision time</td><td>At 30 fps there is no budget to simulate futures per button press; your policy must answer in one forward pass</td></tr>
+<tr><td>Search-as-teacher training</td><td>The whole improvement operator assumes search; PPO improves by gradient on advantages instead</td></tr>
+<tr><td>Perfect information, turn-based structure</td><td>The fighting game is simultaneous-move and continuous-time; nothing in AlphaZero addresses reading a live opponent</td></tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead><tr><th>Transfers</th><th>Concrete AI_2 form</th></tr></thead>
+<tbody>
+<tr><td>Self-play as automatic curriculum</td><td>Your opponent pool grows with your agent; this is already partly in place and is the subject of report 5</td></tr>
+<tr><td>Data/pool freshness window</td><td>They discard games from >500k-games ago; your pool keeps 7 snapshots. The principle: old data teaches stale lessons, but some depth is needed for variety. Report 5 covers pool depth</td></tr>
+<tr><td>Arena gating</td><td>Optional quality check before a checkpoint joins the opponent pool</td></tr>
+<tr><td>Auxiliary prediction targets</td><td>Add heads predicting near-future damage dealt/taken, KO within N steps, or the opponent's next action, trained alongside PPO's value loss. Hypothesis for AI_2, backed by KataGo's ~1.65x ablation</td></tr>
+<tr><td>Sampled vs. greedy action selection as separate modes</td><td>AlphaGo Zero explicitly samples early moves and plays greedily later. Your project's deterministic-vs-sampled attack gap (report 7) is the same distinction, currently unmanaged</td></tr>
+<tr><td>Domain randomization as curriculum</td><td>Board sizes and komi map to your spawn distances, stage geometry, and target counts (phases 0a–0e knobs)</td></tr>
+</tbody>
+</table></div>
+
+<h2>Since 2022</h2>
+<p>Two continuations worth knowing about, neither urgent for AI_2. Gumbel MuZero (2022) fixed search so the loop still improves with tiny simulation budgets, as low as 2 to 16 simulations per move, which matters when compute is scarce. Student of Games (2023) merged the AlphaZero line with counterfactual regret minimization so one algorithm handles both perfect-information games and hidden-information games like poker; it is the pointer to follow if you ever care about opponent-mind-reading formally.</p>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>Silver et al., Mastering the game of Go with deep neural networks and tree search, Nature 2016</li>
+<li>Silver et al., Mastering the game of Go without human knowledge, Nature 2017 — <a href="https://www.nature.com/articles/nature24270">nature.com/articles/nature24270</a></li>
+<li>Silver et al., AlphaZero, Science 2018 — <a href="https://arxiv.org/abs/1712.01815">arXiv:1712.01815</a></li>
+<li>Schrittwieser et al., MuZero, Nature 2020</li>
+<li>Wu, Accelerating Self-Play Learning in Go (KataGo) — <a href="https://arxiv.org/abs/1902.10565">arXiv:1902.10565</a></li>
+<li>Danihelka et al., Policy improvement by planning with Gumbel, ICLR 2022</li>
+<li>Schmid et al., Student of Games, Science Advances 2023 — <a href="https://www.science.org/doi/10.1126/sciadv.adg3256">doi:10.1126/sciadv.adg3256</a></li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="index.html">Series index</a>
+  <a href="02-openai-agents.html">Next: OpenAI Five and Hide-and-Seek →</a>
+</nav>
+</div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI_2 Training Strategy Series</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:820px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:46px 0 28px;border-bottom:1px solid var(--rule);margin-bottom:30px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(28px,4.4vw,40px);line-height:1.12;margin:0 0 12px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:64ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22px;margin:40px 0 14px}
+p{margin:0 0 14px;max-width:70ch}
+.card{display:block;border:1px solid var(--rule);background:var(--surface);padding:16px 18px;margin:0 0 12px;text-decoration:none;color:var(--ink)}
+.card:hover{border-color:var(--accent)}
+.card .n{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:4px}
+.card .t{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:18px;display:block;margin-bottom:6px}
+.card .d{font-size:14px;color:var(--ink2);line-height:1.5;display:block;max-width:72ch}
+.card.hot{border-left:3px solid var(--amber)}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:74ch}
+.note .lb{color:var(--accent);display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.note p{margin:0 0 8px}.note p:last-child{margin:0}
+dl{margin:0;border:1px solid var(--rule);background:var(--surface)}
+.gl{display:grid;grid-template-columns:180px 1fr;border-top:1px solid var(--rule2)}
+.gl:first-child{border-top:0}
+dt{padding:9px 14px;font-weight:600;font-size:14px}
+dd{margin:0;padding:9px 14px 9px 0;font-size:14px;color:var(--ink2)}
+@media (max-width:560px){.gl{grid-template-columns:1fr}dd{padding-left:14px;padding-top:0}}
+.prov{font-size:13.5px;color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · UTMIST platform fighter · reinforcement learning</p>
+  <h1>Training Strategy Series</h1>
+  <p class="dateline">Eight reports, researched and written 2026-09-14/15. Sources: the original papers and blogs of each system, verified by web research, plus the repo's own curriculum research (research/04–06) and preserved September baselines.</p>
+  <p class="lede">The question behind this series: AI_2's fighter is not improving the way we want, so are the curriculum and training strategy wrong? These reports work through how the landmark game-playing systems were actually trained, one design decision at a time, and end with a concrete, ordered experiment plan for this project. Each report assumes no prior knowledge and defines every term it uses.</p>
+</header>
+<main>
+
+<h2>Read in this order</h2>
+
+<a class="card" href="01-alphago-lineage.html">
+  <span class="n">Report 1</span>
+  <span class="t">AlphaGo to KataGo</span>
+  <span class="d">Self-play from zero to superhuman: the loop, the 55% promotion gate, the data window, and KataGo's cheap-training tricks. What survives the trip from turn-based Go to a 30fps fighter: auto-curriculum, gating, auxiliary prediction targets.</span>
+</a>
+<a class="card" href="02-openai-agents.html">
+  <span class="n">Report 2</span>
+  <span class="t">OpenAI Five and Hide-and-Seek</span>
+  <span class="d">PPO, your algorithm, at world-champion scale: the 80/20 opponent mix, reward annealing, discrete action heads, surgery. Hide-and-seek shows what pure competition discovers and what it costs, and ADR shows how to automate difficulty. Includes the scale reality check for one GPU.</span>
+</a>
+<a class="card" href="03-alphastar-and-leagues.html">
+  <span class="n">Report 3</span>
+  <span class="t">AlphaStar and League Training</span>
+  <span class="d">Why plain self-play chases its tail in games with style cycles, the spinning-top picture, the league of main agents and exploiters, PFSP opponent weighting, and the minimal league-lite a 1v1 fighter needs.</span>
+</a>
+<a class="card" href="04-fighting-games.html">
+  <span class="n">Report 4</span>
+  <span class="t">Fighting-Game AI Case Studies</span>
+  <span class="d">Seven systems that fight in real time: Blade &amp; Soul's pro-beating recipe and time-penalty aggression dial, FightLadder's benchmark, Phillip and slippi-ai for Smash, GT Sophy, JueWu. Ends with the consensus table, and the consensus is unanimous about discrete actions.</span>
+</a>
+<a class="card" href="05-self-play-design.html">
+  <span class="n">Report 5</span>
+  <span class="t">Self-Play by Design</span>
+  <span class="d">The theory that explains the practice: Nash, best response, exploitability, why training win rate lies. The algorithm ladder from naive self-play to PSRO, and a source-by-source audit of AI_2's current opponent mix and 7-checkpoint pool.</span>
+</a>
+<a class="card" href="06-curriculum-engineering.html">
+  <span class="n">Report 6</span>
+  <span class="t">Curriculum Engineering</span>
+  <span class="d">The operational layer on top of the repo's earlier curriculum research: how real systems ran promotion gates, faded training-wheel rewards, and carried skills across stages without forgetting. Maps directly onto phases 0a–0e and 1–4.</span>
+</a>
+<a class="card hot" href="07-attack-button.html">
+  <span class="n">Report 7 · the measured blocker</span>
+  <span class="t">The Attack-Button Problem</span>
+  <span class="d">Why the agent hits 20/20 when sampling actions and 0/20 when acting deterministically: the Gaussian mean sits at 0.03, the button fires at 0.5, and nothing in the training signal moves the mean. Mechanism, picture, and six fixes ranked by evidence.</span>
+</a>
+<a class="card hot" href="08-ai2-playbook.html">
+  <span class="n">Report 8 · the plan</span>
+  <span class="t">The AI_2 Playbook</span>
+  <span class="d">The synthesis: the curriculum's shape is right; four mechanics are the likely performance sinks. An ordered experiment ladder, E0 reward-wiring audit through E7 auxiliary heads, each with cost, success metric, and kill criterion.</span>
+</a>
+
+<div class="note"><span class="lb">If you only read two</span><p>Read report 7, because it explains the one failure the project has actually measured, then report 8, because it turns all six evidence reports into the next month of experiments. The others are the supporting evidence, in teaching order.</p></div>
+
+<h2>Glossary</h2>
+<dl>
+<div class="gl"><dt>Policy</dt><dd>The trained function that maps what the agent sees to what it does. "The model" and "the policy" are the same thing here.</dd></div>
+<div class="gl"><dt>Checkpoint</dt><dd>A saved snapshot of the policy's weights at some moment in training.</dd></div>
+<div class="gl"><dt>Self-play</dt><dd>Training where the opponent is the agent itself, live or as a past checkpoint.</dd></div>
+<div class="gl"><dt>Opponent pool</dt><dd>The set of past checkpoints and bots that training opponents are drawn from.</dd></div>
+<div class="gl"><dt>Curriculum</dt><dd>Any deliberate ordering of practice: easier tasks first, rewards that guide early learning, opponents that get harder.</dd></div>
+<div class="gl"><dt>Reward shaping</dt><dd>Extra rewards added to guide learning (distance, damage) beyond the real goal (winning). Helpful early, distorting if left in place.</dd></div>
+<div class="gl"><dt>Deterministic vs. sampled</dt><dd>Two ways to act: take the policy's single most-preferred action, or draw randomly from its preferences. They can behave very differently (report 7).</dd></div>
+<div class="gl"><dt>Entropy</dt><dd>A measure of how random the policy is. Training adds a small bonus for staying random so exploration does not die out.</dd></div>
+<div class="gl"><dt>Best response</dt><dd>The most effective counter-strategy against one specific opponent.</dd></div>
+<div class="gl"><dt>Nash equilibrium</dt><dd>Strategies with no profitable counter. The theoretical end state of self-play.</dd></div>
+<div class="gl"><dt>Exploitability</dt><dd>How badly the best counter-strategy beats you. The honest score of a self-play agent, measured by training a fresh opponent against your frozen policy.</dd></div>
+<div class="gl"><dt>Non-transitive</dt><dd>A game where styles beat each other in circles, like rock-paper-scissors. Fighting games are; Go mostly is not.</dd></div>
+<div class="gl"><dt>PFSP</dt><dd>Prioritized fictitious self-play: pick pool opponents with probability weighted toward the ones you currently lose to.</dd></div>
+<div class="gl"><dt>League</dt><dd>AlphaStar's structure: a main agent, plus exploiter agents whose only job is to find its weaknesses, plus a growing pool of frozen snapshots.</dd></div>
+<div class="gl"><dt>Kickstarting / distillation</dt><dd>Teaching one network to imitate another, used to carry skills between training stages or from demonstrations.</dd></div>
+<div class="gl"><dt>Transition</dt><dd>One step of experience for one player: what it saw, did, and the reward that followed. The unit all training budgets are measured in.</dd></div>
+</dl>
+
+<h2>Provenance and honesty rules</h2>
+<p class="prov">Facts about external systems were gathered 2026-09-14/15 by six research passes over the primary papers, official blogs, and repositories, and cross-checked against the repo's existing research notes. Numbers that could only be confirmed in one secondary source are marked "reported" in the text. Every claim about AI_2 itself cites a preserved baseline or config file. No statement in this series is a new measured AI_2 result: the audits and experiment designs in reports 7 and 8 are hypotheses with proposed tests, in keeping with the project's evidence discipline. Local reading copies live at <code>research/strategy-reports/</code> in the main AI_2 checkout; the earlier foundations are <code>research/04</code>, <code>research/05</code>, and <code>research/06</code>.</p>
+
+</main>
+</div>
+</body>
+</html>

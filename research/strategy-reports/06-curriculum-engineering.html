@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curriculum Engineering</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 6 of 8</b></p>
+  <h1>Curriculum Engineering</h1>
+  <p class="dateline">Researched 2026-09-15. Builds on the repo's own curriculum research (research/04 and research/05, dated 2026-09-13), which covers the foundations: the Narvekar survey, reverse curriculum, reward-shaping invariance, and Prioritized Level Replay. This report adds the operational layer: how the big systems ran their gates, fades, and skill hand-offs.</p>
+  <p class="lede">AI_2 already has a curriculum: navigation drills 0a–0e, then combat phases 1–4 with shifting reward weights and opponent mixes, promotion gated on success metrics. The design matches what the literature recommends. Where projects live or die is in the mechanics: when exactly to advance, how to remove training-wheel rewards, and how to carry a skill into the next phase without losing it. That operational layer is what the big systems documented, and it is where your measured navigation-to-combat gap sits.</p>
+</header>
+<main>
+
+<h2>Promotion gates: what the systems actually used</h2>
+<div class="tw"><table>
+<thead><tr><th>System</th><th>Gate</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td>AlphaGo Zero</td><td>New checkpoint must win ≥55% of 400 arena games against the incumbent</td><td>Per checkpoint, head-to-head against its predecessor</td></tr>
+<tr><td>AlphaZero / KataGo</td><td>No gate; latest network always used</td><td>Safety traded for simplicity; worked in near-transitive Go</td></tr>
+<tr><td>AlphaStar</td><td>Exploiters retire when they reach ~70% win rate against their target, or on timeout</td><td>Per agent, against its assigned opponents</td></tr>
+<tr><td>ADR (Rubik's)</td><td>Per-parameter: widen a difficulty range when boundary-episode performance beats a high threshold, shrink when below a low one, decided over a 240-episode buffer</td><td>Local to each parameter, reversible</td></tr>
+<tr><td>XLand</td><td>No fixed thresholds; tasks filtered to the frontier (not-too-easy, not-too-hard) per agent, with the filter's own thresholds tuned by population-based training</td><td>Relative, self-adjusting</td></tr>
+</tbody>
+</table></div>
+<p>Three properties recur. Gates compare against something <em>local</em> (the predecessor, the current range boundary), not against a distant end goal. Gates are decided over a <em>buffer</em> of episodes, never a handful. And difficulty is <em>reversible</em> where possible: ADR shrinks ranges on regression rather than leaving the agent stuck.</p>
+<div class="call"><span class="lb">The gate-scope error, which this project already met</span><p>Gating an early lesson on a later lesson's standard stalls training with no information gained. The September 8 contact run's saved report caught precisely this: an absolute wide-navigation standard was used as a mandatory stop for the earlier contact lesson, and the corrected analysis notes nearby-retention was the right gate and it passed (research/04, finding 4). The literature's version of the rule: gate each phase on the behavior that phase teaches, measured in the mode that matters. For phase 1 of combat, that is attack-initiation events per encounter, not win rate, and explicitly in the action-selection mode the skill must work under, deterministic or sampled (report 7).</p></div>
+
+<h2>Fading the training wheels</h2>
+<p>Shaped rewards, approach bonuses, distance rewards, exist to make early learning possible. Ng's invariance theorem (in the repo's research/05 notes) says almost any shaping that is not potential-based changes what the optimal policy is, so a shaped reward left in place permanently trains a different game. The operational question is the removal schedule, and there are two published patterns:</p>
+<ul>
+<li><strong>Anneal within a phase.</strong> Bansal et al. gave their competing MuJoCo agents a dense exploration reward and annealed it linearly to zero over the early fraction of training, after which only the sparse competition reward remained. Kept constant instead, the agents learned proxy behaviors: standing still in sumo, carrying the ball instead of kicking it. This is the classic evidence that dense aids must fade.</li>
+<li><strong>Anneal a blend continuously.</strong> OpenAI Five's team-spirit parameter slid from selfish to team-average reward over training, a smooth version of the same move.</li>
+</ul>
+<p>AI_2's phase table steps reward weights between phases (distance 2.0 in phase 1, 0.5 in phase 2, 0.1 in phase 3, 0.0 in phase 4), which is a coarse staircase version of the anneal. The literature pattern suggests one refinement: fade <em>within</em> a phase too, so the last third of each phase is already training mostly on the next phase's objective, and the phase switch stops being a cliff.</p>
+
+<h2>Keeping old skills: the four published mechanisms</h2>
+<div class="tw"><table>
+<thead><tr><th>Mechanism</th><th>How it works</th><th>Who used it</th></tr></thead>
+<tbody>
+<tr><td>Freeze the skill</td><td>Lock the earlier skill into a frozen module (a low-level controller); later training acts through it and cannot corrupt it</td><td>DeepMind humanoid football: locomotion frozen as a low-level controller, football trained on top</td></tr>
+<tr><td>Regularize toward it</td><td>Keep a penalty for drifting away from a reference policy (a KL anchor)</td><td>AlphaStar (anchor to the human-imitation policy); football (anchor to drill experts)</td></tr>
+<tr><td>Rehearse it</td><td>Mix earlier-phase episodes into later training at some ratio</td><td>Your own approved contact plan (navigation maintenance interleaved); general continual-learning practice; published game systems rarely state ratios</td></tr>
+<tr><td>Distill and restart</td><td>Train the next stage's network fresh, but initialize it by cloning the previous stage's behavior (kickstarting)</td><td>XLand between generations; kickstarting reports ~10x fewer steps to match, then surpassing, the teacher (reported)</td></tr>
+</tbody>
+</table></div>
+<p>Worth stating clearly because the September experiments checked it: AI_2 has so far <em>not</em> observed forgetting. All 280 matched navigation episode pairs were identical after contact calibration (research/04, finding 4). The retention problem is currently hypothetical; the transition problem is the measured one. Spend accordingly.</p>
+
+<h2>The transition problem, which is the measured one</h2>
+<p>The symptom, from the September 8 runs: after navigation training, the agent approaches its combat target on every episode but requested zero light attacks in deterministic mode; under sampling it hits in 20 of 20 episodes. Three mechanisms from this literature aim directly at a stuck skill hand-off, ordered by fit:</p>
+<ol>
+<li><strong>Reverse-curriculum starts.</strong> Florensa's rule (repo research/05): train from start states where the current agent sometimes succeeds, then expand outward. The contact lesson already spawns players close together, which is this idea. The refinement is to gate expansion on measured success probability staying in a band, rather than a fixed spawn recipe.</li>
+<li><strong>Kickstart the mean, not just the buffer.</strong> The agent already produces successful attack episodes when sampling. Behavior-clone those episodes (its own successes, no human data needed) into the policy before continuing RL. This moves the deterministic policy toward the demonstrated behavior directly, which matters because the failure is specifically in the deterministic output (report 7 explains why the gradient alone moves it so slowly).</li>
+<li><strong>Gate on the behavior, decided over a buffer.</strong> Promote out of the contact lesson on attack-initiation rate and safe-completion rate over a few hundred episodes, in the declared action mode, ADR-style. The 80% navigation gates were well-formed; the combat gates need the same specificity.</li>
+</ol>
+
+<h2>Automating the difficulty knobs you already have</h2>
+<p>Phases 0a–0e are one hand-run curriculum over four numbers: spawn distance range, fall penalty, time limit, target count. 0a is distances 1–3; 0d is 1–15 with three targets. ADR (mechanism in report 2) is the same ladder run automatically: make each number a range, probe the edges, widen what the agent handles, shrink what it fails. Two payoffs beyond convenience: the difficulty always sits at the agent's frontier instead of waiting for a human to notice a plateau, and regression pulls difficulty back instead of wasting samples. At the native pipeline's throughput, the probe episodes ADR spends are cheap. The combat phases have their own ADR-able knobs: opponent mix shares, spawn separation, stock counts, and, if adopted from report 4, the time-penalty weight.</p>
+
+<h2>The 2023–2026 fringe, briefly</h2>
+<p>Three lines are worth knowing about, none load-bearing for AI_2 today. EUREKA uses an LLM to write and iteratively improve reward functions, judged by training outcomes; its headline was solving pen-spinning via a two-stage curriculum of generated rewards. CurricuLLM has an LLM propose the subtask sequence itself, with explicit instructions to keep earlier-task terms in later rewards to fight forgetting. XLand-style open-ended task generation remains the reference for full automation. The honest summary: these automate the authoring of curricula, while your bottleneck is the mechanics of one specific hand-off, so they are future conveniences, not current fixes.</p>
+
+<h2>What this means for the 9-phase design</h2>
+<ul>
+<li>The architecture of the curriculum, drills before combat, shaping that decreases across phases, gated promotion, diverse scripted styles, matches the published playbook. The premise of the question "is our curriculum wrong?" deserves a precise answer: the <em>shape</em> is right, and the evidence points at four specific mechanics instead: the action-space/evaluation-mode contract (report 7), the opponent shares late in training (report 5), gate definitions per phase (this report), and reward wiring correctness (report 8's first experiment, the audit).</li>
+<li>Adopt buffered, behavior-specific gates for combat phases; keep the corrected retention gates stage-local.</li>
+<li>Fade shaping within phases, not only between them.</li>
+<li>Treat ADR as the eventual automation of 0a–0e and of combat difficulty, once the native port of the curriculum makes probe episodes nearly free.</li>
+</ul>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>OpenAI et al., Solving Rubik's Cube (ADR) — <a href="https://arxiv.org/abs/1910.07113">arXiv:1910.07113</a></li>
+<li>DeepMind, Open-Ended Learning (XLand) — <a href="https://arxiv.org/abs/2107.12808">arXiv:2107.12808</a></li>
+<li>Bansal et al. — <a href="https://arxiv.org/abs/1710.03748">arXiv:1710.03748</a>; Berner et al. — <a href="https://arxiv.org/abs/1912.06680">arXiv:1912.06680</a></li>
+<li>Liu et al., humanoid football — <a href="https://arxiv.org/abs/2105.12196">arXiv:2105.12196</a></li>
+<li>Schmitt et al., Kickstarting Deep RL — <a href="https://arxiv.org/abs/1803.03835">arXiv:1803.03835</a></li>
+<li>EUREKA — <a href="https://arxiv.org/abs/2310.12931">arXiv:2310.12931</a>; CurricuLLM — <a href="https://arxiv.org/abs/2409.18382">arXiv:2409.18382</a></li>
+<li>Repo foundations: research/04-curriculum-learning-reading-guide.md and research/05-curriculum-methods-and-papers.md (Narvekar, Florensa, Ng, PLR, TSCL, ALP-GMM, ACCEL)</li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="05-self-play-design.html">← Self-Play by Design</a>
+  <a href="index.html">Series index</a>
+  <a href="07-attack-button.html">Next: The Attack-Button Problem →</a>
+</nav>
+</div>
+</body>
+</html>
