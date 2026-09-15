@@ -1,5 +1,10 @@
+import io
+import json
 import math
+import tempfile
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 
 import training_benchmark_contract as contract
 from training_benchmark_contract import (
@@ -943,6 +948,99 @@ class NativeAdapterTests(unittest.TestCase):
                 corrupt(raw)
                 with self.assertRaisesRegex(ContractError, expected):
                     ai2_native_receipt(raw, "native_cuda")
+
+
+class CLITests(unittest.TestCase):
+    def test_validate_compare_and_convert_ai2_commands_write_atomic_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = root / "left.json"
+            right = root / "right.json"
+            comparison = root / "comparison.json"
+            raw = root / "result.json"
+            converted = root / "receipt.json"
+            left.write_text(json.dumps(receipt()), encoding="utf-8")
+            right.write_text(json.dumps(receipt(measurement={"agent_transitions": 2000, "claimed_rate": 200.0})), encoding="utf-8")
+            raw.write_text(json.dumps(native_result()), encoding="utf-8")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(0, contract.main(["validate", str(left)]))
+            self.assertEqual(100.0, json.loads(stdout.getvalue())["measurement"]["derived_rate"])
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(0, contract.main(["compare", str(left), str(right)]))
+            printed = json.loads(stdout.getvalue())
+            self.assertTrue(printed["throughput_comparable"])
+            self.assertEqual(2.0, printed["speedup_ratio"])
+
+            self.assertEqual(
+                0,
+                contract.main([
+                    "compare",
+                    str(left),
+                    str(right),
+                    "--output",
+                    str(comparison),
+                ]),
+            )
+            written = json.loads(comparison.read_text(encoding="utf-8"))
+            self.assertEqual(2.0, written["speedup_ratio"])
+
+            self.assertEqual(
+                0,
+                contract.main([
+                    "convert-ai2",
+                    str(raw),
+                    "--backend",
+                    "native_cuda",
+                    "--output",
+                    str(converted),
+                ]),
+            )
+            converted_receipt = validate_receipt(json.loads(converted.read_text(encoding="utf-8")))
+            self.assertEqual("native_cuda", converted_receipt["workload"]["source_provenance"]["backend"])
+            self.assertEqual(128, converted_receipt["measurement"]["agent_transitions"])
+
+    def test_cli_refuses_overwrite_and_marks_non_comparable_pair_distinctly(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = root / "left.json"
+            right = root / "right.json"
+            existing = root / "existing.json"
+            left.write_text(json.dumps(receipt()), encoding="utf-8")
+            right.write_text(
+                json.dumps(receipt(system={"hardware": {"accelerator_model": "RTX 3090"}})),
+                encoding="utf-8",
+            )
+            existing.write_text("do-not-replace", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(
+                    contract.CLI_OUTPUT_EXISTS,
+                    contract.main([
+                        "validate",
+                        str(left),
+                        "--output",
+                        str(existing),
+                    ]),
+                )
+            self.assertIn("refusing to overwrite", json.loads(stdout.getvalue())["error"])
+            self.assertEqual("do-not-replace", existing.read_text(encoding="utf-8"))
+
+            result_code = contract.main([
+                "compare",
+                str(left),
+                str(right),
+                "--output",
+                str(root / "non_comparable.json"),
+            ])
+            self.assertEqual(contract.CLI_NON_COMPARABLE, result_code)
+            comparison = json.loads((root / "non_comparable.json").read_text(encoding="utf-8"))
+            self.assertFalse(comparison["throughput_comparable"])
+            self.assertIn("system.hardware.accelerator_model", comparison["throughput_blockers"])
 
 
 if __name__ == "__main__":

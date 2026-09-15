@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import os
+from pathlib import Path
 from typing import Any
 
 
 SCHEMA_VERSION = "ai2.benchmark_contract.v1"
 HEADLINE_UNIT = "agent_transition"
+CLI_CONTRACT_ERROR = 2
+CLI_NON_COMPARABLE = 3
+CLI_OUTPUT_EXISTS = 4
 END_TO_END_STAGES = (
     "policy_inference",
     "action_sampling",
@@ -469,11 +475,76 @@ def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, A
     return validate_receipt(receipt)
 
 
+def main(argv: list[str] | None = None) -> int:
+    """Command-line entrypoint for validating and comparing receipt JSON."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("receipt", type=Path)
+    validate_parser.add_argument("--output", type=Path)
+
+    compare_parser = subparsers.add_parser("compare")
+    compare_parser.add_argument("left", type=Path)
+    compare_parser.add_argument("right", type=Path)
+    compare_parser.add_argument("--output", type=Path)
+
+    convert_parser = subparsers.add_parser("convert-ai2")
+    convert_parser.add_argument("result", type=Path)
+    convert_parser.add_argument("--backend", required=True)
+    convert_parser.add_argument("--output", type=Path)
+
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "validate":
+            payload = validate_receipt(_read_json(args.receipt))
+            return _emit_json(payload, args.output)
+        if args.command == "compare":
+            comparison = compare_receipts(_read_json(args.left), _read_json(args.right))
+            output_status = _emit_json(comparison, args.output)
+            if output_status:
+                return output_status
+            if not comparison["throughput_comparable"]:
+                return CLI_NON_COMPARABLE
+            return 0
+        if args.command == "convert-ai2":
+            payload = ai2_native_receipt(_read_json(args.result), args.backend)
+            return _emit_json(payload, args.output)
+    except ContractError as exc:
+        print(json.dumps({"error": str(exc)}, sort_keys=True))
+        return CLI_CONTRACT_ERROR
+    return CLI_CONTRACT_ERROR
+
+
 def _json_safe_copy(raw: dict[str, Any]) -> dict[str, Any]:
     try:
         return json.loads(json.dumps(raw, allow_nan=False))
     except (TypeError, ValueError) as exc:
         raise ContractError("receipt must be JSON-safe with finite numeric values") from exc
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ContractError(f"{path} must contain a JSON object")
+    return payload
+
+
+def _emit_json(payload: dict[str, Any], output: Path | None) -> int:
+    text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    if output is None:
+        print(text, end="")
+        return 0
+    if output.exists():
+        print(json.dumps({"error": f"refusing to overwrite {output}"}, sort_keys=True))
+        return CLI_OUTPUT_EXISTS
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(output.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(temporary, output)
+    return 0
 
 
 def _positive_finite(value: Any, name: str) -> float:
@@ -812,3 +883,7 @@ def _positive_or_negative_finite(value: Any, name: str) -> float:
     if not math.isfinite(as_float):
         raise ContractError(f"{name} must be finite")
     return as_float
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

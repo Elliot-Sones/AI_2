@@ -1,0 +1,94 @@
+{
+  "schema_version": "ai2.benchmark_contract.v1",
+  "system": {
+    "hardware": {
+      "accelerator_model": null,
+      "accelerator_count": 1,
+      "cpu_model": null
+    },
+    "software": {
+      "puffer_commit": null,
+      "ai2_commit": null,
+      "python": null,
+      "torch": null,
+      "cuda": null,
+      "command": null
+    }
+  },
+  "workload": {
+    "unit": "agent_transition",
+    "timing_scope": "end_to_end",
+    "included_stages": [
+      "policy_inference",
+      "action_sampling",
+      "environment_step",
+      "rollout_storage",
+      "returns_and_advantages",
+      "ppo_update",
+      "device_synchronization"
+    ],
+    "quality_target": null,
+    "warmup_policy": {
+      "mode": null,
+      "iterations": null
+    },
+    "synchronization": {
+      "device": null,
+      "method": null
+    },
+    "overlap": {
+      "mode": null,
+      "evidence": null
+    },
+    "environment": {
+      "env_id": null,
+      "observation_contract": null,
+      "action_contract": null,
+      "tick_semantics": null,
+      "terminal_bootstrap": null,
+      "parity_artifacts": null
+    },
+    "model": {
+      "architecture": null,
+      "parameter_count": null,
+      "precision": null
+    },
+    "rollout": {
+      "num_envs": null,
+      "horizon": null,
+      "transitions_per_batch": null
+    }
+  },
+  "algorithm": {
+    "optimizer": null,
+    "learning_rate": null,
+    "gamma": null,
+    "gae_lambda": null,
+    "clip_range": null,
+    "entropy_coef": null,
+    "value_coef": null,
+    "max_grad_norm": null,
+    "sample_reuse_epochs": null,
+    "minibatches": null,
+    "ppo_epochs": null,
+    "replay_semantics": null,
+    "actor_staleness": null,
+    "advantage_normalization": null,
+    "terminal_bootstrap": null
+  },
+  "timing": {
+    "elapsed_source": "wall_clock",
+    "elapsed_seconds": null,
+    "stage_seconds": null
+  },
+  "measurement": {
+    "agent_transitions": null,
+    "claimed_rate": null
+  },
+  "correctness": {
+    "env_trace_parity": null,
+    "rollout_parity": null,
+    "fixed_transition_quality": null,
+    "fixed_wall_clock_quality": null
+  }
+}
