@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 TESTS_DIR = Path(__file__).resolve().parent
@@ -45,26 +47,35 @@ class FakeEnv:
     act_helper = object()
 
 
-def make_parent_handler(tmp, *, save_freq=100, max_saved=5):
+def make_parent_handler(tmp, *, save_freq=100, max_saved=5, name_prefix="rl_model"):
     return train.ClassicSelfPlaySaveHandler(
         agent=None,
         save_freq=save_freq,
         max_saved=max_saved,
         run_name="self_play_run",
         save_path=tmp,
+        name_prefix=name_prefix,
         mode=train.SaveHandlerMode.FORCE,
     )
 
 
-def make_worker_handler(tmp, *, max_saved=5):
+def make_worker_handler(tmp, *, max_saved=5, name_prefix="rl_model"):
     return train.VectorizedSaveHandler(
         agent=None,
         save_freq=100,
         max_saved=max_saved,
         run_name="self_play_run",
         save_path=tmp,
+        name_prefix=name_prefix,
         mode=train.SaveHandlerMode.FORCE,
     )
+
+
+def write_manifest(tmp, entries, *, version=None):
+    archive_dir = os.path.join(tmp, "self_play_run")
+    os.makedirs(archive_dir, exist_ok=True)
+    with open(os.path.join(archive_dir, train.SELF_PLAY_ARCHIVE_MANIFEST), "w", encoding="utf-8") as f:
+        json.dump({"version": train.SELF_PLAY_ARCHIVE_VERSION if version is None else version, "checkpoints": entries}, f)
 
 
 class SelfPlayArchiveContractTest(unittest.TestCase):
@@ -232,6 +243,81 @@ class SelfPlayArchiveContractTest(unittest.TestCase):
             self.assertIsNone(worker.get_random_model_path())
             self.assertEqual(worker.selection_reason, "incompatible_manifest_version")
 
+    def test_manifest_rejects_path_escapes_and_symlink_escapes(self):
+        cases = [
+            ("absolute", "/tmp/rl_model_100_steps.zip", "invalid_manifest_path"),
+            ("parent", "../rl_model_100_steps.zip", "invalid_manifest_path"),
+            ("separator", "nested/rl_model_100_steps.zip", "invalid_manifest_path"),
+            ("backslash", "nested\\rl_model_100_steps.zip", "invalid_manifest_path"),
+        ]
+        for _, filename, reason in cases:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory(prefix="ai2-selfplay-escape-") as tmp:
+                write_manifest(tmp, [{"filename": filename, "content_sha256": "0" * 64}])
+
+                worker = make_worker_handler(tmp)
+
+                self.assertEqual(worker.history, [])
+                self.assertIsNone(worker.get_random_model_path())
+                self.assertEqual(worker.selection_reason, reason)
+
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-symlink-") as tmp:
+            outside_fd, outside_path = tempfile.mkstemp(prefix="ai2-outside-checkpoint-", suffix=".zip")
+            os.close(outside_fd)
+            try:
+                with open(outside_path, "wb") as f:
+                    f.write(b"outside")
+                archive_dir = os.path.join(tmp, "self_play_run")
+                os.makedirs(archive_dir)
+                link_path = os.path.join(archive_dir, "rl_model_100_steps.zip")
+                os.symlink(outside_path, link_path)
+                write_manifest(tmp, [{
+                    "filename": "rl_model_100_steps.zip",
+                    "content_sha256": train._sha256_file(outside_path),
+                }])
+
+                worker = make_worker_handler(tmp)
+
+                self.assertEqual(worker.history, [])
+                self.assertIsNone(worker.get_random_model_path())
+                self.assertEqual(worker.selection_reason, "manifest_path_escape")
+            finally:
+                os.remove(outside_path)
+
+    def test_manifest_requires_valid_matching_sha_for_every_checkpoint(self):
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-invalid-sha-") as tmp:
+            archive_dir = os.path.join(tmp, "self_play_run")
+            os.makedirs(archive_dir)
+            with open(os.path.join(archive_dir, "rl_model_100_steps.zip"), "wb") as f:
+                f.write(b"checkpoint")
+            write_manifest(tmp, [{"filename": "rl_model_100_steps.zip", "content_sha256": "not-a-sha"}])
+
+            worker = make_worker_handler(tmp)
+
+            self.assertEqual(worker.history, [])
+            self.assertIsNone(worker.get_random_model_path())
+            self.assertEqual(worker.selection_reason, "invalid_manifest_hash")
+
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-sha-mismatch-") as tmp:
+            archive_dir = os.path.join(tmp, "self_play_run")
+            os.makedirs(archive_dir)
+            with open(os.path.join(archive_dir, "rl_model_100_steps.zip"), "wb") as f:
+                f.write(b"checkpoint")
+            write_manifest(tmp, [{"filename": "rl_model_100_steps.zip", "content_sha256": "0" * 64}])
+
+            worker = make_worker_handler(tmp)
+
+            self.assertEqual(worker.history, [])
+            self.assertIsNone(worker.get_random_model_path())
+            self.assertEqual(worker.selection_reason, "checkpoint_hash_mismatch")
+
+    def test_missing_archive_reports_empty_archive(self):
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-missing-") as tmp:
+            worker = make_worker_handler(tmp)
+
+            self.assertEqual(worker.history, [])
+            self.assertIsNone(worker.get_random_model_path())
+            self.assertEqual(worker.selection_reason, "empty_archive")
+
     def test_empty_manifest_does_not_scan_stale_zip_files(self):
         with tempfile.TemporaryDirectory(prefix="ai2-selfplay-empty-manifest-") as tmp:
             archive_dir = os.path.join(tmp, "self_play_run")
@@ -265,6 +351,40 @@ class SelfPlayArchiveContractTest(unittest.TestCase):
                 ["rl_model_200_steps.zip", "rl_model_300_steps.zip"],
             )
             self.assertFalse(os.path.exists(os.path.join(tmp, "self_play_run", "rl_model_100_steps.zip")))
+
+    def test_parent_force_construction_is_noninteractive_and_preserves_existing_files(self):
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-no-force-delete-") as tmp:
+            archive_dir = os.path.join(tmp, "self_play_run")
+            os.makedirs(archive_dir)
+            sentinel = os.path.join(archive_dir, "do-not-delete.txt")
+            with open(sentinel, "wb") as f:
+                f.write(b"keep")
+
+            with mock.patch("builtins.input", side_effect=AssertionError("must not prompt")):
+                parent = make_parent_handler(tmp)
+
+            self.assertTrue(os.path.exists(sentinel))
+            self.assertEqual(parent.history, [])
+
+    def test_phase_specific_prefix_prevents_initial_snapshot_collisions(self):
+        with tempfile.TemporaryDirectory(prefix="ai2-selfplay-phase-prefix-") as tmp:
+            phase1_prefix = train._classic_self_play_name_prefix(SimpleNamespace(phase_key=1))
+            phase2_prefix = train._classic_self_play_name_prefix(SimpleNamespace(phase_key=2))
+            phase1 = make_parent_handler(tmp, name_prefix=phase1_prefix)
+            phase1.agent = FakeAgent()
+            phase1.num_timesteps = 0
+            self.assertTrue(phase1.save_initial_snapshot())
+
+            phase2 = make_parent_handler(tmp, name_prefix=phase2_prefix)
+            phase2.agent = FakeAgent()
+            phase2.num_timesteps = 0
+            self.assertTrue(phase2.save_initial_snapshot())
+
+            self.assertNotEqual(phase1_prefix, phase2_prefix)
+            self.assertEqual([os.path.basename(path) for path in phase1.history], [f"{phase1_prefix}_0_steps.zip"])
+            self.assertEqual([os.path.basename(path) for path in phase2.history], [f"{phase2_prefix}_0_steps.zip"])
+            self.assertTrue(os.path.exists(os.path.join(tmp, "self_play_run", f"{phase1_prefix}_0_steps.zip")))
+            self.assertTrue(os.path.exists(os.path.join(tmp, "self_play_run", f"{phase2_prefix}_0_steps.zip")))
 
 
 if __name__ == "__main__":

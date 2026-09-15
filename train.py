@@ -11,6 +11,7 @@ import random
 import copy
 import tempfile
 import time
+import re
 import gymnasium as gym
 import numpy as np
 from collections import deque
