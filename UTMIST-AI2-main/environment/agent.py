@@ -609,7 +609,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
 
     def __init__(self,
                  reward_manager: Optional[RewardManager]=None,
-                 opponent_cfg: OpponentsCfg=OpponentsCfg(),
+                 opponent_cfg: Optional[OpponentsCfg]=None,
                  save_handler: Optional[SaveHandler]=None,
                  render_every: int | None = None,
                  resolution: CameraResolution=CameraResolution.LOW,
@@ -628,7 +628,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
 
         self.reward_manager = reward_manager
         self.save_handler = save_handler
-        self.opponent_cfg = opponent_cfg
+        self.opponent_cfg = opponent_cfg if opponent_cfg is not None else OpponentsCfg()
         self.render_every = render_every
         self.resolution = resolution
         self.render_mode = render_mode
@@ -693,9 +693,10 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
 
     def reset(self, seed=None, options=None):
         # Reset MalachiteEnv
-        observations, info = self.raw_env.reset()
+        observations, info = self.raw_env.reset(seed=seed, options=options)
 
-        self.reward_manager.reset()
+        if self.reward_manager is not None:
+            self.reward_manager.reset()
 
         # Select agent
         new_agent: Agent = self.opponent_cfg.on_env_reset()
@@ -715,7 +716,10 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
         return img
 
     def close(self):
-        pass
+        close = getattr(self.raw_env, "close", None)
+        if close is not None:
+            return close()
+        return None
 
 
 # ## Run Match

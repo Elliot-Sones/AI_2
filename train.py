@@ -1310,6 +1310,24 @@ def _attach_self_play_handlers(opponent_cfg: OpponentsCfg, *, env, save_handler)
             selfplay_handler.env = env
 
 
+def _configured_max_timesteps(params: dict, *, fps: int) -> int:
+    settings = params.get("environment_settings", {})
+    configured_steps = settings.get("max_timesteps")
+    configured_seconds = settings.get("time_limit_seconds")
+    if configured_seconds is not None:
+        computed_steps = int(round(float(configured_seconds) * fps))
+        if configured_steps is not None and int(configured_steps) != computed_steps:
+            raise ValueError(
+                "environment_settings.max_timesteps must match "
+                f"time_limit_seconds * fps ({computed_steps}) when both are set; "
+                f"got {configured_steps}."
+            )
+        return computed_steps
+    if configured_steps is not None:
+        return int(configured_steps)
+    return int(fps * 90)
+
+
 def _combat_model_root(params: dict) -> str:
     return os.path.abspath(os.path.join(
         params["folders"]["parent_dir"],
@@ -2080,6 +2098,7 @@ def make_combat_env(phase_config: PhaseConfig, params: dict, device: str):
         resolution=resolution,
         reward_manager=reward_manager
     )
+    env.raw_env.max_timesteps = _configured_max_timesteps(params, fps=getattr(env.raw_env, "fps", 30))
     reward_manager.subscribe_signals(env.raw_env)
     env = Float32Wrapper(env)
     env = DamageTrackingWrapper(env)

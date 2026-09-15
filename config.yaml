@@ -233,7 +233,8 @@ ppo_settings:
 # Environment settings
 # ============================================================================
 environment_settings:
-  max_timesteps: 5400       # Max steps per episode (90 seconds at 60fps)
+  time_limit_seconds: 90    # Combat episode time limit at the game clock rate
+  max_timesteps: 2700       # 90 seconds at WarehouseBrawl.fps=30
   render_mode: null
   resolution: "LOW"         # LOW, MEDIUM, HIGH
   n_envs: 48                # Parallel environments (Increased for 72-core CPU)

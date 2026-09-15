@@ -1149,6 +1149,9 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
 
     def reset(self, seed=None, options=None) -> Tuple[dict[int, np.ndarray], dict[str, Any]]:
         self.seed = seed
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(int(seed) % (2**32))
         self.space = pymunk.Space()
         self.dt = 1 / 30.0
         self.space.gravity = 0, 17.808
