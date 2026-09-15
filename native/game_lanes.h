@@ -10,7 +10,7 @@
  * reset preserves undrained records and lifetime valid_steps, including when
  * selective; autoreset preserves cumulative completed-episode indexing.
  */
-#include "game_episode.h"
+#include "combat_reward.h"
 #include <limits.h>
 #include <stddef.h>
 
@@ -27,6 +27,10 @@ typedef struct AI2GLane {
     double returns[2];
     float last_obs[AI2G_LANE_OBS];
     uint64_t valid_steps; /* Successful game ticks over this context lifetime. */
+    AI2CRCoefficients reward_cfg;
+    AI2CRState reward_state;
+    AI2CRBreakdown last_reward;
+    int32_t reward_learner_slot;
     int32_t length, episodes, error, active;
 } AI2GLane;
 
@@ -34,6 +38,7 @@ typedef struct AI2GEpisodeRecord {
     int32_t lane, length, terminated, truncated, win_mask, episode_index;
     int32_t stocks[2];
     double returns[2], damage_done[2], damage_taken[2];
+    AI2CREpisodeRecord reward;
 } AI2GEpisodeRecord;
 
 AI2N_HD static inline void ai2g_lane_obs(const AI2GLane *lane, float *obs) {
@@ -53,6 +58,7 @@ AI2N_HD static inline int ai2g_lane_begin(AI2GLane *lane, const AI2NConfig *cfg,
     int i, j, rc;
     lane->returns[0] = lane->returns[1] = 0.0;
     lane->length = 0; lane->error = 0; lane->active = 0;
+    ai2n_zero(&lane->last_reward, sizeof(lane->last_reward));
     if (seeded) lane->episodes = 0;
     rc = ai2g_reset(&lane->game, cfg, &lane->rng, pixels_per_world, &out);
     if (!rc && lane->rng.error) rc = AI2N_ERR_RNG;
@@ -61,6 +67,14 @@ AI2N_HD static inline int ai2g_lane_begin(AI2GLane *lane, const AI2NConfig *cfg,
         ai2g_lane_obs(lane, obs);
         return rc;
     }
+    if (lane->reward_cfg.enabled_mask) {
+        rc = ai2cr_reset(&lane->reward_state, &lane->game, lane->reward_learner_slot);
+        if (rc) {
+            lane->error = rc;
+            ai2g_lane_obs(lane, obs);
+            return rc;
+        }
+    } else ai2n_zero(&lane->reward_state, sizeof(lane->reward_state));
     for (i = 0; i < 2; ++i) for (j = 0; j < 64; ++j)
         lane->last_obs[i * 64 + j] = (float)out.obs[i][j];
     ai2g_lane_obs(lane, obs); lane->active = 1;
@@ -98,6 +112,7 @@ AI2N_HD static inline int ai2g_lane_step(AI2GLane *lane, int index, const AI2NCo
                                         int capacity, int *count, int *overflow) {
     double action[2][10];
     AI2GStepResult out;
+    double step_rewards[2];
     int i, j, rc, slot;
     if (!lane->error && !lane->active) lane->error = AI2G_ERR_UNINITIALIZED;
     if (!lane->error && (lane->length == INT_MAX || lane->episodes == INT_MAX || lane->valid_steps == UINT64_MAX))
@@ -115,8 +130,22 @@ AI2N_HD static inline int ai2g_lane_step(AI2GLane *lane, int index, const AI2NCo
         return rc;
     }
     ++lane->length; ++lane->valid_steps;
+    if (lane->reward_cfg.enabled_mask) {
+        rc = ai2cr_step(&lane->reward_state, &lane->game, &out, &lane->reward_cfg, &lane->last_reward);
+        if (rc) {
+            lane->error = rc;
+            ai2g_lane_hold(lane, obs, terminal, rewards, terminated, truncated);
+            return rc;
+        }
+        step_rewards[0] = lane->last_reward.total[0];
+        step_rewards[1] = lane->last_reward.total[1];
+    } else {
+        ai2n_zero(&lane->last_reward, sizeof(lane->last_reward));
+        step_rewards[0] = out.reward[0];
+        step_rewards[1] = out.reward[1];
+    }
     for (i = 0; i < 2; ++i) {
-        lane->returns[i] += out.reward[i]; rewards[i] = (float)out.reward[i];
+        lane->returns[i] += step_rewards[i]; rewards[i] = (float)step_rewards[i];
         for (j = 0; j < 64; ++j) lane->last_obs[i * 64 + j] = (float)out.obs[i][j];
     }
     ai2g_lane_obs(lane, terminal); ai2g_lane_obs(lane, obs);
@@ -136,6 +165,10 @@ AI2N_HD static inline int ai2g_lane_step(AI2GLane *lane, int index, const AI2NCo
             r->damage_done[i] = lane->game.combat[i].damage_done;
             r->damage_taken[i] = lane->game.combat[i].damage_taken_total;
         }
+        if (lane->reward_cfg.enabled_mask) {
+            rc = ai2cr_episode_record(&lane->reward_state, &lane->game, &out, &r->reward);
+            if (rc) { lane->error = rc; return rc; }
+        } else ai2n_zero(&r->reward, sizeof(r->reward));
     }
     ++lane->episodes;
     /* On reset failure terminal/reward/flags still describe the valid finished
@@ -176,6 +209,24 @@ static inline int ai2g_lanes_config_valid(const AI2NConfig *cfg, const AI2GPlatf
            isfinite(scale) && scale > 0 && isfinite(40.0 / scale);
 }
 
+static inline int ai2g_lanes_normalized_reward_config(const double *terms, uint32_t enabled_mask,
+                                                      double fade, AI2CRCoefficients *out) {
+    int i;
+    if (!terms || !out) return AI2N_ERR_NULL;
+    ai2n_zero(out, sizeof(*out));
+    out->enabled_mask = enabled_mask;
+    out->fade = fade;
+    for (i = 0; i < AI2CR_TERMS; ++i) out->term[i] = ai2cr_normalize_legacy_term(i, terms[i]);
+    return ai2cr_coefficients_valid(out) ? 0 : AI2N_ERR_CONFIG;
+}
+
+AI2N_HD static inline int ai2g_lane_can_apply_reward_config(const AI2GLane *lane, int learner_slot,
+                                                            const AI2CRCoefficients *cfg) {
+    AI2CRState temp;
+    if (!lane || !cfg || !ai2cr_coefficients_valid(cfg) || (learner_slot != 0 && learner_slot != 1)) return 0;
+    return !lane->active || !cfg->enabled_mask || ai2cr_reset(&temp, &lane->game, learner_slot) == 0;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -200,6 +251,7 @@ int ai2g_lanes_cpu_configure_episode(void*, int, int, int, int);
 int ai2g_lanes_cpu_replay_step(void*, int, const float*, const AI2NDraw*, int,
                                float*, float*, float*, uint8_t*, uint8_t*);
 int ai2g_lanes_cpu_rng_status(void*, int, int*, int*, int*, int*);
+int ai2g_lanes_cpu_configure_reward(void*, int, uint32_t, double, const double*);
 size_t ai2g_lanes_cuda_lane_size(void);
 size_t ai2g_lanes_cuda_record_size(void);
 void *ai2g_lanes_cuda_create(const AI2NConfig*, const AI2GPlatformTable*, int, int, double, int*);
@@ -214,6 +266,7 @@ int ai2g_lanes_cuda_configure_episode(void*, int, int, int, int, void*);
 int ai2g_lanes_cuda_replay_step(void*, int, const float*, const AI2NDraw*, int,
                                 float*, float*, float*, uint8_t*, uint8_t*, void*);
 int ai2g_lanes_cuda_rng_status(void*, int, int*, int*, int*, int*, void*);
+int ai2g_lanes_cuda_configure_reward(void*, int, uint32_t, double, const double*, void*);
 int ai2g_lanes_cuda_synchronize(void*, void*);
 int ai2g_lanes_cuda_last_cuda_error(void*);
 int ai2g_lanes_cuda_device(void*);

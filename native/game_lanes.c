@@ -141,6 +141,28 @@ int ai2g_lanes_cpu_configure_episode(void *handle, int index, int player0_stocks
     return 0;
 }
 
+int ai2g_lanes_cpu_configure_reward(void *handle, int learner_slot, uint32_t enabled_mask,
+                                    double fade, const double *terms) {
+    AI2GLanesCpu *h = (AI2GLanesCpu*)handle;
+    AI2CRCoefficients cfg;
+    int i, rc;
+    if (!h) return AI2N_ERR_NULL;
+    rc = ai2g_lanes_normalized_reward_config(terms, enabled_mask, fade, &cfg);
+    if (rc) return rc;
+    for (i = 0; i < h->games; ++i)
+        if (!ai2g_lane_can_apply_reward_config(&h->lanes[i], learner_slot, &cfg)) return AI2N_ERR_CONFIG;
+    for (i = 0; i < h->games; ++i) {
+        h->lanes[i].reward_cfg = cfg;
+        h->lanes[i].reward_learner_slot = learner_slot;
+        ai2n_zero(&h->lanes[i].last_reward, sizeof(h->lanes[i].last_reward));
+        if (h->lanes[i].active && cfg.enabled_mask) {
+            rc = ai2cr_reset(&h->lanes[i].reward_state, &h->lanes[i].game, learner_slot);
+            if (rc) return rc;
+        } else ai2n_zero(&h->lanes[i].reward_state, sizeof(h->lanes[i].reward_state));
+    }
+    return 0;
+}
+
 int ai2g_lanes_cpu_rng_status(void *handle, int index, int *mode, int *cursor, int *count, int *error) {
     AI2GLanesCpu *h = (AI2GLanesCpu*)handle;
     int *s;

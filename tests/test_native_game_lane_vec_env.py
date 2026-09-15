@@ -6,10 +6,14 @@ from unittest.mock import patch
 from pathlib import Path
 import subprocess
 import tempfile
-import torch
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None
 from native_game_lane_vec_env import GameLaneBackend, build_game_env, compile_lanes
 
 
+@unittest.skipIf(torch is None, "PyTorch is required for tensor lane wrapper tests")
 class GameEnvTests(unittest.TestCase):
     def test_two_player_slots_per_game_and_four_frame_stack(self):
         env = build_game_env(2, device="cpu", seed=7)
@@ -143,6 +147,26 @@ class GameEnvTests(unittest.TestCase):
                                     obs, terminal, rewards, terminated, truncated)
         finally:
             backend.close()
+
+    def test_combat_reward_binding_shapes_timeout_episode_info(self):
+        env = build_game_env(1, device="cpu")
+        try:
+            env.reset_tensor()
+            terms = [0.0] * 14
+            terms[9] = -0.5
+            env.configure_combat_reward(terms, 1 << 9)
+            env.backend.configure_episode(0, max_timesteps=1)
+            result = env.step_tensor(torch.zeros((2, 10)))
+            self.assertEqual(result.truncated.tolist(), [True, True])
+            self.assertEqual(result.rewards.tolist(), [-0.5, -0.5])
+            infos = env.drain_episode_infos()
+            self.assertEqual(len(infos), 2)
+            self.assertEqual([info["combat_reward"]["timeout"] for info in infos], [True, True])
+            self.assertEqual([info["combat_reward"]["return"] for info in infos], [-0.5, -0.5])
+            with self.assertRaises(ValueError):
+                env.configure_combat_reward(terms, 1 << 20)
+        finally:
+            env.close()
 
     def test_compile_cache_hash_covers_linked_navigation_source(self):
         original_read = Path.read_bytes

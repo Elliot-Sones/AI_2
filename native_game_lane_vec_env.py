@@ -25,6 +25,30 @@ from native_game_episode import GameReference, ROOT, D, INT32
 import native_navigation_episode as nav
 from native_lane_vec_env import NativeLaneEnv, frozen_spaces
 
+AI2CR_TERMS = 14
+
+
+class RewardEpisodeRecord(C.Structure):
+    _fields_ = [
+        (n, INT32)
+        for n in (
+            "version",
+            "learner_slot",
+            "length",
+            "terminated",
+            "truncated",
+            "win_mask",
+        )
+    ] + [
+        ("stocks", INT32 * 2),
+        ("returns", D * 2),
+        ("term_totals", (D * AI2CR_TERMS) * 2),
+        ("damage_done", D * 2),
+        ("damage_taken", D * 2),
+        ("clean_win", INT32 * 2),
+        ("timeout", INT32),
+    ]
+
 
 class EpisodeRecord(C.Structure):
     _fields_ = [
@@ -42,6 +66,7 @@ class EpisodeRecord(C.Structure):
         ("returns", D * 2),
         ("damage_done", D * 2),
         ("damage_taken", D * 2),
+        ("reward", RewardEpisodeRecord),
     ]
 
 
@@ -173,6 +198,15 @@ class GameLaneBackend:
             INT32,
             INT32,
             INT32,
+        ] + ([C.c_void_p] if self.kind == "cuda" else [])
+        self.configure_reward_fn = getattr(self.lib, prefix + "configure_reward")
+        self.configure_reward_fn.restype = INT32
+        self.configure_reward_fn.argtypes = [
+            C.c_void_p,
+            INT32,
+            C.c_uint32,
+            D,
+            C.c_void_p,
         ] + ([C.c_void_p] if self.kind == "cuda" else [])
         self.step_fn = getattr(self.lib, prefix + "step")
         self.step_fn.restype = INT32
@@ -349,6 +383,33 @@ class GameLaneBackend:
                 "configure_episode",
             )
 
+    def configure_combat_reward(self, terms, enabled_mask, *, fade=1.0, learner_slot=0):
+        values = np.ascontiguousarray(terms, dtype=np.float64)
+        if values.shape != (AI2CR_TERMS,):
+            raise ValueError(f"terms must contain {AI2CR_TERMS} coefficients")
+        if type(learner_slot) is not int or learner_slot not in (0, 1):
+            raise ValueError("learner_slot must be 0 or 1")
+        if (
+            not isinstance(enabled_mask, numbers.Integral)
+            or enabled_mask < 0
+            or enabled_mask > (1 << AI2CR_TERMS) - 1
+        ):
+            raise ValueError("enabled_mask must be a valid combat-reward term mask")
+        if not np.isfinite(float(fade)):
+            raise ValueError("fade must be finite")
+        with self._guard():
+            self._check(
+                self.configure_reward_fn(
+                    *self._args(
+                        learner_slot,
+                        int(enabled_mask),
+                        float(fade),
+                        C.c_void_p(values.ctypes.data),
+                    )
+                ),
+                "configure_reward",
+            )
+
     def step(self, actions, obs, terminal, rewards, terminated, truncated):
         t = self.torch
         pointers = [
@@ -474,6 +535,11 @@ class GameLaneBackend:
 class NativeGameEnv(NativeLaneEnv):
     """Reuse the verified four-frame stacking, not the navigation simulator."""
 
+    def configure_combat_reward(self, terms, enabled_mask, *, fade=1.0, learner_slot=0):
+        self.backend.configure_combat_reward(
+            terms, enabled_mask, fade=fade, learner_slot=learner_slot
+        )
+
     def drain_episode_infos(self):
         records, _ = self.backend.drain()
         now = time.time()
@@ -498,6 +564,15 @@ class NativeGameEnv(NativeLaneEnv):
                         },
                     }
                 )
+                if record.reward.version:
+                    infos[-1]["combat_reward"] = {
+                        "version": record.reward.version,
+                        "learner_slot": record.reward.learner_slot,
+                        "return": record.reward.returns[player],
+                        "terms": list(record.reward.term_totals[player]),
+                        "clean_win": bool(record.reward.clean_win[player]),
+                        "timeout": bool(record.reward.timeout),
+                    }
         return infos
 
 

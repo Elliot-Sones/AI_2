@@ -69,6 +69,27 @@ __global__ void ai2g_lanes_configure_episode_kernel(AI2GLane *lanes, int index,
     if (max_timesteps > 0) lanes[index].game.max_timesteps = max_timesteps;
 }
 
+__global__ void ai2g_lanes_reward_validate_kernel(const AI2GLane *lanes, int n, int learner_slot,
+                                                  AI2CRCoefficients cfg, int *status) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    if (!ai2g_lane_can_apply_reward_config(&lanes[i], learner_slot, &cfg)) atomicCAS(status, 0, AI2N_ERR_CONFIG);
+}
+
+__global__ void ai2g_lanes_reward_apply_kernel(AI2GLane *lanes, int n, int learner_slot,
+                                               AI2CRCoefficients cfg) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    lanes[i].reward_cfg = cfg;
+    lanes[i].reward_learner_slot = learner_slot;
+    ai2n_zero(&lanes[i].last_reward, sizeof(lanes[i].last_reward));
+    if (lanes[i].active && cfg.enabled_mask) {
+        const int rc = ai2cr_reset(&lanes[i].reward_state, &lanes[i].game, learner_slot);
+        if (rc) lanes[i].error = rc;
+    } else ai2n_zero(&lanes[i].reward_state, sizeof(lanes[i].reward_state));
+}
+
+
 __global__ void ai2g_lanes_replay_step_kernel(AI2GLane *lanes, int index, AI2NConfig cfg,
                                               const AI2GPlatformTable *table, double scale,
                                               const float *actions, const AI2NDraw *draws, int draw_count,
@@ -349,6 +370,42 @@ extern "C" int ai2g_lanes_cuda_configure_episode(void *handle, int index, int pl
     if (index < 0 || index >= h->games) return AI2N_ERR_CONFIG;
     if ((rc = ai2g_cuda_begin(h, s))) return rc;
     ai2g_lanes_configure_episode_kernel<<<1, 1, 0, s>>>(h->lanes, index, player0_stocks, player1_stocks, max_timesteps);
+    return ai2g_cuda_end(h, s, 1);
+}
+
+extern "C" int ai2g_lanes_cuda_configure_reward(void *handle, int learner_slot, uint32_t enabled_mask,
+                                                 double fade, const double *terms, void *stream) {
+    AI2GLanesCuda *h = (AI2GLanesCuda*)handle;
+    cudaStream_t s = (cudaStream_t)stream;
+    AI2CRCoefficients cfg;
+    cudaError_t err;
+    int *status = 0, host_status = 0, rc;
+    const unsigned blocks = h ? ((unsigned)h->games + AI2G_LANES_THREADS - 1) / AI2G_LANES_THREADS : 0;
+    if (!h) return AI2N_ERR_NULL;
+    rc = ai2g_lanes_normalized_reward_config(terms, enabled_mask, fade, &cfg);
+    if (rc) return rc;
+    if ((rc = ai2g_cuda_begin(h, s))) return rc;
+    if ((err = cudaMalloc((void**)&status, sizeof(int))) != cudaSuccess) return ai2g_cuda_fail(h, err);
+    if ((err = cudaMemsetAsync(status, 0, sizeof(int), s)) != cudaSuccess) {
+        cudaFree(status);
+        return ai2g_cuda_fail(h, err);
+    }
+    ai2g_lanes_reward_validate_kernel<<<blocks, AI2G_LANES_THREADS, 0, s>>>(h->lanes, h->games, learner_slot, cfg, status);
+    if ((err = cudaGetLastError()) != cudaSuccess) {
+        cudaFree(status);
+        return ai2g_cuda_fail(h, err);
+    }
+    if ((err = cudaMemcpyAsync(&host_status, status, sizeof(int), cudaMemcpyDeviceToHost, s)) != cudaSuccess) {
+        cudaFree(status);
+        return ai2g_cuda_fail(h, err);
+    }
+    if ((err = cudaStreamSynchronize(s)) != cudaSuccess) {
+        cudaFree(status);
+        return ai2g_cuda_fail(h, err);
+    }
+    if ((err = cudaFree(status)) != cudaSuccess) return ai2g_cuda_fail(h, err);
+    if (host_status) return host_status;
+    ai2g_lanes_reward_apply_kernel<<<blocks, AI2G_LANES_THREADS, 0, s>>>(h->lanes, h->games, learner_slot, cfg);
     return ai2g_cuda_end(h, s, 1);
 }
 

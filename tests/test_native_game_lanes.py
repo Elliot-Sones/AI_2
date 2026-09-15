@@ -17,17 +17,80 @@ import native_navigation_episode as nav
 
 ROOT = Path(__file__).resolve().parents[1]
 INT32, U, B, F, D, V = C.c_int32, C.c_uint64, C.c_uint8, C.c_float, C.c_double, C.c_void_p
+AI2CR_TERMS = 14
+AI2CR_TERM_APPROACH = 0
+AI2CR_TERM_ATTACK_START = 1
+AI2CR_TERM_DAMAGE_DEALT = 3
+AI2CR_TERM_DAMAGE_TAKEN = 4
+AI2CR_TERM_NET_DAMAGE = 5
+AI2CR_TERM_KO = 6
+AI2CR_TERM_WIN = 7
+AI2CR_TERM_CLEAN_WIN = 8
+AI2CR_TERM_TIMEOUT = 9
+AI2CR_TERM_OFFSTAGE = 10
+AI2CR_TERM_WALKOFF = 11
+
+
+class RewardCoefficients(C.Structure):
+    _fields_ = [("term", D * AI2CR_TERMS), ("enabled_mask", C.c_uint32), ("fade", D)]
+
+
+class RewardState(C.Structure):
+    _fields_ = [
+        (n, INT32) for n in ("version", "initialized", "learner_slot", "tick")
+    ] + [
+        ("initial_stocks", INT32 * 2), ("last_stocks", INT32 * 2),
+        ("last_weapon", INT32 * 2), ("last_offstage", INT32 * 2),
+        ("clean_stock", INT32 * 2), ("last_x", D * 2), ("last_y", D * 2),
+        ("last_distance", D), ("last_damage_done", D * 2),
+        ("last_damage_taken", D * 2), ("base_damage_done", D * 2),
+        ("base_damage_taken", D * 2), ("last_attack_starts", U * 2),
+        ("last_attack_contacts", U * 2), ("last_damage_events", U * 2),
+        ("returns", D * 2), ("term_totals", (D * AI2CR_TERMS) * 2),
+    ]
+
+
+class RewardBreakdown(C.Structure):
+    _fields_ = [
+        (n, INT32) for n in (
+            "version", "learner_slot", "tick", "terminated", "truncated", "win_mask"
+        )
+    ] + [
+        ("terms", (D * AI2CR_TERMS) * 2), ("total", D * 2),
+        ("approach_delta", D), ("distance", D),
+        ("attack_starts", INT32 * 2), ("contacts", INT32 * 2),
+        ("damage_events", INT32 * 2), ("ko_events", INT32 * 2),
+        ("weapon_pickups", INT32 * 2), ("weapon_drops", INT32 * 2),
+        ("offstage", INT32 * 2), ("walkoff", INT32 * 2),
+        ("recovery", INT32 * 2),
+    ]
+
+
+class RewardEpisodeRecord(C.Structure):
+    _fields_ = [
+        (n, INT32) for n in (
+            "version", "learner_slot", "length", "terminated", "truncated", "win_mask"
+        )
+    ] + [
+        ("stocks", INT32 * 2), ("returns", D * 2),
+        ("term_totals", (D * AI2CR_TERMS) * 2),
+        ("damage_done", D * 2), ("damage_taken", D * 2),
+        ("clean_win", INT32 * 2), ("timeout", INT32),
+    ]
 
 
 class Lane(C.Structure):
     _fields_ = [("game", game.State), ("rng", nav.Rng), ("returns", D * 2),
-                ("last_obs", F * 128), ("valid_steps", U)] + [
-                    (n, INT32) for n in ("length", "episodes", "error", "active")]
+                ("last_obs", F * 128), ("valid_steps", U),
+                ("reward_cfg", RewardCoefficients), ("reward_state", RewardState),
+                ("last_reward", RewardBreakdown)] + [
+                    (n, INT32) for n in ("reward_learner_slot", "length", "episodes", "error", "active")]
 
 
 class Record(C.Structure):
     _fields_ = [(n, INT32) for n in ("lane", "length", "terminated", "truncated", "win_mask", "episode_index")] + [
-        ("stocks", INT32 * 2), ("returns", D * 2), ("damage_done", D * 2), ("damage_taken", D * 2)]
+        ("stocks", INT32 * 2), ("returns", D * 2), ("damage_done", D * 2), ("damage_taken", D * 2),
+        ("reward", RewardEpisodeRecord)]
 
 
 def ptr(array, kind=F):
@@ -40,7 +103,7 @@ class Runtime:
         prefix = "ai2g_lanes_cuda_" if cuda else "ai2g_lanes_cpu_"
         self.f = {name: getattr(lib, prefix + name) for name in (
             "create", "destroy", "reset", "step", "drain", "lane_get", "lane_set",
-            "replay_reset", "replay_step", "rng_status")}
+            "replay_reset", "replay_step", "rng_status", "configure_reward")}
         extra = [V] if cuda else []
         specs = {
             "create": [C.POINTER(nav.Config), C.POINTER(game.PlatformTable), INT32, INT32, D, C.POINTER(INT32)],
@@ -52,6 +115,7 @@ class Runtime:
             "replay_reset": [V, INT32, C.POINTER(nav.Draw), INT32, C.POINTER(F)] + extra,
             "replay_step": [V, INT32, C.POINTER(F), C.POINTER(nav.Draw), INT32] + [C.POINTER(F)] * 3 + [C.POINTER(B)] * 2 + extra,
             "rng_status": [V, INT32, C.POINTER(INT32), C.POINTER(INT32), C.POINTER(INT32), C.POINTER(INT32)] + extra,
+            "configure_reward": [V, INT32, C.c_uint32, D, C.POINTER(D)] + extra,
         }
         for name, args in specs.items():
             self.f[name].argtypes = args
@@ -142,6 +206,11 @@ class Runtime:
         rc = self.f["rng_status"](self.h, index, C.byref(mode), C.byref(cursor),
                                   C.byref(count), C.byref(error), *self.extra)
         return rc, (mode.value, cursor.value, count.value, error.value)
+
+    def configure_reward(self, terms, enabled_mask, fade=1.0, learner_slot=0):
+        terms = np.asarray(terms, np.float64)
+        assert terms.shape == (AI2CR_TERMS,)
+        return self.f["configure_reward"](self.h, learner_slot, enabled_mask, fade, ptr(terms, D), *self.extra)
 
     def replay_step(self, index, actions, draws):
         actions = np.asarray(actions, np.float32)
@@ -385,6 +454,139 @@ class HostLaneTests(unittest.TestCase):
         h.step()
         row = h.drain()[1][0]
         self.assertEqual((row.length, row.episode_index, row.win_mask), (1, 1, 1))
+
+    def test_combat_reward_mode_shapes_records_and_resets_after_autoreset(self):
+        h = self.runtime
+        h.reset()
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_APPROACH] = 1.0
+        terms[AI2CR_TERM_KO] = -3.0  # legacy phase-1 sign must normalize to +3 magnitude
+        terms[AI2CR_TERM_WIN] = 5.0
+        terms[AI2CR_TERM_CLEAN_WIN] = 2.0
+        terms[AI2CR_TERM_TIMEOUT] = -0.25
+        enabled = ((1 << AI2CR_TERM_APPROACH) | (1 << AI2CR_TERM_KO) |
+                   (1 << AI2CR_TERM_WIN) | (1 << AI2CR_TERM_CLEAN_WIN) |
+                   (1 << AI2CR_TERM_TIMEOUT))
+        self.assertEqual(h.configure_reward(terms, enabled, learner_slot=0), 0)
+        lane = h.get(0)
+        lane.game.scene.players[0].ms.stocks = 0
+        lane.game.combat[1].damage_done = 12.0
+        lane.game.combat[0].damage_taken_total = 12.0
+        self.assertEqual(h.put(0, lane), 0)
+        self.assertEqual(h.step(), 0)
+        self.assertEqual(h.terminated.tolist(), [1, 0])
+        self.assertEqual(h.truncated.tolist(), [0, 0])
+        self.assertEqual(h.rewards[0, 1], 7.0)
+        self.assertEqual(h.rewards[0, 0], -5.0)
+        rows = h.drain()[1]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row.reward.version, row.reward.length, row.reward.terminated,
+                          row.reward.truncated, row.reward.win_mask), (1, 1, 1, 0, 2))
+        self.assertEqual(h.get(0).reward_cfg.term[AI2CR_TERM_KO], 3.0)
+        self.assertEqual(row.reward.term_totals[0][AI2CR_TERM_KO], 0.0)
+        self.assertEqual(row.reward.term_totals[1][AI2CR_TERM_KO], 0.0)
+        self.assertEqual(row.reward.term_totals[0][AI2CR_TERM_WIN], -1.0)
+        self.assertEqual(row.reward.term_totals[1][AI2CR_TERM_WIN], 1.0)
+        self.assertEqual(row.reward.term_totals[1][AI2CR_TERM_CLEAN_WIN], 1.0)
+        self.assertEqual(list(row.reward.returns), [-5.0, 7.0])
+        lane = h.get(0)
+        self.assertEqual((lane.reward_state.initialized, lane.reward_state.tick), (1, 0))
+        self.assertEqual(list(lane.reward_state.returns), [0.0, 0.0])
+
+    def test_combat_reward_mode_records_timeout_and_keeps_raw_mode_disabled(self):
+        raw = Runtime(self.lib, self.ref, cuda=self.cuda)
+        shaped = Runtime(self.lib, self.ref, cuda=self.cuda)
+        self.addCleanup(raw.close)
+        self.addCleanup(shaped.close)
+        self.assertEqual(raw.reset(), 0)
+        self.assertEqual(shaped.reset(), 0)
+        for h in (raw, shaped):
+            lane = h.get(0)
+            lane.game.max_timesteps = 1
+            h.put(0, lane)
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_TIMEOUT] = -0.5
+        self.assertEqual(shaped.configure_reward(terms, 1 << AI2CR_TERM_TIMEOUT), 0)
+        self.assertEqual(raw.step(), 0)
+        self.assertEqual(shaped.step(), 0)
+        self.assertEqual(raw.truncated[0], 1)
+        self.assertEqual(shaped.truncated[0], 1)
+        self.assertEqual(raw.rewards[0].tolist(), [0.0, 0.0])
+        self.assertEqual(shaped.rewards[0].tolist(), [-0.5, -0.5])
+        raw_row = raw.drain()[1][0]
+        shaped_row = shaped.drain()[1][0]
+        self.assertEqual(raw_row.reward.version, 0)
+        self.assertEqual(shaped_row.reward.timeout, 1)
+        self.assertEqual(list(shaped_row.reward.returns), [-0.5, -0.5])
+
+    def test_combat_reward_nonterminal_terms_match_transparent_oracle(self):
+        h = self.runtime
+        h.reset()
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_ATTACK_START] = 0.5
+        terms[AI2CR_TERM_DAMAGE_DEALT] = 1.0
+        terms[AI2CR_TERM_DAMAGE_TAKEN] = -1.0
+        terms[AI2CR_TERM_NET_DAMAGE] = 2.0
+        terms[AI2CR_TERM_OFFSTAGE] = -0.25
+        terms[AI2CR_TERM_WALKOFF] = -0.75
+        enabled = ((1 << AI2CR_TERM_ATTACK_START) | (1 << AI2CR_TERM_DAMAGE_DEALT) |
+                   (1 << AI2CR_TERM_DAMAGE_TAKEN) | (1 << AI2CR_TERM_NET_DAMAGE) |
+                   (1 << AI2CR_TERM_OFFSTAGE) | (1 << AI2CR_TERM_WALKOFF))
+        self.assertEqual(h.configure_reward(terms, enabled), 0)
+        lane = h.get(0)
+        self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 0, 20.0, 0.0), 0)
+        lane.game.combat[0].attack_starts += 1
+        lane.game.combat[0].damage_done += 4.0
+        lane.game.combat[1].damage_taken_total += 4.0
+        self.assertEqual(h.put(0, lane), 0)
+        self.assertEqual(h.step(), 0)
+        lane = h.get(0)
+        self.assertEqual(lane.last_reward.attack_starts[0], 1)
+        self.assertEqual(lane.last_reward.offstage[0], 1)
+        self.assertEqual(lane.last_reward.walkoff[0], 1)
+        self.assertEqual(lane.last_reward.terms[0][AI2CR_TERM_DAMAGE_DEALT], 4.0)
+        self.assertEqual(lane.last_reward.terms[1][AI2CR_TERM_DAMAGE_TAKEN], 4.0)
+        self.assertEqual(lane.last_reward.terms[0][AI2CR_TERM_NET_DAMAGE], 4.0)
+        self.assertEqual(lane.last_reward.terms[1][AI2CR_TERM_NET_DAMAGE], 0.0)
+        self.assertEqual(h.rewards[0, 0], 0.5 + 4.0 + 8.0 - 0.25 - 0.75)
+        self.assertEqual(h.rewards[0, 1], -4.0)
+
+    def test_combat_reward_learner_slot_one_keeps_symmetric_approach_terms(self):
+        h = self.runtime
+        h.reset()
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_APPROACH] = 1.0
+        self.assertEqual(h.configure_reward(terms, 1 << AI2CR_TERM_APPROACH, learner_slot=1), 0)
+        lane = h.get(0)
+        self.assertEqual(lane.reward_state.learner_slot, 1)
+        self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 0, 4.0, 0.0), 0)
+        self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 1, 5.0, 0.0), 0)
+        self.assertEqual(h.put(0, lane), 0)
+        self.assertEqual(h.configure_reward(terms, 1 << AI2CR_TERM_APPROACH, learner_slot=1), 0)
+        lane = h.get(0)
+        self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 0, 4.25, 0.0), 0)
+        self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 1, 4.75, 0.0), 0)
+        self.assertEqual(h.put(0, lane), 0)
+        self.assertEqual(h.step(), 0)
+        lane = h.get(0)
+        self.assertGreater(lane.last_reward.approach_delta, 0.0)
+        self.assertEqual(lane.last_reward.learner_slot, 1)
+        self.assertEqual(lane.last_reward.terms[0][AI2CR_TERM_APPROACH],
+                         lane.last_reward.terms[1][AI2CR_TERM_APPROACH])
+        self.assertEqual(h.rewards[0, 0], h.rewards[0, 1])
+
+    def test_invalid_combat_reward_config_rejected_before_mutation(self):
+        h = self.runtime
+        h.reset()
+        before = bytes(h.get(0))
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_APPROACH] = float("nan")
+        self.assertEqual(h.configure_reward(terms, 1 << AI2CR_TERM_APPROACH), 2)
+        self.assertEqual(bytes(h.get(0)), before)
+        terms[AI2CR_TERM_APPROACH] = 1.0
+        self.assertEqual(h.configure_reward(terms, 1 << AI2CR_TERM_WIN, fade=float("nan")), 2)
+        self.assertEqual(bytes(h.get(0)), before)
 
     def test_time_limit_is_truncated_not_terminated_and_full_platform_table_used(self):
         h = self.runtime
@@ -641,6 +843,67 @@ class CudaLaneTests(HostLaneTests):
         with h.torch.cuda.device(1):
             self.assertEqual(h.f['destroy'](h.h), 304)
         self.assertEqual(h.reset(), 0)
+
+    def test_cuda_reward_enabled_trace_matches_cpu_records_and_last_reward(self):
+        cpu = Runtime(C.CDLL(str(self.library)), self.ref, games=3, capacity=12)
+        cuda = Runtime(self.lib, self.ref, games=3, capacity=12, cuda=True)
+        self.addCleanup(cpu.close)
+        self.addCleanup(cuda.close)
+        seeds = np.array([101, 202, 303], np.uint64)
+        self.assertEqual(cpu.reset(seeds), 0)
+        self.assertEqual(cuda.reset(seeds), 0)
+        for index in range(3):
+            lane = cpu.get(index)
+            self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 0, 4.0 + index, 0.0), 0)
+            self.assertEqual(self.ref.lib.ai2g_fixture_player_position(C.byref(lane.game), 1, 5.0 + index, 0.0), 0)
+            lane.game.max_timesteps = 4 if index == 0 else 12
+            self.assertEqual(cpu.put(index, lane), 0)
+            self.assertEqual(cuda.put(index, lane), 0)
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_APPROACH] = 1.0
+        terms[AI2CR_TERM_ATTACK_START] = 0.5
+        terms[AI2CR_TERM_DAMAGE_DEALT] = 1.0
+        terms[AI2CR_TERM_DAMAGE_TAKEN] = -1.0
+        terms[AI2CR_TERM_NET_DAMAGE] = 2.0
+        terms[AI2CR_TERM_TIMEOUT] = -0.25
+        terms[AI2CR_TERM_OFFSTAGE] = -0.1
+        enabled = sum(1 << term for term in (
+            AI2CR_TERM_APPROACH, AI2CR_TERM_ATTACK_START, AI2CR_TERM_DAMAGE_DEALT,
+            AI2CR_TERM_DAMAGE_TAKEN, AI2CR_TERM_NET_DAMAGE, AI2CR_TERM_TIMEOUT,
+            AI2CR_TERM_OFFSTAGE,
+        ))
+        self.assertEqual(cpu.configure_reward(terms, enabled, learner_slot=1), 0)
+        self.assertEqual(cuda.configure_reward(terms, enabled, learner_slot=1), 0)
+        actions = np.zeros((6, 3, 2, 10), np.float32)
+        actions[:, :, 0, 3] = 1.0
+        actions[:, :, 1, 1] = 1.0
+        actions[0::2, :, 0, 7] = 1.0
+        actions[1::3, :, 1, 7] = 1.0
+        for tick, batch in enumerate(actions):
+            self.assertEqual(cpu.step(batch), 0, f"cpu tick {tick}")
+            self.assertEqual(cuda.step(batch), 0, f"cuda tick {tick}")
+            for label, expected, actual in zip(("obs", "terminal", "rewards", "terminated", "truncated"),
+                                               cpu.outputs, cuda.outputs):
+                self.assertEqual(actual.tobytes(), expected.tobytes(), f"{label} tick {tick}")
+            for index in range(3):
+                cpu_lane = cpu.get(index)
+                cuda_lane = cuda.get(index)
+                self.assertEqual(bytes(cuda_lane.last_reward), bytes(cpu_lane.last_reward), f"last_reward lane {index} tick {tick}")
+                self.assertEqual(bytes(cuda_lane.reward_state), bytes(cpu_lane.reward_state), f"reward_state lane {index} tick {tick}")
+        cpu_rows = sorted(cpu.drain()[1], key=lambda row: (row.lane, row.episode_index))
+        cuda_rows = sorted(cuda.drain()[1], key=lambda row: (row.lane, row.episode_index))
+        self.assertEqual([bytes(row) for row in cuda_rows], [bytes(row) for row in cpu_rows])
+        self.assertTrue(cpu_rows, "trace must produce reward-enabled episode records")
+        self.assertTrue(any(row.reward.version == 1 and row.reward.learner_slot == 1 for row in cpu_rows))
+
+    def test_cuda_rejected_reward_config_does_not_mutate_lane_bytes(self):
+        h = self.runtime
+        self.assertEqual(h.reset(), 0)
+        before = bytes(h.get(0))
+        terms = np.zeros(AI2CR_TERMS, np.float64)
+        terms[AI2CR_TERM_APPROACH] = float("nan")
+        self.assertEqual(h.configure_reward(terms, 1 << AI2CR_TERM_APPROACH), 2)
+        self.assertEqual(bytes(h.get(0)), before)
 
 
 if __name__ == "__main__":
