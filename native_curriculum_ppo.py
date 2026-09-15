@@ -28,7 +28,7 @@ from tensor_rollout_buffer import TensorRolloutBuffer
 
 CONTACT_VERSION = 'bridge_b1_contact-v1'
 COMBAT_MASK = TASK_MASKS['combat']
-CURRICULUM_SOURCE_SHA256 = '34a5a4a95eb621aaa10c0aa902cdf5c6d5c00ad0b0abbdd5b9ec01abe8a5b8c4'
+CURRICULUM_SOURCE_SHA256 = '380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40'
 CALIBRATED_CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
 
 
@@ -251,44 +251,83 @@ class NativeCurriculumPPO(TensorPPO):
                 actual = actual(1.0)
             if actual != expected:
                 raise ValueError(f'Checkpoint curriculum setting {name} differs: {actual!r}')
-        if action_head is None and action_init_strategy is None and action_ab_arm is None:
-            action_head = getattr(source, 'action_head', source.policy.action_head)
-            action_init_strategy = 'keep'
-            action_ab_arm = None
-        target_action_head, target_action_init, target_action_arm = _resolve_action_arm(
-            action_head=action_head, action_init_strategy=action_init_strategy, action_ab_arm=action_ab_arm,
+        preserve_source_action_contract = (
+            action_head is None and action_init_strategy is None and action_ab_arm is None
         )
+        source_action_head = getattr(source, 'action_head', source.policy.action_head)
+        source_action_init = getattr(source, 'action_init_strategy', 'keep')
+        source_action_arm = getattr(source, 'action_ab_arm', None)
+        if preserve_source_action_contract:
+            constructor_action_head = source_action_head
+            constructor_action_init = 'keep'
+            constructor_action_arm = None
+            actual_action_head = source_action_head
+            actual_action_init = source_action_init
+            actual_action_arm = source_action_arm
+        else:
+            constructor_action_head, constructor_action_init, constructor_action_arm = _resolve_action_arm(
+                action_head=action_head, action_init_strategy=action_init_strategy, action_ab_arm=action_ab_arm,
+            )
+            actual_action_head = constructor_action_head
+            actual_action_init = constructor_action_init
+            actual_action_arm = constructor_action_arm
         with _preserve_rng():
             policy_kwargs = copy.deepcopy(source.policy_kwargs)
-            policy_kwargs['action_head'] = target_action_head
+            policy_kwargs['action_head'] = constructor_action_head
             model = cls(env=env, batch_size=source.batch_size if batch_size is None else batch_size,
                         update_mode=update_mode, calibration=source.calibration, arm=source.arm,
-                        action_head=target_action_head, action_init_strategy=target_action_init,
-                        action_ab_arm=target_action_arm,
+                        action_head=constructor_action_head, action_init_strategy=constructor_action_init,
+                        action_ab_arm=constructor_action_arm,
                         # The immutable scenario schedule belongs to the caller.
                         # SB3 seeds its env in __init__ when seed is not None.
                         policy_kwargs=policy_kwargs, seed=None,
                         verbose=source.verbose, device=env.device,
                         stats_window_size=source._stats_window_size, tensorboard_log=source.tensorboard_log)
-            if target_action_init == 'keep':
+            if constructor_action_init == 'keep':
                 model.set_parameters(source.get_parameters(), exact_match=True, device=env.device)
+                if preserve_source_action_contract and isinstance(getattr(source, 'action_init_metadata', None), dict):
+                    model.action_init_metadata = copy.deepcopy(source.action_init_metadata)
+                    model.action_init_metadata.update({
+                        'schema': 'ai2-action-ab-init-v1',
+                        'arm': actual_action_arm,
+                        'action_head': actual_action_head,
+                        'strategy': actual_action_init,
+                        'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(actual_action_arm),
+                        'source': model.action_init_metadata.get('source', 'curriculum_checkpoint_resume'),
+                        'resume_tensor_copy': 'source policy/action tensors copied; optimizer state not transferred',
+                    })
+                else:
+                    model.action_init_metadata = {
+                        'schema': 'ai2-action-ab-init-v1',
+                        'arm': actual_action_arm,
+                        'action_head': actual_action_head,
+                        'strategy': actual_action_init,
+                        'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(actual_action_arm),
+                        'source': 'curriculum_checkpoint',
+                        'source_action_head': source.policy.action_head,
+                        'tensor_copy': 'source policy/action tensors copied',
+                    }
+                model.optimizer_provenance = (
+                    'fresh Adam; source policy/action tensors copied; '
+                    'source optimizer state not transferred'
+                )
             else:
                 _copy_compatible_non_action_state(model.policy, source.policy)
                 init_metadata = _apply_action_initialization(
-                    model.policy, source.policy, action_init_strategy=target_action_init,
+                    model.policy, source.policy, action_init_strategy=constructor_action_init,
                 )
                 model.action_init_metadata = {
                     'schema': 'ai2-action-ab-init-v1',
-                    'arm': target_action_arm,
-                    'action_head': target_action_head,
-                    'strategy': target_action_init,
-                    'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(target_action_arm),
+                    'arm': actual_action_arm,
+                    'action_head': actual_action_head,
+                    'strategy': actual_action_init,
+                    'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(actual_action_arm),
                     'source': 'curriculum_checkpoint',
                     'source_action_head': source.policy.action_head,
                     **init_metadata,
                 }
                 model.optimizer_provenance = (
-                    f'fresh {target_action_init} {target_action_head} action head; source trunk/value copied; '
+                    f'fresh {constructor_action_init} {constructor_action_head} action head; source trunk/value copied; '
                     'fresh Adam optimizer not transferred'
                 )
         for name in ('num_timesteps', '_n_updates', '_episode_num', '_total_timesteps',
@@ -296,13 +335,9 @@ class NativeCurriculumPPO(TensorPPO):
                      'task_history', 'seed'):
             if hasattr(source, name):
                 setattr(model, name, copy.deepcopy(getattr(source, name)))
-        if target_action_init == 'keep':
-            for name in ('optimizer_provenance', 'action_init_metadata'):
-                if hasattr(source, name):
-                    setattr(model, name, copy.deepcopy(getattr(source, name)))
-        model.action_head = target_action_head
-        model.action_init_strategy = target_action_init
-        model.action_ab_arm = target_action_arm
+        model.action_head = actual_action_head
+        model.action_init_strategy = actual_action_init
+        model.action_ab_arm = actual_action_arm
         for name in ('ep_info_buffer', 'ep_success_buffer'):
             value = getattr(source, name, None)
             if value is not None:

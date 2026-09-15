@@ -20,12 +20,14 @@ class NativeCurriculumContractTests(unittest.TestCase):
     def module(self):
         self.assertIsNotNone(importlib.util.find_spec('native_curriculum_ppo'),
                              'the CUDA curriculum adapter is not implemented')
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('torch is not installed in this local contract environment')
         return importlib.import_module('native_curriculum_ppo')
 
     def test_frozen_curriculum_source_is_unchanged(self):
         module = self.module()
         self.assertEqual(module.curriculum_source_metadata()['sha256'],
-                         '34a5a4a95eb621aaa10c0aa902cdf5c6d5c00ad0b0abbdd5b9ec01abe8a5b8c4')
+                         '380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40')
         self.assertTrue(module.curriculum_source_metadata()['supported'])
 
     def test_experiment_settings_retain_curriculum_not_raw_combat_defaults(self):
@@ -219,6 +221,8 @@ class NativeCurriculumContractTests(unittest.TestCase):
 
 class NativeCurriculumCudaTests(unittest.TestCase):
     def setUp(self):
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('torch is not installed in this local contract environment')
         import torch
         if not torch.cuda.is_available():
             self.skipTest('CUDA unavailable; no CPU policy construction, inference or training')
@@ -409,8 +413,9 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         model = module.NativeCurriculumPPO.from_curriculum(source, self.environment(), joint=True)
         self.assert_tree_equal(before, self.rng_state())
         self.assert_tree_equal(source.policy.state_dict(), model.policy.state_dict())
-        self.assert_tree_equal(source.policy.optimizer.state_dict(), model.policy.optimizer.state_dict())
-        self.assertTrue(model.policy.optimizer.state_dict()['state'])
+        self.assertFalse(model.policy.optimizer.state_dict()['state'])
+        self.assertIn('policy/action tensors copied', model.optimizer_provenance)
+        self.assertIn('optimizer state not transferred', model.optimizer_provenance)
         self.assertIs(model.policy.optimizer._policy_ref(), model.policy)
         self.assertFalse(model.policy.calibration)
         self.assertTrue(all(p.requires_grad for p in model.policy.mlp_extractor.policy_net.parameters()))
@@ -442,6 +447,29 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertEqual(model.policy.action_head, 'bernoulli_10')
         self.assertIs(model.policy.optimizer._policy_ref(), model.policy)
         self.assertFalse(model.policy.optimizer.state_dict()['state'])
+
+    def test_no_arg_from_curriculum_preserves_nondefault_action_arm_but_not_optimizer_claims(self):
+        from curriculum_ppo import CurriculumPPO
+        env = self.environment()
+        source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
+            action_ab_arm='B_neutral', policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=23)
+        source.action_ab_arm = 'B_projected'
+        source.action_init_strategy = 'projected'
+        source.action_init_metadata = {'schema': 'ai2-action-ab-init-v1', 'arm': 'B_projected',
+            'action_head': 'bernoulli_10', 'strategy': 'projected', 'source': 'test-parent'}
+        source.optimizer_provenance = 'source optimizer provenance must not be copied'
+        model = self.module.NativeCurriculumPPO.from_curriculum(source, env)
+        self.assertEqual(model.action_head, 'bernoulli_10')
+        self.assertEqual(model.policy.action_head, 'bernoulli_10')
+        self.assertEqual(model.action_ab_arm, 'B_projected')
+        self.assertEqual(model.action_init_strategy, 'projected')
+        self.assertEqual(model.action_init_metadata['arm'], 'B_projected')
+        self.assertEqual(model.action_init_metadata['strategy'], 'projected')
+        self.assertIn('policy/action tensors copied', model.optimizer_provenance)
+        self.assertIn('optimizer state not transferred', model.optimizer_provenance)
+        self.assertNotEqual(model.optimizer_provenance, source.optimizer_provenance)
+        self.assertFalse(model.policy.optimizer.state_dict()['state'])
+        self.assert_tree_equal(source.policy.state_dict(), model.policy.state_dict())
 
     def test_original_curriculum_update_matches_native_from_the_same_saved_rollout(self):
         from curriculum_ppo import CurriculumPPO

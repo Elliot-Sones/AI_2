@@ -38,7 +38,7 @@ ACTION_EXPERIMENT_ARMS = {
 }
 ACTION_AB_ARMS = tuple(ACTION_EXPERIMENT_ARMS)
 ACTION_EXPERIMENT_INTERPRETATION = {
-    'G_keep': 'practical warm-start baseline; preserves source action head and optimizer where same-class loading allows it',
+    'G_keep': 'practical warm-start baseline; copies source policy/action tensors but uses a fresh optimizer unless optimizer state preservation is explicitly proven',
     'B_projected': 'practical warm-start comparison; preserves source executed-button behavior approximately but uses a fresh optimizer',
     'G_neutral': 'causal representation arm; fresh Gaussian optimizer/head behavior-matched to B_neutral',
     'B_neutral': 'causal representation arm; fresh Bernoulli optimizer/head behavior-matched to G_neutral',
@@ -327,6 +327,8 @@ def validate_runtime(model, cfg):
         raise RuntimeError('policy contains non-CUDA parameters')
     if getattr(model, 'action_head', 'gaussian') != cfg.action_head:
         raise ValueError('model action head differs from requested benchmark arm')
+    if getattr(model, 'action_ab_arm', None) != cfg.action_ab_arm:
+        raise ValueError('model action A/B arm differs from requested benchmark arm')
 
 
 def action_press_metrics(model):
@@ -362,6 +364,17 @@ def action_press_metrics(model):
     }
 
 
+def action_initialization_actual(model):
+    """Receipt fields describing the model that actually trained."""
+    return {
+        'action_head': getattr(model, 'action_head', None),
+        'action_init_strategy': getattr(model, 'action_init_strategy', None),
+        'action_ab_arm': getattr(model, 'action_ab_arm', None),
+        'action_init_metadata': getattr(model, 'action_init_metadata', None),
+        'optimizer_provenance': getattr(model, 'optimizer_provenance', None),
+    }
+
+
 def run_block(args):
     output = Path(args.output)
     if output.exists():
@@ -389,7 +402,7 @@ def run_block(args):
     output.mkdir(parents=True, exist_ok=False)
     started = time.perf_counter()
     rows, raw, model, logger = [], None, None, None
-    atomic_json(output / 'manifest.json', {'schema_version': 'ai2.native_contact_training.v1',
+    manifest = {'schema_version': 'ai2.native_contact_training.v1',
         'config': asdict(cfg), 'checkpoint': checkpoint, 'checkpoint_preservation': preservation,
         'action_experiment_arms': ACTION_EXPERIMENT_ARMS,
         'action_experiment_interpretation': ACTION_EXPERIMENT_INTERPRETATION,
@@ -399,9 +412,9 @@ def run_block(args):
         'hardware': {'device': str(device), 'gpu': torch.cuda.get_device_name(device),
                      'torch': torch.__version__, 'cuda': torch.version.cuda, 'python': platform.python_version(),
                      'packages': {name: importlib.metadata.version(name) for name in (
-                         'stable-baselines3', 'numpy', 'gymnasium', 'pymunk')}},
+                     'stable-baselines3', 'numpy', 'gymnasium', 'pymunk')}},
         'training_device': str(device), 'environment_device': str(device), 'wandb_mode': 'offline',
-        'claim': 'bounded learning comparison, not mastery or phase promotion'})
+        'claim': 'bounded learning comparison, not mastery or phase promotion'}
 
     class ReceiptCallback(BaseCallback):
         def _on_step(self):
@@ -421,6 +434,9 @@ def run_block(args):
             expected_sha256=CHECKPOINT_SHA256, batch_size=cfg.batch_size,
             update_mode=cfg.update_mode, joint=True, action_ab_arm=cfg.action_ab_arm)
         validate_runtime(model, cfg)
+        actual_action_initialization = action_initialization_actual(model)
+        manifest['action_initialization_actual'] = actual_action_initialization
+        atomic_json(output / 'manifest.json', manifest)
         atomic_json(output / 'scenarios.json', raw.backend.scenario_metadata)
         logger = configure(str(output / 'ppo'), ['json', 'csv'])
         model.set_logger(logger)
@@ -477,6 +493,7 @@ def run_block(args):
         os.link(output / f'rollout-{cfg.rollouts - 1:03d}.zip', output / 'final.zip')
         result = {**summarize_rollouts(rows), 'status': 'trained_not_evaluated',
             'rollouts': rows, 'checkpoint_sha256': sha256(output / 'final.zip'),
+            'action_initialization_actual': actual_action_initialization,
             'wall_seconds_including_setup_logging_checkpoints': time.perf_counter() - started,
             'finished_unix': time.time(), 'next_required_action': 'retrieve and hash-verify this block locally'}
         atomic_json(output / 'result.json', result)

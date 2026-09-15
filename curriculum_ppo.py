@@ -43,7 +43,7 @@ ACTION_EXPERIMENT_ARMS = {
     "B_projected": {"action_head": "bernoulli_10", "action_init_strategy": "projected"},
 }
 ACTION_EXPERIMENT_INTERPRETATION = {
-    "G_keep": "practical warm-start baseline; preserves source action head and optimizer where same-class loading allows it",
+    "G_keep": "practical warm-start baseline; copies source policy/action tensors but uses a fresh optimizer unless optimizer state preservation is explicitly proven",
     "B_projected": "practical warm-start comparison; preserves source executed-button behavior approximately but uses a fresh optimizer",
     "G_neutral": "causal representation arm; fresh Gaussian optimizer/head behavior-matched to B_neutral",
     "B_neutral": "causal representation arm; fresh Bernoulli optimizer/head behavior-matched to G_neutral",

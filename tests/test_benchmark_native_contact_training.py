@@ -35,6 +35,11 @@ class ContactRunnerTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(small, **changes)
 
+    def test_action_arm_interpretation_does_not_claim_unproven_optimizer_copy(self):
+        m = self.subject()
+        self.assertIn('policy/action tensors', m.ACTION_EXPERIMENT_INTERPRETATION['G_keep'])
+        self.assertNotIn('optimizer where', m.ACTION_EXPERIMENT_INTERPRETATION['G_keep'])
+
     def test_deadline_finite_expired_and_reserve(self):
         m = self.subject()
         for deadline in (float('nan'), float('inf'), -1):
@@ -244,7 +249,12 @@ class ContactRunnerTests(unittest.TestCase):
         model = SimpleNamespace(**{name: getattr(cfg, name) for name in ('n_steps', 'batch_size',
             'n_epochs', 'gamma', 'gae_lambda', 'target_kl', 'ent_coef')}, n_envs=64,
             num_timesteps=m.CHECKPOINT_STEPS, task='combat', calibration=False, arm='E1',
-            action_head='gaussian', policy=policy,
+            action_head='gaussian', action_init_strategy='keep', action_ab_arm='G_keep',
+            action_init_metadata={'schema': 'ai2-action-ab-init-v1', 'arm': 'G_keep',
+                                  'action_head': 'gaussian', 'strategy': 'keep',
+                                  'source': 'curriculum_checkpoint'},
+            optimizer_provenance='fresh Adam; source policy/action tensors copied; optimizer state not transferred',
+            policy=policy,
             lr_schedule=lambda _: .0001, clip_range=lambda _: .1, env=raw, rollout_buffer=object(),
             logger=SimpleNamespace(name_to_value=losses, dump=lambda **_: None),
             last_update_diagnostics={'attempted_epochs': 4, 'optimizer_steps': 16, 'kl_early_stop': False})
@@ -295,6 +305,13 @@ class ContactRunnerTests(unittest.TestCase):
                 self.assertEqual(result['transitions'], 65536)
                 self.assertEqual(result['status'], 'trained_not_evaluated')
                 self.assertEqual(result['rollouts'][0]['episode_count'], 1)
+                self.assertEqual(result['action_initialization_actual']['action_ab_arm'], 'G_keep')
+                self.assertEqual(result['action_initialization_actual']['action_init_metadata']['arm'], 'G_keep')
+                self.assertIn('optimizer state not transferred',
+                              result['action_initialization_actual']['optimizer_provenance'])
+                manifest = json.loads((args.output / 'manifest.json').read_text())
+                self.assertEqual(manifest['action_initialization_actual'],
+                                 result['action_initialization_actual'])
             self.assertEqual(len(closed), 1)
             self.assertTrue((args.output / 'inventory.json').is_file(),
                             'failed attempts also need retrievable complete inventories')
