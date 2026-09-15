@@ -29,6 +29,7 @@ QUALIFICATION_SCHEMA = 'ai2.native_contact_qualification.v1'
 CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
 CHECKPOINT_BYTES = 102673333
 CHECKPOINT_STEPS = 10059776
+ACTION_HEADS = ('gaussian', 'bernoulli_10')
 REFERENCE_FILES = ('combat_curriculum.py', 'curriculum_navigation.py', 'curriculum_telemetry.py',
                    'curriculum_evaluation.py', 'evaluate_combat_curriculum.py', 'train_combat_curriculum.py')
 CHECKS = ('original_cpu_exact', 'cpu_cuda_exact', 'learner_update_exact')
@@ -44,6 +45,7 @@ class ContactBenchmarkConfig:
     seed: int = 145
     device: str = 'cuda'
     update_mode: str = 'deferred_metrics'
+    action_head: str = 'gaussian'
     learning_rate: float = .0001
     clip_range: float = .1
     target_kl: float = .01
@@ -66,6 +68,8 @@ class ContactBenchmarkConfig:
             raise ValueError('simulation and policy require CUDA; no CPU fallback')
         if self.update_mode not in ('sb3', 'deferred_metrics'):
             raise ValueError('unsupported update mode')
+        if self.action_head not in ACTION_HEADS:
+            raise ValueError('unsupported action head')
         if (self.learning_rate, self.clip_range, self.target_kl, self.ent_coef, self.gamma, self.gae_lambda) != (
                 .0001, .1, .01, .001, .99, .95):
             raise ValueError('the approved contact PPO settings must not change between arms')
@@ -302,6 +306,35 @@ def validate_runtime(model, cfg):
             raise ValueError('approved constant learning rate/clip schedules differ')
     if any(p.device.type != 'cuda' for p in model.policy.parameters()):
         raise RuntimeError('policy contains non-CUDA parameters')
+    if getattr(model, 'action_head', 'gaussian') != cfg.action_head:
+        raise ValueError('model action head differs from requested benchmark arm')
+
+
+def action_press_metrics(model):
+    """Summarize policy/executed key press rates once per rollout."""
+    import torch
+    buffer = model.rollout_buffer
+    actions = getattr(buffer, 'actions', None)
+    executed = getattr(buffer, 'executed_actions', None)
+    if actions is None or executed is None:
+        return {'action_metrics_available': False}
+    mask = model.policy.allowed_control_mask.to(dtype=torch.bool, device=executed.device)
+    executed_buttons = executed > 0.5
+    policy_buttons = actions > 0.5
+    with torch.no_grad():
+        flat_obs = buffer.observations.reshape((-1, buffer.observations.shape[-1]))
+        deterministic, _, _ = model.policy(flat_obs, deterministic=True)
+        deterministic_executed = model.policy.decode_actions(deterministic.reshape((-1, 10))) > 0.5
+    return {
+        'action_metrics_available': True,
+        'action_head': model.policy.action_head,
+        'policy_sample_press_rate_all': float(policy_buttons.float().mean().item()),
+        'policy_sample_press_rate_active': float(policy_buttons[..., mask].float().mean().item()),
+        'executed_press_rate_all': float(executed_buttons.float().mean().item()),
+        'executed_press_rate_active': float(executed_buttons[..., mask].float().mean().item()),
+        'deterministic_press_rate_all': float(deterministic_executed.float().mean().item()),
+        'deterministic_press_rate_active': float(deterministic_executed[..., mask].float().mean().item()),
+    }
 
 
 def run_block(args):
@@ -309,7 +342,8 @@ def run_block(args):
     if output.exists():
         raise FileExistsError('use a new output directory; never overwrite a block')
     cfg = ContactBenchmarkConfig(batch_size=args.batch_size, rollouts=args.rollouts,
-                                 seed=args.seed, device=args.device, update_mode=args.update_mode)
+                                 seed=args.seed, device=args.device, update_mode=args.update_mode,
+                                 action_head=args.action_head)
     validate_deadline(args.deadline_unix)
     checkpoint = validate_checkpoint(args.checkpoint)
     preservation = require_checkpoint_preservation(args.checkpoint, getattr(args, 'checkpoint_ack', None))
@@ -356,7 +390,7 @@ def run_block(args):
         env = TensorVecEnv(raw, device=device)
         model = NativeCurriculumPPO.load_contact_checkpoint(args.checkpoint, env,
             expected_sha256=CHECKPOINT_SHA256, batch_size=cfg.batch_size,
-            update_mode=cfg.update_mode, joint=True)
+            update_mode=cfg.update_mode, joint=True, action_head=cfg.action_head)
         validate_runtime(model, cfg)
         atomic_json(output / 'scenarios.json', raw.backend.scenario_metadata)
         logger = configure(str(output / 'ppo'), ['json', 'csv'])
@@ -393,7 +427,7 @@ def run_block(args):
                 'collection_seconds': collected - begin, 'update_seconds': updated - collected,
                 'total_seconds': updated - begin, 'actual_update': diagnostics,
                 'nominal_optimizer_steps': cfg.nominal_optimizer_steps,
-                'metrics': loss_metrics(model.logger.name_to_value),
+                'metrics': {**loss_metrics(model.logger.name_to_value), **action_press_metrics(model)},
                 'episodes': callback.episodes, 'episode_count': len(callback.episodes)}
             atomic_json(output / f'rollout-{index:03d}.json', row)
             # Complete immutable checkpoint receipt after every rollout, not only final success.
@@ -446,6 +480,7 @@ def parse_args(argv=None):
     parser.add_argument('--seed', type=int, default=145)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--update-mode', choices=('sb3', 'deferred_metrics'), default='deferred_metrics')
+    parser.add_argument('--action-head', choices=ACTION_HEADS, default='gaussian')
     return parser.parse_args(argv)
 
 

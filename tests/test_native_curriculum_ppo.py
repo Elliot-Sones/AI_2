@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import random
 import tempfile
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -25,7 +25,7 @@ class NativeCurriculumContractTests(unittest.TestCase):
     def test_frozen_curriculum_source_is_unchanged(self):
         module = self.module()
         self.assertEqual(module.curriculum_source_metadata()['sha256'],
-                         '991cda3d086e47eb8d6fddf6cbc0f870aa002e7632e7c93daf6dd2d56e20fe6b')
+                         '388cf6f7fbb1823b952c76b14dc646d7e932e6f76035123f898e92939edd67d7')
         self.assertTrue(module.curriculum_source_metadata()['supported'])
 
     def test_experiment_settings_retain_curriculum_not_raw_combat_defaults(self):
@@ -308,6 +308,11 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertTrue((buffer.executed_actions[..., [5, 8, 9]] == 0).all())
         expected = buffer.actions.clamp(0, 1)*model.policy.allowed_control_mask
         self.assertTrue(self.torch.equal(expected, buffer.executed_actions))
+        observed = buffer.observations.reshape(-1, 256)
+        actions = buffer.actions.reshape(-1, 10)
+        _values, log_probs, _entropy = model.policy.evaluate_actions(observed, actions)
+        self.torch.testing.assert_close(log_probs, buffer.log_probs.reshape(-1), rtol=0, atol=0)
+        self.torch.testing.assert_close(model.tensor_vec_env.env.last_action, buffer.executed_actions[-1], rtol=0, atol=0)
         with self.assertRaisesRegex(ValueError, 'consumed'):
             model.set_task('combat', calibration=True)
         with self.assertRaisesRegex(ValueError, 'consumed'):
@@ -315,6 +320,37 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         buffer.allowed_control_masks[0, 0, 7] = False
         with self.assertRaisesRegex(ValueError, 'mask'):
             model.train()
+
+    def test_native_collector_rejects_nonfinite_policy_outputs_before_env_step_or_buffer_write(self):
+        for field in ('actions', 'values', 'log_probs'):
+            with self.subTest(field=field):
+                model = self.model()
+                from stable_baselines3.common.callbacks import BaseCallback
+                class Callback(BaseCallback):
+                    def _on_step(self):
+                        return True
+                _, callback = model._setup_learn(8192*4, callback=Callback(), reset_num_timesteps=False)
+
+                def bad_forward(policy, observations, deterministic=False):
+                    batch = observations.shape[0]
+                    actions = self.torch.zeros((batch, 10), device=observations.device)
+                    values = self.torch.zeros((batch, 1), device=observations.device)
+                    log_probs = self.torch.zeros((batch,), device=observations.device)
+                    if field == 'actions':
+                        actions[0, 0] = float('nan')
+                    elif field == 'values':
+                        values[0, 0] = float('inf')
+                    else:
+                        log_probs[0] = float('-inf')
+                    return actions, values, log_probs
+
+                model.policy.forward = MethodType(bad_forward, model.policy)
+                with self.assertRaisesRegex(ValueError, 'finite'):
+                    model.collect_rollouts(model.env, callback, model.rollout_buffer, 512)
+                self.assertEqual(model.tensor_vec_env.env.tick, 0)
+                self.assertEqual(model.rollout_buffer.pos, 0)
+                self.assertFalse(model.rollout_buffer.full)
+                callback.locals.clear()
 
     def test_plain_deferred_repeated_updates_protect_critics_rows_and_roundtrip(self):
         plain, deferred = self.model(), self.model('deferred_metrics')
@@ -391,6 +427,21 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         env.env.seed = forbidden_reseed
         model = self.module.NativeCurriculumPPO.from_curriculum(source, env)
         self.assertEqual(model.seed, source.seed)
+
+    def test_bernoulli_conversion_provenance_survives_metadata_copy_and_uses_fresh_optimizer(self):
+        from curriculum_ppo import CurriculumPPO
+        env = self.environment()
+        source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
+            policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=19)
+        source.optimizer_provenance = 'source optimizer metadata must not survive Bernoulli conversion'
+        model = self.module.NativeCurriculumPPO.from_curriculum(source, env, action_head='bernoulli_10')
+        self.assertEqual(
+            model.optimizer_provenance,
+            'fresh neutral Bernoulli action head; source trunk/value copied; fresh Adam optimizer not transferred',
+        )
+        self.assertEqual(model.policy.action_head, 'bernoulli_10')
+        self.assertIs(model.policy.optimizer._policy_ref(), model.policy)
+        self.assertFalse(model.policy.optimizer.state_dict()['state'])
 
     def test_original_curriculum_update_matches_native_from_the_same_saved_rollout(self):
         from curriculum_ppo import CurriculumPPO

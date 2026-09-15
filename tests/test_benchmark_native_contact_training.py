@@ -27,7 +27,8 @@ class ContactRunnerTests(unittest.TestCase):
         self.assertEqual(small.nominal_optimizer_steps, 16)
         self.assertEqual(large.nominal_optimizer_steps, 8)
         for changes in ({'device': 'cpu'}, {'lanes': 32}, {'n_steps': 128},
-                        {'batch_size': 4096}, {'n_epochs': 8}, {'rollouts': 0}, {'seed': -1}):
+                        {'batch_size': 4096}, {'n_epochs': 8}, {'rollouts': 0},
+                        {'seed': -1}, {'action_head': 'factored'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 replace(small, **changes)
 
@@ -154,6 +155,34 @@ class ContactRunnerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.validate_update_diagnostics(bad, cfg)
 
+    def test_action_press_metrics_report_sample_executed_and_deterministic_rates(self):
+        m = self.subject()
+        import torch
+        mask = torch.tensor([True, True, True, True, True, False, True, True, False, False])
+
+        class Policy:
+            action_head = 'bernoulli_10'
+            allowed_control_mask = mask
+            def __call__(self, obs, deterministic=False):
+                actions = torch.zeros((obs.shape[0], 10), dtype=torch.float32)
+                actions[:, 0] = 1
+                actions[:, 7] = 1 if deterministic else 0
+                return actions, None, None
+            def decode_actions(self, actions):
+                return actions * mask.to(dtype=actions.dtype)
+
+        buffer = SimpleNamespace(
+            actions=torch.tensor([[[1, 0, 0, 0, 0, 0, 0, 1, 0, 0]]], dtype=torch.float32),
+            executed_actions=torch.tensor([[[1, 0, 0, 0, 0, 0, 0, 1, 0, 0]]], dtype=torch.float32),
+            observations=torch.zeros((1, 1, 256), dtype=torch.float32),
+        )
+        metrics = m.action_press_metrics(SimpleNamespace(policy=Policy(), rollout_buffer=buffer))
+        self.assertTrue(metrics['action_metrics_available'])
+        self.assertEqual(metrics['action_head'], 'bernoulli_10')
+        self.assertAlmostEqual(metrics['policy_sample_press_rate_all'], .2)
+        self.assertAlmostEqual(metrics['executed_press_rate_all'], .2)
+        self.assertAlmostEqual(metrics['deterministic_press_rate_active'], 2 / 7)
+
     def test_collector_episode_records_are_not_silently_dropped(self):
         m = self.subject()
         self.assertTrue(hasattr(m, 'completed_episode_infos'), 'callback needs explicit native infos contract')
@@ -168,9 +197,11 @@ class ContactRunnerTests(unittest.TestCase):
         m = self.subject()
         args = m.parse_args(['--checkpoint', 'a.zip', '--frozen-root', 'oracle',
             '--reference-root', 'reference', '--qualification', 'proof.json', '--output', 'out',
-            '--deadline-unix', '2000', '--batch-size', '16384', '--rollouts', '8'])
+            '--deadline-unix', '2000', '--batch-size', '16384', '--rollouts', '8',
+            '--action-head', 'bernoulli_10'])
         self.assertEqual(args.batch_size, 16384)
         self.assertEqual(args.rollouts, 8)
+        self.assertEqual(args.action_head, 'bernoulli_10')
         self.assertEqual(args.seed, 145)
 
     def test_complete_mocked_block_preserves_each_rollout_and_actual_work(self):
@@ -198,7 +229,8 @@ class ContactRunnerTests(unittest.TestCase):
         policy = SimpleNamespace(parameters=lambda: [SimpleNamespace(device=SimpleNamespace(type='cuda'))])
         model = SimpleNamespace(**{name: getattr(cfg, name) for name in ('n_steps', 'batch_size',
             'n_epochs', 'gamma', 'gae_lambda', 'target_kl', 'ent_coef')}, n_envs=64,
-            num_timesteps=m.CHECKPOINT_STEPS, task='combat', calibration=False, arm='E1', policy=policy,
+            num_timesteps=m.CHECKPOINT_STEPS, task='combat', calibration=False, arm='E1',
+            action_head='gaussian', policy=policy,
             lr_schedule=lambda _: .0001, clip_range=lambda _: .1, env=raw, rollout_buffer=object(),
             logger=SimpleNamespace(name_to_value=losses, dump=lambda **_: None),
             last_update_diagnostics={'attempted_epochs': 4, 'optimizer_steps': 16, 'kl_early_stop': False})
@@ -226,7 +258,7 @@ class ContactRunnerTests(unittest.TestCase):
             proof = root / 'proof.json'
             proof.write_text('{}')
             args = SimpleNamespace(output=root / 'run', batch_size=8192, rollouts=2, seed=145,
-                device='cuda', update_mode='deferred_metrics', deadline_unix=10**12,
+                device='cuda', update_mode='deferred_metrics', action_head='gaussian', deadline_unix=10**12,
                 checkpoint=root / 'calibrated.zip', qualification=proof, reference_root=root, frozen_root=root)
             with patch.object(m, 'validate_checkpoint', return_value={'sha256': m.CHECKPOINT_SHA256}), \
                  patch.object(m, 'require_checkpoint_preservation', return_value={'verified': True}), \

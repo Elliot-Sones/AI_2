@@ -19,14 +19,14 @@ import numpy as np
 import torch as th
 
 import curriculum_ppo
-from curriculum_ppo import CurriculumPPO, CurriculumPolicy, PPO_DEFAULTS, TASK_MASKS, _ProtectedAdam
+from curriculum_ppo import ACTION_HEADS, CurriculumPPO, CurriculumPolicy, PPO_DEFAULTS, TASK_MASKS, _ProtectedAdam
 from ppo_update_optimizations import deferred_metrics_train, sb3_train_source_metadata
 from tensor_ppo import TensorPPO, TensorVecEnv
 from tensor_rollout_buffer import TensorRolloutBuffer
 
 CONTACT_VERSION = 'bridge_b1_contact-v1'
 COMBAT_MASK = TASK_MASKS['combat']
-CURRICULUM_SOURCE_SHA256 = '991cda3d086e47eb8d6fddf6cbc0f870aa002e7632e7c93daf6dd2d56e20fe6b'
+CURRICULUM_SOURCE_SHA256 = '388cf6f7fbb1823b952c76b14dc646d7e932e6f76035123f898e92939edd67d7'
 CALIBRATED_CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
 
 
@@ -130,6 +130,7 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         self.allowed_control_masks = th.empty(self.actions.shape, dtype=th.bool, device=self.device)
         self._contact_mask = th.tensor(COMBAT_MASK, dtype=th.bool, device=self.device)
         self.task, self.consumed = None, False
+        self.action_head = 'gaussian'
 
     def reset(self):
         super().reset()
@@ -163,17 +164,28 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         self._validate_training_targets()
         self._accumulate_finite_check(self.executed_actions)
         self._raise_if_invalid_data()
-        if not th.equal(self.executed_actions, self.actions.clamp(0, 1)*self._contact_mask):
-            raise ValueError('Executed actions do not match the clipped masked raw samples')
+        if self.action_head == 'gaussian':
+            expected = self.actions.clamp(0, 1)*self._contact_mask
+        elif self.action_head == 'bernoulli_10':
+            if not bool(((self.actions == 0) | (self.actions == 1)).all()):
+                raise ValueError('Bernoulli rollout actions must be exact 0/1 buttons')
+            expected = self.actions*self._contact_mask
+        else:
+            raise ValueError(f'Unsupported rollout action head: {self.action_head!r}')
+        if not th.equal(self.executed_actions, expected):
+            raise ValueError('Executed actions do not match the policy action-head decode')
 
 
 class NativeCurriculumPPO(TensorPPO):
     """E1 contact learner with CUDA transport and unchanged curriculum policy."""
     def __init__(self, policy=CurriculumPolicy, env=None, *, batch_size=8192,
-                 update_mode='deferred_metrics', calibration=False, arm='E1', **kwargs):
+                 update_mode='deferred_metrics', calibration=False, arm='E1',
+                 action_head='gaussian', **kwargs):
         _require_cuda(env)
         _require_sources()
         settings = contact_settings(batch_size=batch_size, update_mode=update_mode)
+        if action_head not in ACTION_HEADS:
+            raise ValueError(f'action_head must be one of {ACTION_HEADS}, got {action_head!r}')
         if arm != 'E1' or policy is not CurriculumPolicy:
             raise ValueError('This experiment requires the E1 CurriculumPolicy')
         # Do not silently accept ordinary raw-combat PPO settings in this run.
@@ -188,21 +200,28 @@ class NativeCurriculumPPO(TensorPPO):
         if settings['n_steps']*env.num_envs < batch_size or settings['n_steps']*env.num_envs % batch_size:
             raise ValueError('Contact rollout size must be a positive multiple of minibatch size')
         self.arm, self.task, self.calibration = arm, 'combat', bool(calibration)
+        self.action_head = action_head
         self.update_mode = update_mode
         self.parent_num_timesteps = 0
         self.optimizer_provenance = 'unchanged protected curriculum Adam'
         self.task_history = []
         self._collecting = False
         self.last_update_diagnostics = {}
-        super().__init__(policy, env, **settings, **kwargs)
+        policy_kwargs = dict(kwargs.pop('policy_kwargs', {}) or {})
+        if 'action_head' in policy_kwargs and policy_kwargs['action_head'] != action_head:
+            raise ValueError('policy_kwargs action_head disagrees with learner action_head')
+        policy_kwargs['action_head'] = action_head
+        super().__init__(policy, env, **settings, policy_kwargs=policy_kwargs, **kwargs)
         self.policy.set_task(self.task, self.calibration)
         self.rollout_buffer_class = TaskTensorRolloutBuffer
         self.rollout_buffer = TaskTensorRolloutBuffer(self.n_steps, self.observation_space,
             self.action_space, device=self.device, gamma=self.gamma, gae_lambda=self.gae_lambda,
             n_envs=self.n_envs)
+        self.rollout_buffer.action_head = action_head
 
     @classmethod
-    def from_curriculum(cls, source, env, *, batch_size=None, update_mode='deferred_metrics', joint=False):
+    def from_curriculum(cls, source, env, *, batch_size=None, update_mode='deferred_metrics',
+                        joint=False, action_head=None):
         _require_cuda(env)
         _require_sources()
         if not isinstance(source, CurriculumPPO) or type(source.policy) is not CurriculumPolicy:
@@ -217,20 +236,49 @@ class NativeCurriculumPPO(TensorPPO):
                 actual = actual(1.0)
             if actual != expected:
                 raise ValueError(f'Checkpoint curriculum setting {name} differs: {actual!r}')
+        target_action_head = action_head or getattr(source, 'action_head', source.policy.action_head)
         with _preserve_rng():
+            policy_kwargs = copy.deepcopy(source.policy_kwargs)
+            policy_kwargs['action_head'] = target_action_head
             model = cls(env=env, batch_size=source.batch_size if batch_size is None else batch_size,
                         update_mode=update_mode, calibration=source.calibration, arm=source.arm,
+                        action_head=target_action_head,
                         # The immutable scenario schedule belongs to the caller.
                         # SB3 seeds its env in __init__ when seed is not None.
-                        policy_kwargs=copy.deepcopy(source.policy_kwargs), seed=None,
+                        policy_kwargs=policy_kwargs, seed=None,
                         verbose=source.verbose, device=env.device,
                         stats_window_size=source._stats_window_size, tensorboard_log=source.tensorboard_log)
-            model.set_parameters(source.get_parameters(), exact_match=True, device=env.device)
+            if target_action_head == source.policy.action_head:
+                model.set_parameters(source.get_parameters(), exact_match=True, device=env.device)
+            elif target_action_head == 'bernoulli_10':
+                state = model.policy.state_dict()
+                for name, value in source.policy.state_dict().items():
+                    if name.startswith(('action_net.', 'log_std')):
+                        continue
+                    if name not in state or state[name].shape != value.shape:
+                        raise ValueError(f'Incompatible source parameter: {name}')
+                    state[name] = value.detach().to(env.device).clone()
+                model.policy.load_state_dict(state)
+                with th.no_grad():
+                    model.policy.action_net.weight.zero_()
+                    model.policy.action_net.bias.zero_()
+                    model.policy.log_std.zero_()
+                model.optimizer_provenance = (
+                    'fresh neutral Bernoulli action head; source trunk/value copied; '
+                    'fresh Adam optimizer not transferred'
+                )
+            else:
+                raise ValueError('Unsupported curriculum action-head conversion')
         for name in ('num_timesteps', '_n_updates', '_episode_num', '_total_timesteps',
                      '_num_timesteps_at_start', '_current_progress_remaining', 'parent_num_timesteps',
                      'optimizer_provenance', 'task_history', 'seed'):
             if hasattr(source, name):
                 setattr(model, name, copy.deepcopy(getattr(source, name)))
+        if target_action_head == 'bernoulli_10' and target_action_head != source.policy.action_head:
+            model.optimizer_provenance = (
+                'fresh neutral Bernoulli action head; source trunk/value copied; '
+                'fresh Adam optimizer not transferred'
+            )
         for name in ('ep_info_buffer', 'ep_success_buffer'):
             value = getattr(source, name, None)
             if value is not None:
@@ -241,13 +289,15 @@ class NativeCurriculumPPO(TensorPPO):
 
     @classmethod
     def load_contact_checkpoint(cls, path, env=None, *, expected_sha256=CALIBRATED_CHECKPOINT_SHA256,
-                                batch_size=8192, update_mode='deferred_metrics', joint=True):
+                                batch_size=8192, update_mode='deferred_metrics', joint=True,
+                                action_head='gaussian'):
         _require_cuda(env)
         _require_sources()
         digest = verify_checkpoint(path, expected_sha256)
         with _preserve_rng():
             source = CurriculumPPO.load(path, device=env.device)
-            model = cls.from_curriculum(source, env, batch_size=batch_size, update_mode=update_mode, joint=joint)
+            model = cls.from_curriculum(source, env, batch_size=batch_size, update_mode=update_mode,
+                                        joint=joint, action_head=action_head)
         model.starting_checkpoint_sha256 = digest
         return model
 
@@ -255,13 +305,15 @@ class NativeCurriculumPPO(TensorPPO):
     def load(cls, path, env=None, device='auto', *, expected_sha256, update_mode=None, **kwargs):
         _require_cuda(env)
         _require_sources()
+        action_head = kwargs.pop('action_head', None)
         if kwargs or (device != 'auto' and th.device(device) not in (env.device, th.device('cuda'))):
             raise ValueError('Native contact load does not accept policy or hyperparameter overrides')
         verify_checkpoint(path, expected_sha256)
         with _preserve_rng():
             source = CurriculumPPO.load(path, device=env.device)
             model = cls.from_curriculum(source, env,
-                update_mode=update_mode or getattr(source, 'update_mode', 'deferred_metrics'))
+                update_mode=update_mode or getattr(source, 'update_mode', 'deferred_metrics'),
+                action_head=action_head)
         model.starting_checkpoint_sha256 = getattr(source, 'starting_checkpoint_sha256', expected_sha256)
         model.last_update_diagnostics = copy.deepcopy(getattr(source, 'last_update_diagnostics', {}))
         return model
@@ -269,6 +321,8 @@ class NativeCurriculumPPO(TensorPPO):
     def _policy_contract(self):
         if self.policy.task != self.task or self.policy.calibration != self.calibration:
             raise ValueError('Policy task/calibration differs from learner task')
+        if self.policy.action_head != self.action_head:
+            raise ValueError('Policy action head differs from learner action head')
         if self.task != 'combat' or not np.array_equal(self.policy.allowed_control_mask.cpu(), COMBAT_MASK):
             raise ValueError('Policy mask differs from the canonical contact task mask')
         if not isinstance(self.policy.optimizer, _ProtectedAdam) or self.policy.optimizer._policy_ref() is not self.policy:
@@ -313,8 +367,13 @@ class NativeCurriculumPPO(TensorPPO):
                 with th.no_grad():
                     actions, values, log_probs = self.policy(observations)
                 raw_actions = actions.reshape(self.n_envs, 10)
-                executed_actions = th.clamp(raw_actions, self._action_low_tensor,
-                                            self._action_high_tensor)*self.policy.allowed_control_mask
+                if not (th.isfinite(raw_actions).all()
+                        and th.isfinite(values).all()
+                        and th.isfinite(log_probs).all()):
+                    raise ValueError('Policy actions, values and log probabilities must be finite')
+                executed_actions = self.policy.decode_actions(raw_actions)
+                if not th.isfinite(executed_actions).all():
+                    raise ValueError('Executed actions must be finite')
                 step = self.tensor_vec_env.step_tensor(executed_actions)
                 # Contact's deadline is terminal, never a bootstrap truncation.
                 rollout_buffer._invalid_data.logical_or_(step.truncated.any())
@@ -392,6 +451,14 @@ class NativeCurriculumPPO(TensorPPO):
         entropy = -float(self.logger.name_to_value['train/entropy_loss'])
         self.logger.record('train/active_entropy_sum', entropy)
         self.logger.record('train/active_entropy_mean', entropy/len(self.policy.active_indices))
+        normalizer = getattr(self.policy, 'normalized_entropy', None)
+        normalized_entropy = None if normalizer is None else normalizer(
+            th.as_tensor(entropy, device=getattr(self, 'device', 'cpu')))
+        self.logger.record('train/active_entropy_normalized',
+                           -1.0 if normalized_entropy is None else float(normalized_entropy.item()))
+        action_head = getattr(self.policy, 'action_head', 'gaussian')
+        self.logger.record('train/action_head_id', ACTION_HEADS.index(action_head) if action_head in ACTION_HEADS else -1)
+        self.logger.record('train/action_entropy_scale_id', 0 if normalized_entropy is None else 1)
         self.logger.record('train/active_entropy_coefficient', self.ent_coef)
 
     export_actor = CurriculumPPO.export_actor
