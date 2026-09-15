@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -160,6 +161,24 @@ class ContactReferencePureTests(unittest.TestCase):
 
 
 class ContactReferenceFrozenGameTests(unittest.TestCase):
+    def test_frozen_replay_uses_production_default_contraction(self):
+        import native_navigation_contact as contact
+
+        first = {"compared_ticks": 150, "exact": True, "first_divergence": None}
+        second = {"exact": False}
+        capture_row = json.dumps({"pre": {}, "post": {"solve": [0], "bodies": [{}, {}, {}, {"p": [0.0, 0.0]}]}})
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.dict(sys.modules, {"pymunk": types.ModuleType("pymunk")}), \
+                mock.patch.object(Path, "is_file", return_value=True), \
+                mock.patch.object(Path, "read_text", return_value=capture_row + "\n"), \
+                mock.patch("importlib.import_module"), \
+                mock.patch("subprocess.run"), \
+                mock.patch.object(contact, "verify_capture", side_effect=(first, second)), \
+                mock.patch(f"{__name__}.build_reference", return_value=(contact, object())) as build:
+            self.test_short_capture_replays_bit_exactly()
+
+        self.assertEqual(build.call_args.kwargs["contract"], contact.default_contraction())
+
     def test_short_capture_replays_bit_exactly(self):
         try:
             import pymunk  # noqa: F401
@@ -177,7 +196,8 @@ class ContactReferenceFrozenGameTests(unittest.TestCase):
             subprocess.run([sys.executable, str(ROOT / "navigation_contact_capture.py"), "--source-root", str(FROZEN), "--config", str(FROZEN / "control.yaml"),
                             "--controller", "scripted", "--steps", "150", "--seeds", "45", "--output", str(capture)], check=True, env=env, cwd=str(ROOT),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            m, ref = build_reference(tmp, contract="on")
+            import native_navigation_contact as m
+            m, ref = build_reference(tmp, contract=m.default_contraction())
             result = m.verify_capture(ref, capture)
             self.assertEqual(result["compared_ticks"], 150)
             self.assertTrue(result["exact"], json.dumps(result["first_divergence"], default=str))
