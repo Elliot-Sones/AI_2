@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -205,6 +206,10 @@ def validate_receipt(raw: dict[str, Any]) -> dict[str, Any]:
     for path in ("system.hardware.accelerator_model", "system.hardware.cpu_model"):
         if not _known_hardware_string(_get(receipt, path)):
             raise ContractError(f"{path} must be a non-empty string")
+    receipt["workload"]["environment"]["semantics_hash"] = _validate_sha256_hex(
+        _get(receipt, "workload.environment.semantics_hash"),
+        "workload.environment.semantics_hash",
+    )
 
     for path in _POSITIVE_INTEGER_PATHS:
         _positive_int(_get(receipt, path), path)
@@ -832,6 +837,7 @@ _RUNTIME_MEANINGFUL_KEYS = {
     "torch",
 }
 _RUNTIME_BOOL_AUXILIARY_KEYS = {"allow_tf32", "matmul_tf32", "tf32"}
+_SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _validate_runtime_evidence(value: Any, name: str) -> None:
@@ -885,6 +891,19 @@ def _validate_non_bool_evidence(value: Any, name: str, *, allow_zero: bool) -> N
         if not allow_zero and float(value) > 0:
             return
     raise ContractError(f"{name} must contain semantic evidence")
+
+
+def _validate_sha256_hex(value: Any, name: str) -> str:
+    if not isinstance(value, str):
+        raise ContractError(f"{name} must be a 64-character SHA-256 hex string")
+    normalized = value.strip().casefold()
+    if normalized in {"todo", "placeholder", "unknown", "n/a", "na", "none", "null"}:
+        raise ContractError(f"{name} must be a real SHA-256 hex string")
+    if not _SHA256_HEX_PATTERN.fullmatch(normalized):
+        raise ContractError(f"{name} must be a 64-character SHA-256 hex string")
+    if len(set(normalized)) == 1:
+        raise ContractError(f"{name} must not be a placeholder SHA-256 string")
+    return normalized
 
 
 def _counter_key(value: str) -> str:

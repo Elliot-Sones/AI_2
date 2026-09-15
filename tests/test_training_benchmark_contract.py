@@ -19,6 +19,10 @@ from training_benchmark_contract import (
 )
 
 
+VALID_SEMANTICS_HASH = "e659a10eed28048afd16823b32ded9eabe872d7c3438f0cdabd895259336925c"
+OTHER_SEMANTICS_HASH = "9f1b9da8b1aea1e377f00ed8e7ce9e8d4bce6f24a8a12d99d148633f37b9010e"
+
+
 THROUGHPUT_MISMATCH_CASES = {
     "workload.timing_scope": {
         "workload": {"timing_scope": "env_only", "included_stages": ["environment_step"]}
@@ -44,7 +48,7 @@ THROUGHPUT_MISMATCH_CASES = {
     },
     "system.hardware.cpu_model": {"system": {"hardware": {"cpu_model": "other-cpu"}}},
     "workload.environment.semantics_hash": {
-        "workload": {"environment": {"semantics_hash": "different-game-code"}}
+        "workload": {"environment": {"semantics_hash": OTHER_SEMANTICS_HASH}}
     },
     "workload.environment.env_id": {
         "workload": {"environment": {"env_id": "OtherBrawl"}}
@@ -114,7 +118,7 @@ def receipt(**overrides):
             "overlap": {"mode": "none", "evidence": ["not_applicable"]},
             "environment": {
                 "env_id": "WarehouseBrawl",
-                "semantics_hash": "ai2-env-sha256-test",
+                "semantics_hash": VALID_SEMANTICS_HASH,
                 "observation_contract": "native_full_v1",
                 "action_contract": "discrete_21_v1",
                 "tick_semantics": "one_transition_per_agent_action",
@@ -246,6 +250,33 @@ class ValidationTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ContractError, "system.hardware.cpu_model"):
                     validate_receipt(receipt(system={"hardware": {"cpu_model": value}}))
+
+    def test_requires_real_sha256_environment_semantics_hash(self):
+        invalid_values = (
+            None,
+            "",
+            "   ",
+            "TODO",
+            "placeholder",
+            "unknown",
+            "n/a",
+            "0" * 64,
+            "g" * 64,
+            "abc123",
+            True,
+            123,
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                raw = receipt()
+                raw["workload"]["environment"]["semantics_hash"] = value
+                with self.assertRaisesRegex(ContractError, "workload.environment.semantics_hash"):
+                    validate_receipt(raw)
+
+        raw = receipt()
+        raw["workload"]["environment"]["semantics_hash"] = VALID_SEMANTICS_HASH.upper()
+        normalized = validate_receipt(raw)
+        self.assertEqual(VALID_SEMANTICS_HASH, normalized["workload"]["environment"]["semantics_hash"])
 
     def test_derives_rate_and_returns_json_safe_deep_copy(self):
         raw = receipt()
@@ -623,7 +654,7 @@ class ComparisonTests(unittest.TestCase):
         result = comparison_with(
             {
                 "workload": {
-                    "environment": {"semantics_hash": "different-game-code"}
+                    "environment": {"semantics_hash": OTHER_SEMANTICS_HASH}
                 }
             }
         )
@@ -687,7 +718,7 @@ class ComparisonTests(unittest.TestCase):
             ("workload.environment.env_id", {"workload": {"environment": {"env_id": "OtherBrawl"}}}),
             (
                 "workload.environment.semantics_hash",
-                {"workload": {"environment": {"semantics_hash": "different-game-code"}}},
+                {"workload": {"environment": {"semantics_hash": OTHER_SEMANTICS_HASH}}},
             ),
             (
                 "workload.environment.observation_contract",
@@ -779,6 +810,15 @@ class ComparisonTests(unittest.TestCase):
                 self.assertFalse(result["learning_behavior_comparable"])
                 self.assertIn(blocker, result["learning_blockers"])
                 self.assertFalse(result["promotion_eligible"])
+
+    def test_placeholder_semantics_hashes_cannot_compare_as_equivalent(self):
+        left = receipt()
+        right = receipt()
+        left["workload"]["environment"]["semantics_hash"] = "TODO"
+        right["workload"]["environment"]["semantics_hash"] = "TODO"
+
+        with self.assertRaisesRegex(ContractError, "workload.environment.semantics_hash"):
+            compare_receipts(left, right)
 
     def test_async_evidence_mismatch_blocks_throughput(self):
         result = comparison_with(
@@ -926,7 +966,7 @@ def native_result(**overrides):
         "config": config,
         "provenance": {
             "config": dict(config),
-            "environment_sha256": "e" * 64,
+            "environment_sha256": VALID_SEMANTICS_HASH,
             "attack_assets_sha256": "a" * 64,
             "sources": {
                 "benchmark_native_combat_training.py": "b" * 64,
@@ -1023,7 +1063,7 @@ class NativeAdapterTests(unittest.TestCase):
             normalized["workload"]["model"]["raw_action_distribution"],
         )
         self.assertEqual("AMD EPYC 9354P 32-Core Processor", normalized["system"]["hardware"]["cpu_model"])
-        self.assertEqual("e" * 64, normalized["workload"]["environment"]["semantics_hash"])
+        self.assertEqual(VALID_SEMANTICS_HASH, normalized["workload"]["environment"]["semantics_hash"])
         self.assertEqual(
             "benchmark_native_combat_training.py",
             normalized["workload"]["source_provenance"]["runner"],

@@ -19,6 +19,7 @@ from training_benchmark_contract import validate_receipt
 
 
 FROZEN = Path(os.environ.get('AI2_FROZEN_SOURCE_ROOT', '/Users/elliot18/Projects/ml-research/AI_2-learning-validation-20260905/baselines/navigation-repair-20260905/payload/variants/corrected'))
+VALID_SEMANTICS_HASH = 'e659a10eed28048afd16823b32ded9eabe872d7c3438f0cdabd895259336925c'
 
 
 class ConfigAndMeasurementTests(unittest.TestCase):
@@ -278,7 +279,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
             config_dict = asdict(config)
             return {
                 'config': config_dict,
-                'environment_sha256': 'e'*64,
+                'environment_sha256': VALID_SEMANTICS_HASH,
                 'attack_assets_sha256': 'a'*64,
                 'sources': {
                     'benchmark_native_combat_training.py': 'b'*64,

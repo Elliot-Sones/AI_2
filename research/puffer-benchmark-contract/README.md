@@ -14,7 +14,8 @@ The Puffer producer must provide:
 - Async overlap evidence from a CUDA trace or event timeline when rollout/update overlap is claimed.
 - Actor staleness and replay/update semantics.
 - Environment parity evidence against AI2, including the actual game semantics
-  hash, observation/action contracts, and tick semantics.
+  SHA-256 hash as a 64-character hex digest, observation/action contracts, and
+  tick semantics.
 - Model architecture, parameter count, precision, rollout geometry, minibatches, PPO epochs, and sample reuse.
 - Quality evidence for fixed-transition and fixed-wall-clock gates in the original AI2 game.
 - Non-empty source, command, and runtime provenance under both `system.software`
