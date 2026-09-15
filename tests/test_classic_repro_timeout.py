@@ -19,6 +19,22 @@ os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="ai2-mpl-"))
 
 ROOT = Path(__file__).resolve().parents[1]
 _MISSING = object()
+REAL_STACK_IMPORT_PREFIXES = (
+    "train",
+    "environment",
+    "src",
+    "gymnasium",
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+    "gdown",
+    "pygame",
+    "pymunk",
+    "cv2",
+    "skvideo",
+    "skimage",
+    "IPython",
+)
 
 
 def move_test_roots_to_front() -> None:
@@ -78,7 +94,35 @@ def clear_repo_game_modules_for_import():
         sys.modules.pop(name, None)
 
 
+def purge_stubbed_real_stack_imports():
+    """Remove unit-test stubs before binding import-time simulator defaults."""
+    for name in list(sys.modules):
+        module = sys.modules[name]
+        module_file = getattr(module, "__file__", None)
+        root_name = name.split(".", 1)[0]
+        root_module = sys.modules.get(root_name)
+        root_file = getattr(root_module, "__file__", None)
+        is_named_real_import = name in REAL_STACK_IMPORT_PREFIXES or any(
+            name.startswith(f"{prefix}.") for prefix in REAL_STACK_IMPORT_PREFIXES
+        )
+        is_unit_test_dummy = module.__class__.__name__ == "DummyModule" or (
+            module_file is not None and not isinstance(module_file, (str, bytes, os.PathLike))
+        )
+        is_real_torch_child = (
+            root_name == "torch"
+            and name != "torch"
+            and isinstance(root_file, (str, bytes, os.PathLike))
+        )
+        is_mutable_asset_dependency = root_name in {"pygame", "pymunk"}
+        is_synthetic_module = module_file is None and is_named_real_import and not is_real_torch_child
+        is_repo_module_loaded_under_stubs = name == "train" or name.startswith("environment")
+        if is_unit_test_dummy or is_mutable_asset_dependency or is_synthetic_module or is_repo_module_loaded_under_stubs:
+            sys.modules.pop(name, None)
+
+
 def import_real_stack():
+    purge_stubbed_real_stack_imports()
+    importlib.invalidate_caches()
     try:
         import numpy as np
         import train
