@@ -5,6 +5,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -242,9 +243,51 @@ class ActionHeadContractTests(unittest.TestCase):
         self.assertEqual(neutral.action_ab_arm, "G_neutral")
         self.assertEqual(projected.action_ab_arm, "B_projected")
         th.testing.assert_close(kept.policy.action_net.bias, parent.policy.action_net.bias, rtol=0, atol=0)
-        th.testing.assert_close(neutral.policy.action_net.bias, th.zeros_like(neutral.policy.action_net.bias), rtol=0, atol=0)
+        th.testing.assert_close(
+            neutral.policy.action_net.bias,
+            th.full_like(neutral.policy.action_net.bias, self.module.GAUSSIAN_BUTTON_THRESHOLD),
+            rtol=0,
+            atol=0,
+        )
         self.assertFalse(th.equal(projected.policy.action_net.bias, th.zeros_like(projected.policy.action_net.bias)))
         self.assertIn("projected", projected.optimizer_provenance)
+
+    def test_neutral_gaussian_and_bernoulli_are_behavior_matched_for_causal_arm(self):
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.policies import ActorCriticPolicy
+
+        parent = PPO(
+            ActorCriticPolicy,
+            self.fixture_env(),
+            n_steps=8,
+            batch_size=8,
+            policy_kwargs={"net_arch": {"pi": [8], "vf": [8]}},
+            seed=33,
+        )
+        gaussian = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="G_neutral", n_steps=8, batch_size=8,
+        )
+        bernoulli = self.module.CurriculumPPO.from_parent(
+            parent, self.fixture_env(), action_ab_arm="B_neutral", n_steps=8, batch_size=8,
+        )
+        observations = th.zeros((3, 256), dtype=th.float32)
+        with th.no_grad():
+            gaussian_mean = gaussian.policy.action_net(gaussian.policy.mlp_extractor.policy_net(observations))
+            bernoulli_logits = bernoulli.policy.action_net(bernoulli.policy.mlp_extractor.policy_net(observations))
+        th.testing.assert_close(
+            gaussian_mean,
+            th.full_like(gaussian_mean, self.module.GAUSSIAN_BUTTON_THRESHOLD),
+            rtol=0,
+            atol=0,
+        )
+        th.testing.assert_close(bernoulli_logits, th.zeros_like(bernoulli_logits), rtol=0, atol=0)
+        gaussian_press_prob = 1 - th.distributions.Normal(gaussian_mean, gaussian.policy.log_std.exp()).cdf(
+            gaussian_mean.new_full(gaussian_mean.shape, self.module.GAUSSIAN_BUTTON_THRESHOLD)
+        )
+        th.testing.assert_close(gaussian_press_prob, th.full_like(gaussian_press_prob, 0.5), rtol=0, atol=1e-6)
+        th.testing.assert_close(th.sigmoid(bernoulli_logits), th.full_like(bernoulli_logits, 0.5), rtol=0, atol=0)
+        th.testing.assert_close((gaussian_mean > 0.5).to(th.float32), th.zeros_like(gaussian_mean), rtol=0, atol=0)
+        th.testing.assert_close((bernoulli_logits > 0).to(th.float32), th.zeros_like(bernoulli_logits), rtol=0, atol=0)
 
     def test_projected_bernoulli_matches_gaussian_deterministic_buttons_and_sample_probabilities(self):
         from stable_baselines3 import PPO
@@ -343,6 +386,17 @@ class ActionHeadContractTests(unittest.TestCase):
         np.testing.assert_array_equal(random_state[1], after_random[1])
         self.assertEqual(random_state[2:], after_random[2:])
         th.testing.assert_close(th.get_rng_state(), torch_state, rtol=0, atol=0)
+
+    def test_preserve_rng_restores_cuda_state_when_cuda_is_initialized(self):
+        cuda_state = [th.tensor([1, 2, 3], dtype=th.uint8)]
+        with mock.patch.object(self.module.th.cuda, "is_available", return_value=True), \
+             mock.patch.object(self.module.th.cuda, "is_initialized", return_value=True), \
+             mock.patch.object(self.module.th.cuda, "get_rng_state_all", return_value=cuda_state) as get_cuda, \
+             mock.patch.object(self.module.th.cuda, "set_rng_state_all") as set_cuda:
+            with self.module._preserve_rng():
+                th.manual_seed(123)
+            get_cuda.assert_called_once()
+            set_cuda.assert_called_once_with(cuda_state)
 
     def test_bernoulli_normalized_entropy_has_unit_scale_and_gaussian_is_unbounded(self):
         bernoulli = self.policy("bernoulli_10")

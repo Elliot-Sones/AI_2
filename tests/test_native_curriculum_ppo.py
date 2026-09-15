@@ -25,7 +25,7 @@ class NativeCurriculumContractTests(unittest.TestCase):
     def test_frozen_curriculum_source_is_unchanged(self):
         module = self.module()
         self.assertEqual(module.curriculum_source_metadata()['sha256'],
-                         '5cfaacb9f4f586593d70d74ba5fecd807a28870693fac1195f22e5eaeb3e672c')
+                         '34a5a4a95eb621aaa10c0aa902cdf5c6d5c00ad0b0abbdd5b9ec01abe8a5b8c4')
         self.assertTrue(module.curriculum_source_metadata()['supported'])
 
     def test_experiment_settings_retain_curriculum_not_raw_combat_defaults(self):

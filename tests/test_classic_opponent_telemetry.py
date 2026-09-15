@@ -3,15 +3,23 @@ import os
 import random
 import tempfile
 import unittest
+import importlib.util
 from functools import partial
 from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
-from gymnasium import spaces
 
-import train
-import environment.agent as agent_module
+HAS_CLASSIC_DEPS = (
+    importlib.util.find_spec("gymnasium") is not None
+    and importlib.util.find_spec("torch") is not None
+    and importlib.util.find_spec("stable_baselines3") is not None
+)
+
+if HAS_CLASSIC_DEPS:
+    from gymnasium import spaces
+    import train
+    import environment.agent as agent_module
 
 
 class _FakeEnv:
@@ -83,6 +91,7 @@ class _FakeRawWarehouseBrawl:
         raise AssertionError("opponent audit should only reset, not step")
 
 
+@unittest.skipUnless(HAS_CLASSIC_DEPS, "classic RL dependencies are not installed in this local environment")
 class OpponentSelectionTelemetryTest(unittest.TestCase):
     def setUp(self):
         self.monitor_patch = mock.patch.object(agent_module, "Monitor", _FakeMonitor)
@@ -105,7 +114,7 @@ class OpponentSelectionTelemetryTest(unittest.TestCase):
         self.assertIn("self_play", cfg.opponents)
         self.assertIsInstance(cfg.opponents["self_play"][1], train.SelfPlayRandom)
 
-    def test_vectorized_save_handler_process_is_noop_and_keeps_archive_empty(self):
+    def test_vectorized_save_handler_refreshes_archive_created_after_worker_construction(self):
         with tempfile.TemporaryDirectory(prefix="ai2-vectorized-save-handler-") as tmp:
             handler = train.VectorizedSaveHandler(
                 agent=None,
@@ -116,11 +125,48 @@ class OpponentSelectionTelemetryTest(unittest.TestCase):
                 mode=train.SaveHandlerMode.FORCE,
             )
 
-            self.assertFalse(handler.process())
-            handler.save_agent()
+            run_dir = os.path.join(tmp, "self_play_run")
+            os.makedirs(run_dir, exist_ok=True)
+            first = os.path.join(run_dir, "model_000001_steps.zip")
+            second = os.path.join(run_dir, "model_000002_steps.zip")
+            with open(first, "wb") as f:
+                f.write(b"first")
+            with open(second, "wb") as f:
+                f.write(b"second")
 
-            self.assertEqual(handler.history, [])
-            self.assertEqual(os.listdir(os.path.join(tmp, "self_play_run")), [])
+            self.assertFalse(handler.process())
+
+            self.assertEqual(handler.history, [os.path.abspath(first), os.path.abspath(second)])
+            self.assertIn(handler.get_random_model_path(), handler.history)
+
+    def test_self_play_callback_saves_initial_interval_and_final_by_timesteps(self):
+        class FakeSaveHandler:
+            save_freq = 100
+
+            def __init__(self):
+                self.saved = []
+                self.agent = None
+                self.num_timesteps = 0
+
+            def save_agent(self):
+                self.saved.append(self.num_timesteps)
+
+            def process(self):
+                raise AssertionError("callback should use absolute timestep saves")
+
+        handler = FakeSaveHandler()
+        callback = train.SelfPlayCallback(handler)
+        callback.model = object()
+
+        callback.num_timesteps = 0
+        callback._on_training_start()
+        for step in (48, 96, 144, 199, 200):
+            callback.num_timesteps = step
+            self.assertTrue(callback._on_step())
+        callback.num_timesteps = 240
+        callback._on_training_end()
+
+        self.assertEqual(handler.saved, [0, 144, 240])
 
     def test_records_self_play_empty_archive_constant_fallback(self):
         recorder = train.OpponentSelectionTelemetry(

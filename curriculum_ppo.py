@@ -42,6 +42,12 @@ ACTION_EXPERIMENT_ARMS = {
     "B_neutral": {"action_head": "bernoulli_10", "action_init_strategy": "neutral"},
     "B_projected": {"action_head": "bernoulli_10", "action_init_strategy": "projected"},
 }
+ACTION_EXPERIMENT_INTERPRETATION = {
+    "G_keep": "practical warm-start baseline; preserves source action head and optimizer where same-class loading allows it",
+    "B_projected": "practical warm-start comparison; preserves source executed-button behavior approximately but uses a fresh optimizer",
+    "G_neutral": "causal representation arm; fresh Gaussian optimizer/head behavior-matched to B_neutral",
+    "B_neutral": "causal representation arm; fresh Bernoulli optimizer/head behavior-matched to G_neutral",
+}
 GAUSSIAN_BUTTON_THRESHOLD = 0.5
 PROBIT_TO_LOGIT_SCALE = 1.702
 BERNOULLI_PROJECTION_MAX_PROB_ERROR = 0.01
@@ -70,13 +76,16 @@ def _task_mask(task):
 def _preserve_rng():
     class PreserveRng:
         def __enter__(self):
-            self.state = (random.getstate(), np.random.get_state(), th.get_rng_state())
+            cuda_state = th.cuda.get_rng_state_all() if th.cuda.is_available() and th.cuda.is_initialized() else None
+            self.state = (random.getstate(), np.random.get_state(), th.get_rng_state(), cuda_state)
             return self
 
         def __exit__(self, exc_type, exc, tb):
             random.setstate(self.state[0])
             np.random.set_state(self.state[1])
             th.set_rng_state(self.state[2])
+            if self.state[3] is not None:
+                th.cuda.set_rng_state_all(self.state[3])
             return False
 
     return PreserveRng()
@@ -118,6 +127,15 @@ def _copy_compatible_non_action_state(target_policy, source_policy):
     target_policy.load_state_dict(state)
 
 
+def _set_neutral_action_head(policy):
+    with th.no_grad():
+        policy.action_net.weight.zero_()
+        policy.action_net.bias.zero_()
+        if policy.action_head == "gaussian":
+            policy.action_net.bias.fill_(GAUSSIAN_BUTTON_THRESHOLD)
+        policy.log_std.zero_()
+
+
 def _apply_action_initialization(target_policy, source_policy, *, action_init_strategy):
     if action_init_strategy not in ACTION_INIT_STRATEGIES:
         raise ValueError(f"Unsupported action initialization strategy: {action_init_strategy!r}")
@@ -131,12 +149,12 @@ def _apply_action_initialization(target_policy, source_policy, *, action_init_st
         }
     with th.no_grad():
         if action_init_strategy == "neutral":
-            target_policy.action_net.weight.zero_()
-            target_policy.action_net.bias.zero_()
-            target_policy.log_std.zero_()
+            _set_neutral_action_head(target_policy)
             return {
                 "strategy": "neutral",
-                "description": "action_net weight/bias and log_std reset to zero; trunk/value copied",
+                "description": "fresh head behavior-matched at 50 percent sampled press rate; deterministic strict-threshold mode stays unpressed",
+                "gaussian_neutral_mean": GAUSSIAN_BUTTON_THRESHOLD if target_policy.action_head == "gaussian" else None,
+                "bernoulli_neutral_logit": 0.0 if target_policy.action_head == "bernoulli_10" else None,
                 "optimizer": "fresh optimizer required",
             }
         if action_init_strategy != "projected":
@@ -457,6 +475,7 @@ class CurriculumPPO(PPO):
             "arm": action_ab_arm,
             "action_head": action_head,
             "strategy": action_init_strategy,
+            "interpretation": ACTION_EXPERIMENT_INTERPRETATION.get(action_ab_arm),
             "source": "constructor",
         }
         self.parent_num_timesteps = 0
@@ -477,10 +496,7 @@ class CurriculumPPO(PPO):
         settings["policy_kwargs"] = policy_kwargs
         super().__init__(policy, env, **settings)
         if action_init_strategy == "neutral":
-            with th.no_grad():
-                self.policy.action_net.weight.zero_()
-                self.policy.action_net.bias.zero_()
-                self.policy.log_std.zero_()
+            _set_neutral_action_head(self.policy)
 
     def _setup_model(self):
         super()._setup_model()
@@ -532,6 +548,7 @@ class CurriculumPPO(PPO):
             "arm": action_ab_arm,
             "action_head": action_head,
             "strategy": action_init_strategy,
+            "interpretation": ACTION_EXPERIMENT_INTERPRETATION.get(action_ab_arm),
             "source": "navigation_parent",
             "parent_action_head": getattr(parent, "action_head", "gaussian"),
             **init_metadata,
@@ -654,6 +671,7 @@ class CurriculumPPO(PPO):
             action_ab_arm=getattr(self, "action_ab_arm", None),
             action_init_strategy=getattr(self, "action_init_strategy", None),
             action_init_metadata=copy.deepcopy(getattr(self, "action_init_metadata", {})),
+            action_experiment_interpretation=copy.deepcopy(ACTION_EXPERIMENT_INTERPRETATION),
             pending_action_experiments=copy.deepcopy(PENDING_ACTION_EXPERIMENTS),
             unused_parameters=(["log_std"] if self.policy.action_head == "bernoulli_10" else []),
             allowed_control_mask=list(TASK_MASKS[self.task]), observation_size=256,

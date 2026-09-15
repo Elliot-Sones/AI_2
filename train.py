@@ -705,19 +705,57 @@ class OpponentHistoryWrapper(gym.Wrapper):
 # ============================================================================
 
 class VectorizedSaveHandler(SaveHandler):
-    """SaveHandler for subprocess environments."""
+    """Read-only SaveHandler for subprocess environments.
+
+    Workers are spawned before the parent callback publishes later self-play
+    checkpoints. Refreshing from disk at selection time keeps their archive live
+    without letting workers write model files.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.agent = None
-        
+        self.refresh_history()
+
+    def _candidate_dirs(self) -> list[str]:
+        run_dir = os.path.join(self.save_path, self.run_name)
+        return [run_dir, self.save_path] if run_dir != self.save_path else [self.save_path]
+
+    def refresh_history(self) -> list[str]:
+        paths: list[str] = []
+        seen: set[str] = set()
+        for folder in self._candidate_dirs():
+            if not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                if not name.endswith(".zip"):
+                    continue
+                path = os.path.abspath(os.path.join(folder, name))
+                if path in seen or not os.path.isfile(path):
+                    continue
+                seen.add(path)
+                paths.append(path)
+        paths.sort(key=lambda path: (os.path.getmtime(path), path))
+        max_saved = getattr(self, "max_saved", None)
+        if isinstance(max_saved, int) and max_saved > 0:
+            paths = paths[-max_saved:]
+        self.history = paths
+        return list(self.history)
+
     def update_info(self):
-        pass
-        
+        self.refresh_history()
+
     def process(self) -> bool:
+        self.refresh_history()
         return False
-        
+
     def save_agent(self) -> None:
-        pass
+        self.refresh_history()
+
+    def get_random_model_path(self):
+        self.refresh_history()
+        if not self.history:
+            return None
+        return random.choice(self.history)
 
 
 class OpponentSelectionTelemetry:
@@ -1025,12 +1063,32 @@ class SelfPlayCallback(BaseCallback):
     def __init__(self, save_handler, verbose=0):
         super().__init__(verbose)
         self.save_handler = save_handler
-    
+        self.last_save_timestep = None
+
+    def _publish(self) -> None:
+        self.save_handler.agent = self.model
+        self.save_handler.num_timesteps = self.num_timesteps
+        self.save_handler.save_agent()
+        self.last_save_timestep = self.num_timesteps
+
+    def _on_training_start(self) -> None:
+        self._publish()
+
     def _on_step(self) -> bool:
         self.save_handler.agent = self.model
         self.save_handler.num_timesteps = self.num_timesteps
-        self.save_handler.process()
+        save_freq = getattr(self.save_handler, "save_freq", None)
+        if isinstance(save_freq, int) and save_freq > 0:
+            previous = 0 if self.last_save_timestep is None else self.last_save_timestep
+            if self.num_timesteps >= previous + save_freq:
+                self._publish()
+        else:
+            self.save_handler.process()
         return True
+
+    def _on_training_end(self) -> None:
+        if self.last_save_timestep != self.num_timesteps:
+            self._publish()
 
 
 class ArtifactCheckpointCallback(CheckpointCallback):

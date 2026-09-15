@@ -19,16 +19,16 @@ import numpy as np
 import torch as th
 
 import curriculum_ppo
-from curriculum_ppo import (ACTION_EXPERIMENT_ARMS, ACTION_HEADS, CurriculumPPO, CurriculumPolicy,
+from curriculum_ppo import (ACTION_EXPERIMENT_ARMS, ACTION_EXPERIMENT_INTERPRETATION, ACTION_HEADS, CurriculumPPO, CurriculumPolicy,
     PPO_DEFAULTS, TASK_MASKS, _ProtectedAdam, _apply_action_initialization,
-    _copy_compatible_non_action_state, _resolve_action_arm)
+    _copy_compatible_non_action_state, _resolve_action_arm, _set_neutral_action_head)
 from ppo_update_optimizations import deferred_metrics_train, sb3_train_source_metadata
 from tensor_ppo import TensorPPO, TensorVecEnv
 from tensor_rollout_buffer import TensorRolloutBuffer
 
 CONTACT_VERSION = 'bridge_b1_contact-v1'
 COMBAT_MASK = TASK_MASKS['combat']
-CURRICULUM_SOURCE_SHA256 = '5cfaacb9f4f586593d70d74ba5fecd807a28870693fac1195f22e5eaeb3e672c'
+CURRICULUM_SOURCE_SHA256 = '34a5a4a95eb621aaa10c0aa902cdf5c6d5c00ad0b0abbdd5b9ec01abe8a5b8c4'
 CALIBRATED_CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
 
 
@@ -211,6 +211,7 @@ class NativeCurriculumPPO(TensorPPO):
             'arm': action_ab_arm,
             'action_head': action_head,
             'strategy': action_init_strategy,
+            'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(action_ab_arm),
             'source': 'native_constructor',
         }
         self.update_mode = update_mode
@@ -231,10 +232,7 @@ class NativeCurriculumPPO(TensorPPO):
             n_envs=self.n_envs)
         self.rollout_buffer.action_head = action_head
         if action_init_strategy == 'neutral':
-            with th.no_grad():
-                self.policy.action_net.weight.zero_()
-                self.policy.action_net.bias.zero_()
-                self.policy.log_std.zero_()
+            _set_neutral_action_head(self.policy)
 
     @classmethod
     def from_curriculum(cls, source, env, *, batch_size=None, update_mode='deferred_metrics',
@@ -284,6 +282,7 @@ class NativeCurriculumPPO(TensorPPO):
                     'arm': target_action_arm,
                     'action_head': target_action_head,
                     'strategy': target_action_init,
+                    'interpretation': ACTION_EXPERIMENT_INTERPRETATION.get(target_action_arm),
                     'source': 'curriculum_checkpoint',
                     'source_action_head': source.policy.action_head,
                     **init_metadata,

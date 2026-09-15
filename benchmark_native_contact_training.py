@@ -37,6 +37,12 @@ ACTION_EXPERIMENT_ARMS = {
     'B_projected': {'action_head': 'bernoulli_10', 'action_init_strategy': 'projected'},
 }
 ACTION_AB_ARMS = tuple(ACTION_EXPERIMENT_ARMS)
+ACTION_EXPERIMENT_INTERPRETATION = {
+    'G_keep': 'practical warm-start baseline; preserves source action head and optimizer where same-class loading allows it',
+    'B_projected': 'practical warm-start comparison; preserves source executed-button behavior approximately but uses a fresh optimizer',
+    'G_neutral': 'causal representation arm; fresh Gaussian optimizer/head behavior-matched to B_neutral',
+    'B_neutral': 'causal representation arm; fresh Bernoulli optimizer/head behavior-matched to G_neutral',
+}
 PENDING_ACTION_EXPERIMENTS = {
     'multidiscrete': 'pending separate experiment; excluded from this four-arm Gaussian/Bernoulli run',
 }
@@ -386,6 +392,7 @@ def run_block(args):
     atomic_json(output / 'manifest.json', {'schema_version': 'ai2.native_contact_training.v1',
         'config': asdict(cfg), 'checkpoint': checkpoint, 'checkpoint_preservation': preservation,
         'action_experiment_arms': ACTION_EXPERIMENT_ARMS,
+        'action_experiment_interpretation': ACTION_EXPERIMENT_INTERPRETATION,
         'pending_action_experiments': PENDING_ACTION_EXPERIMENTS,
         'qualification_sha256': sha256(args.qualification),
         'qualification': proof, 'deadline_unix': args.deadline_unix, 'started_unix': time.time(),
