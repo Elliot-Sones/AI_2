@@ -32,6 +32,7 @@ ACTION_WIDTH = 10
 ACTION_KEYS = ("w", "a", "s", "d", "space", "h", "l", "j", "k", "g")
 ATTACK_INDICES = (7, 8)
 SUPPORTED_ACTION_HEADS = ("gaussian", "bernoulli_10")
+VIDEO_FPS = 30
 
 
 class VideoUnavailableError(RuntimeError):
@@ -179,11 +180,12 @@ def run_evaluation(
     overwrite: bool = False,
     episode_max: int | None = None,
     video_subset: Sequence[str] = (),
-    video_capture: Callable[[Any, Path], None] | None = None,
+    video_capture: Callable[[Sequence[np.ndarray], Path], None] | None = None,
     checkpoint_path: str | Path | None = None,
 ) -> dict[str, Any]:
     _validate_case_bank(cases)
     _validate_modes(modes)
+    _validate_video_subset(video_subset, cases, modes)
     checkpoint_record = _checkpoint_record(
         checkpoint_path if checkpoint_path is not None else getattr(policy, "source_path", None),
         required=checkpoint_path is not None,
@@ -194,6 +196,8 @@ def run_evaluation(
     env_factory = env_factory or create_real_env
     opponent_factory = opponent_factory or create_opponent
     video_keys = set(video_subset)
+    if video_keys and video_capture is None:
+        video_capture = _write_mp4_from_frames
 
     episodes: list[dict[str, Any]] = []
     summary = _empty_summary(len(cases), tuple(modes))
@@ -358,11 +362,12 @@ def _run_one_episode(
     max_ticks: int,
     video_enabled: bool,
     video_dir: Path,
-    video_capture: Callable[[Any, Path], None] | None,
+    video_capture: Callable[[Sequence[np.ndarray], Path], None] | None,
 ) -> dict[str, Any]:
     deterministic = mode == "deterministic"
     if video_enabled and video_capture is None:
         raise VideoUnavailableError("video requested but no capture function was provided")
+    video_frames: list[np.ndarray] = []
     with _seeded_global_rng(case.seed):
         env = env_factory(dataclasses.replace(case, max_ticks=max_ticks))
         try:
@@ -379,6 +384,8 @@ def _run_one_episode(
             episode = _new_episode_record(case, mode, realized_opponent, max_ticks)
             last_stats = (_stats(env, case.player_slot), _stats(env, 1 - case.player_slot))
             start_distance = _distance_between_players(env)
+            if video_enabled:
+                video_frames.append(_render_video_frame(env))
 
             for tick in range(max_ticks):
                 before_players = _players_snapshot(env)
@@ -410,6 +417,8 @@ def _run_one_episode(
                 trace_file.write(_json_line(trace))
                 _fold_trace_into_episode(episode, trace)
                 last_stats = current_stats
+                if video_enabled:
+                    video_frames.append(_render_video_frame(env))
                 if terminated or truncated:
                     episode["terminal_cause"] = _terminal_cause(trace, current_stats)
                     break
@@ -420,7 +429,7 @@ def _run_one_episode(
             episode.update(_final_episode_fields(env, final_stats, start_distance))
             episode["diagnoses"] = _diagnose_episode(episode)
             if video_enabled:
-                episode["video_path"] = str(_write_video(video_dir, case, mode, env, video_capture))
+                episode["video_path"] = str(_write_video(video_dir, case, mode, video_frames, video_capture))
             return episode
         finally:
             if hasattr(env, "close"):
@@ -553,6 +562,15 @@ def _validate_modes(modes: Sequence[str]) -> None:
     bad = set(modes) - {"deterministic", "sampled"}
     if bad:
         raise ValueError(f"unsupported evaluation modes: {sorted(bad)}")
+
+
+def _validate_video_subset(video_subset: Sequence[str], cases: Sequence[EvaluationCase], modes: Sequence[str]) -> None:
+    if len(video_subset) != len(set(video_subset)):
+        raise ValueError("video_subset keys must be unique")
+    valid = {f"{case.case_id}:{mode}" for case in cases for mode in modes}
+    unknown = set(video_subset) - valid
+    if unknown:
+        raise ValueError(f"unknown video_subset keys: {sorted(unknown)}")
 
 
 def _prepare_output_paths(output_path: Path, temp_path: Path, *, overwrite: bool) -> None:
@@ -797,17 +815,66 @@ def _write_video(
     video_dir: Path,
     case: EvaluationCase,
     mode: str,
-    env: Any,
-    video_capture: Callable[[Any, Path], None] | None,
+    frames: Sequence[np.ndarray],
+    video_capture: Callable[[Sequence[np.ndarray], Path], None] | None,
 ) -> Path:
     if video_capture is None:
         raise VideoUnavailableError("video requested but no capture function was provided")
+    if not frames:
+        raise VideoUnavailableError("video capture had no frames to write")
     video_dir.mkdir(parents=True, exist_ok=True)
     path = video_dir / f"{case.case_id}_{mode}.mp4"
-    video_capture(env, path)
+    video_capture(frames, path)
     if not path.exists() or path.stat().st_size <= 0:
         raise VideoUnavailableError(f"video capture did not produce a nonempty artifact: {path}")
-    return path
+    return Path("videos") / path.name
+
+
+def _render_video_frame(env: Any) -> np.ndarray:
+    render = getattr(env, "render", None)
+    if not callable(render):
+        raise VideoUnavailableError("video requested but environment does not expose render()")
+    try:
+        raw = render()
+    except Exception as exc:
+        raise VideoUnavailableError(f"environment render() failed during video capture: {exc}") from exc
+    frame = np.asarray(raw)
+    if frame.ndim != 3 or frame.shape[2] != 3:
+        raise VideoUnavailableError(f"render() must return an RGB frame with shape HxWx3, got {frame.shape}")
+    if frame.dtype != np.uint8:
+        frame = np.clip(frame, 0, 255).astype(np.uint8)
+    return np.ascontiguousarray(np.swapaxes(frame, 0, 1))
+
+
+def _write_mp4_from_frames(frames: Sequence[np.ndarray], path: Path) -> None:
+    try:
+        import imageio
+    except Exception as exc:
+        raise VideoUnavailableError("imageio is required for default MP4 video capture") from exc
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        writer = imageio.get_writer(str(path), fps=VIDEO_FPS, codec="libx264", quality=8)
+        try:
+            for frame in frames:
+                writer.append_data(np.asarray(frame, dtype=np.uint8))
+        finally:
+            writer.close()
+    except Exception as exc:
+        raise VideoUnavailableError(f"failed to write MP4 video: {path}: {exc}") from exc
+    _verify_default_video_decodable(path)
+
+
+def _verify_default_video_decodable(path: Path) -> None:
+    try:
+        import imageio
+
+        reader = imageio.get_reader(str(path))
+        try:
+            reader.get_data(0)
+        finally:
+            reader.close()
+    except Exception as exc:
+        raise VideoUnavailableError(f"video artifact is not decodable: {path}: {exc}") from exc
 
 
 def _build_manifest(

@@ -92,6 +92,10 @@ class FakeEnv:
             obs[0] = np.nan
         return {0: obs, 1: obs + 1000}, {0: 0.0, 1: 0.0}, terminated, truncated, {}
 
+    def render(self):
+        value = np.uint8(self.step_count)
+        return np.full((3, 2, 3), value, dtype=np.uint8)
+
     def get_stats(self, agent_id):
         p = self.players[agent_id]
         return FakeStats(
@@ -320,8 +324,40 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                     opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
                 )
 
-    def test_video_request_fails_closed_without_real_capture(self):
+    def test_video_request_records_episode_frames_and_hashes_manifest_video(self):
         import evaluate_fullgame_bank as ev
+
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            captured_frames = []
+
+            def fake_capture(frames, path):
+                captured_frames.extend(frame.copy() for frame in frames)
+                path.write_bytes(b"fake mp4 bytes")
+
+            result = ev.run_evaluation(
+                policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                cases=[ev.EvaluationCase("case", seed=1, opponent="Constant", max_ticks=2)],
+                modes=("deterministic",),
+                output_dir=out,
+                env_factory=lambda c: FakeEnv(),
+                opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
+                video_subset=("case:deterministic",),
+                video_capture=fake_capture,
+            )
+
+            self.assertEqual([int(frame[0, 0, 0]) for frame in captured_frames], [0, 1, 2])
+            episode = result["episodes"][0]
+            video_rel = Path(episode["video_path"])
+            self.assertEqual(video_rel.as_posix(), "videos/case_deterministic.mp4")
+            self.assertIn(video_rel.as_posix(), result["manifest"]["artifact_sha256"])
+            self.assertEqual((out / video_rel).read_bytes(), b"fake mp4 bytes")
+
+    def test_video_request_fails_closed_when_default_capture_cannot_render(self):
+        import evaluate_fullgame_bank as ev
+
+        class NoRenderEnv(FakeEnv):
+            render = None
 
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "out"
@@ -331,7 +367,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                     cases=[ev.EvaluationCase("case", seed=1, opponent="Constant", max_ticks=1)],
                     modes=("deterministic",),
                     output_dir=out,
-                    env_factory=lambda c: FakeEnv(),
+                    env_factory=lambda c: NoRenderEnv(),
                     opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
                     video_subset=("case:deterministic",),
                 )
@@ -350,8 +386,27 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                     env_factory=lambda c: FakeEnv(),
                     opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
                     video_subset=("case:deterministic",),
-                    video_capture=lambda env, path: path.write_bytes(b""),
+                    video_capture=lambda frames, path: path.write_bytes(b""),
                 )
+
+    def test_unknown_video_subset_key_fails_before_env_work(self):
+        import evaluate_fullgame_bank as ev
+
+        env = FakeEnv()
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "out"
+            with self.assertRaises(ValueError):
+                ev.run_evaluation(
+                    policy=DummyPolicy(np.zeros(10, dtype=np.float32)),
+                    cases=[ev.EvaluationCase("case", seed=1, opponent="Constant", max_ticks=1)],
+                    modes=("deterministic",),
+                    output_dir=out,
+                    env_factory=lambda c: env,
+                    opponent_factory=lambda name: (FakeOpponent(), "FakeOpponent"),
+                    video_subset=("missing:deterministic",),
+                )
+            self.assertEqual(env.step_count, 0)
+            self.assertFalse(out.exists())
 
     def test_policy_adapters_validate_action_shape(self):
         import evaluate_fullgame_bank as ev
