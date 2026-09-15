@@ -18,6 +18,18 @@ END_TO_END_STAGES = (
     "ppo_update",
     "device_synchronization",
 )
+AI2_BOX10_BUTTONS = (
+    "w/up",
+    "a/left",
+    "s/down",
+    "d/right",
+    "space/dodge",
+    "h/pickup",
+    "g/unused_source_button",
+    "j/light",
+    "k/heavy",
+    "l/throw",
+)
 
 
 class ContractError(ValueError):
@@ -296,6 +308,167 @@ def compare_receipts(left: dict[str, Any], right: dict[str, Any]) -> dict[str, A
     }
 
 
+def ai2_native_receipt(result: dict[str, Any], backend_name: str) -> dict[str, Any]:
+    """Convert one passed raw AI2 native benchmark backend into a canonical receipt."""
+    if result.get("status") != "passed":
+        raise ContractError("top-level benchmark status must be passed")
+    if not _non_empty_string(backend_name):
+        raise ContractError("backend_name must be a non-empty string")
+
+    config = _require_dict(result.get("config"), "config")
+    provenance = _require_dict(result.get("provenance"), "provenance")
+    _validate_native_provenance(config, provenance)
+    backend = _select_backend(result, backend_name)
+    _validate_native_backend(backend_name, backend, config)
+
+    summary = backend["summary"]
+    parallel_agents = config["games"] * 2
+    transitions_per_batch = parallel_agents * config["n_steps"]
+    minibatches = transitions_per_batch // config["batch_size"]
+    receipt = {
+        "schema_version": SCHEMA_VERSION,
+        "system": {
+            "hardware": {
+                "accelerator_model": provenance["gpu"],
+                "accelerator_count": 1,
+                "cpu_model": provenance.get("system", "unknown"),
+                "cpu_count": provenance.get("cpu_count"),
+                "cuda_version": provenance.get("cuda_version"),
+            },
+            "software": {
+                "python": provenance.get("python"),
+                "packages": provenance.get("packages", {}),
+                "policy_device": provenance.get("policy_device"),
+                "matmul_tf32": provenance.get("matmul_tf32"),
+            },
+        },
+        "workload": {
+            "unit": HEADLINE_UNIT,
+            "timing_scope": "end_to_end",
+            "included_stages": list(END_TO_END_STAGES),
+            "quality_target": None,
+            "warmup_policy": {
+                "mode": "discard_first_n_rollouts",
+                "rollouts": config["warmup_rollouts"],
+            },
+            "synchronization": {
+                "device": config["device"],
+                "method": "torch.cuda.synchronize around collection and PPO update",
+            },
+            "overlap": {"mode": "none", "evidence": ["not_applicable"]},
+            "environment": {
+                "env_id": "WarehouseBrawl/raw_native_fullgame",
+                "semantics_hash": provenance["environment_sha256"],
+                "attack_assets_sha256": provenance["attack_assets_sha256"],
+                "observation_contract": {
+                    "type": "box",
+                    "shape": [256],
+                    "dtype": "float32",
+                    "frames": 4,
+                    "per_player_features": 64,
+                    "stack_order": "oldest_to_newest",
+                },
+                "action_contract": {
+                    "type": "box",
+                    "shape": [10],
+                    "dtype": "float32",
+                    "range": [-1.0, 1.0],
+                    "button_threshold": 0.5,
+                    "buttons": list(AI2_BOX10_BUTTONS),
+                },
+                "tick_semantics": "one_environment_tick_yields_two_agent_transitions",
+                "terminal_bootstrap": "terminal_observation_with_gae_timeout_bootstrap",
+                "player_order": provenance.get("player_order"),
+                "game_seed_rule": provenance.get("game_seed_rule"),
+            },
+            "model": {
+                "architecture": {
+                    "type": "stable_baselines3_actor_critic_mlp_policy",
+                    "observation_shape": [256],
+                    "action_shape": [10],
+                    "policy_layers": list(config["net_arch"]),
+                    "value_layers": list(config["net_arch"]),
+                    "activation": "torch.nn.Tanh",
+                    "distribution": "diagonal_gaussian_box_actions",
+                    "shared_policy": "both_players",
+                },
+                "parameter_count": backend["initial_policy"]["parameter_count"],
+                "precision": "fp32",
+            },
+            "rollout": {
+                "num_envs": parallel_agents,
+                "horizon": config["n_steps"],
+                "transitions_per_batch": transitions_per_batch,
+                "measured_rollouts": config["measured_rollouts"],
+                "warmup_rollouts": config["warmup_rollouts"],
+            },
+            "source_provenance": {
+                "sources": provenance["sources"],
+                "ppo_update": provenance["ppo_update"],
+                "benchmark_schema": result.get("schema"),
+                "backend": backend_name,
+                "exclusions": provenance.get("exclusions"),
+                "limitation": provenance.get("limitation"),
+            },
+        },
+        "algorithm": {
+            "optimizer": "adam",
+            "learning_rate": config["learning_rate"],
+            "gamma": config["gamma"],
+            "gae_lambda": config["gae_lambda"],
+            "clip_range": config["clip_range"],
+            "entropy_coef": config["ent_coef"],
+            "value_coef": config["vf_coef"],
+            "max_grad_norm": config["max_grad_norm"],
+            "sample_reuse_epochs": config["n_epochs"],
+            "minibatches": minibatches,
+            "ppo_epochs": config["n_epochs"],
+            "replay_semantics": "on_policy_no_replay",
+            "actor_staleness": "synchronous",
+            "advantage_normalization": "per_minibatch",
+            "terminal_bootstrap": "terminal_observation_with_gae_timeout_bootstrap",
+            "update_mode": config.get("update_mode", "sb3"),
+        },
+        "timing": {
+            "elapsed_source": "wall_clock",
+            "elapsed_seconds": summary["total_seconds"],
+            "stage_seconds": {
+                "collection": summary["collection_seconds"],
+                "ppo_update": summary["update_seconds"],
+            },
+        },
+        "measurement": {
+            "agent_transitions": summary["player_transitions"],
+            "claimed_rate": summary["total_player_transitions_per_second"],
+        },
+        "correctness": {
+            "env_trace_parity": False,
+            "rollout_parity": False,
+            "fixed_transition_quality": False,
+            "fixed_wall_clock_quality": False,
+        },
+        "correctness_evidence": {
+            "env_trace_parity": {
+                "status": "not_run",
+                "reason": "raw benchmark sidecar does not execute parity gates",
+            },
+            "rollout_parity": {
+                "status": "not_run",
+                "reason": "raw benchmark sidecar does not execute rollout parity",
+            },
+            "fixed_transition_quality": {
+                "status": "not_run",
+                "reason": "raw benchmark sidecar is speed evidence, not mastery evidence",
+            },
+            "fixed_wall_clock_quality": {
+                "status": "not_run",
+                "reason": "raw benchmark sidecar is speed evidence, not mastery evidence",
+            },
+        },
+    }
+    return validate_receipt(receipt)
+
+
 def _json_safe_copy(raw: dict[str, Any]) -> dict[str, Any]:
     try:
         return json.loads(json.dumps(raw, allow_nan=False))
@@ -468,3 +641,174 @@ def _mismatched_paths(
         if left_value != right_value:
             blockers.append(path)
     return blockers
+
+
+def _select_backend(result: dict[str, Any], backend_name: str) -> dict[str, Any]:
+    backends = result.get("backends")
+    if not isinstance(backends, list):
+        raise ContractError("backends must be a list")
+    matches = [backend for backend in backends if isinstance(backend, dict) and backend.get("backend") == backend_name]
+    if len(matches) != 1:
+        raise ContractError(f"backend {backend_name} must appear exactly once")
+    return matches[0]
+
+
+def _validate_native_provenance(config: dict[str, Any], provenance: dict[str, Any]) -> None:
+    if provenance.get("config") != config:
+        raise ContractError("config must match provenance.config")
+    for path in (
+        "environment_sha256",
+        "attack_assets_sha256",
+        "gpu",
+        "workload",
+        "exclusions",
+        "limitation",
+    ):
+        if not _non_empty_string(provenance.get(path)):
+            raise ContractError(f"provenance.{path} must be a non-empty string")
+    sources = _require_dict(provenance.get("sources"), "provenance.sources")
+    required_sources = (
+        "benchmark_native_combat_training.py",
+        "native_game_lane_vec_env.py",
+        "tensor_ppo.py",
+        "tensor_rollout_buffer.py",
+        "native/navigation_spaces.json",
+    )
+    missing = [source for source in required_sources if not _non_empty_string(sources.get(source))]
+    if missing:
+        raise ContractError(f"provenance.sources missing {missing}")
+    ppo_update = _require_dict(provenance.get("ppo_update"), "provenance.ppo_update")
+    if ppo_update.get("mode") != config.get("update_mode"):
+        raise ContractError("provenance.ppo_update.mode must match config.update_mode")
+    _require_dict(ppo_update.get("source_guard"), "provenance.ppo_update.source_guard")
+
+
+def _validate_native_backend(
+    backend_name: str, backend: dict[str, Any], config: dict[str, Any]
+) -> None:
+    if backend.get("status") != "passed":
+        raise ContractError(f"backend {backend_name} status must be passed")
+    if backend.get("parameters_changed") is not True:
+        raise ContractError("parameters changed must be true")
+    initial = _require_dict(backend.get("initial_policy"), "initial_policy")
+    final = _require_dict(backend.get("final_policy"), "final_policy")
+    _positive_int(initial.get("parameter_count"), "initial_policy.parameter_count")
+    if final.get("parameter_count") != initial.get("parameter_count"):
+        raise ContractError("final_policy.parameter_count must match initial_policy.parameter_count")
+    if not _non_empty_string(initial.get("sha256")) or not _non_empty_string(final.get("sha256")):
+        raise ContractError("policy sha256 fields must be non-empty")
+    if final.get("sha256") == initial.get("sha256"):
+        raise ContractError("policy parameters did not change")
+
+    for key in (
+        "games",
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "warmup_rollouts",
+        "measured_rollouts",
+    ):
+        _positive_int(config.get(key), f"config.{key}")
+    for key in (
+        "learning_rate",
+        "gamma",
+        "gae_lambda",
+        "clip_range",
+        "ent_coef",
+        "vf_coef",
+        "max_grad_norm",
+    ):
+        _positive_finite(config.get(key), f"config.{key}")
+    if config["batch_size"] <= 1:
+        raise ContractError("config.batch_size must exceed one")
+    transitions_per_rollout = config["games"] * config["n_steps"] * 2
+    if transitions_per_rollout % config["batch_size"]:
+        raise ContractError("config.batch_size must divide transitions per rollout")
+    net_arch = config.get("net_arch")
+    if not isinstance(net_arch, (list, tuple)) or not net_arch:
+        raise ContractError("config.net_arch must be a non-empty list or tuple")
+    for index, value in enumerate(net_arch):
+        _positive_int(value, f"config.net_arch[{index}]")
+
+    rows = backend.get("rollouts")
+    if not isinstance(rows, list):
+        raise ContractError("rollouts must be a list")
+    expected_rows = config["warmup_rollouts"] + config["measured_rollouts"]
+    if len(rows) != expected_rows:
+        raise ContractError("rollouts length must match warmup plus measured rollouts")
+    measured = [row for row in rows if row.get("measured") is True]
+    warmups = [row for row in rows if row.get("measured") is False]
+    if len(measured) != config["measured_rollouts"] or len(warmups) != config["warmup_rollouts"]:
+        raise ContractError("measured rollout count must match config")
+    for row in rows:
+        _validate_native_rollout_row(row, config, transitions_per_rollout)
+
+    summary = _require_dict(backend.get("summary"), "summary")
+    expected_summary = {
+        "game_ticks": sum(row["game_ticks"] for row in measured),
+        "player_transitions": sum(row["player_transitions"] for row in measured),
+        "collection_seconds": sum(row["collection_seconds"] for row in measured),
+        "update_seconds": sum(row["update_seconds"] for row in measured),
+        "total_seconds": sum(row["total_seconds"] for row in measured),
+    }
+    for key, expected in expected_summary.items():
+        actual = summary.get(key)
+        if not isinstance(actual, (int, float)) or isinstance(actual, bool) or not math.isclose(float(actual), float(expected), rel_tol=1e-9, abs_tol=1e-9):
+            raise ContractError(f"summary totals mismatch for {key}")
+    _assert_rate(
+        summary.get("total_player_transitions_per_second"),
+        summary["player_transitions"],
+        summary["total_seconds"],
+        "summary.total_player_transitions_per_second",
+    )
+    _assert_rate(
+        summary.get("collection_player_transitions_per_second"),
+        summary["player_transitions"],
+        summary["collection_seconds"],
+        "summary.collection_player_transitions_per_second",
+    )
+
+
+def _validate_native_rollout_row(
+    row: dict[str, Any], config: dict[str, Any], transitions_per_rollout: int
+) -> None:
+    if not isinstance(row, dict):
+        raise ContractError("rollout rows must be objects")
+    expected_ticks = config["games"] * config["n_steps"]
+    if row.get("game_ticks") != expected_ticks:
+        raise ContractError("exact game ticks mismatch")
+    if row.get("player_transitions") != transitions_per_rollout:
+        raise ContractError("exact player transitions mismatch")
+    errors = row.get("errors")
+    if not isinstance(errors, list) or len(errors) != config["games"] or any(value != 0 for value in errors):
+        raise ContractError("rollout errors must be all zero")
+    if row.get("losses_finite") is not True:
+        raise ContractError("finite losses are required")
+    metrics = _require_dict(row.get("metrics"), "rollout.metrics")
+    for key in ("train/loss", "train/policy_gradient_loss", "train/value_loss", "train/entropy_loss"):
+        _positive_or_negative_finite(metrics.get(key), f"rollout.metrics.{key}")
+    for key in ("collection_seconds", "update_seconds", "total_seconds"):
+        _positive_finite(row.get(key), f"rollout.{key}")
+    if not math.isclose(
+        float(row["collection_seconds"]) + float(row["update_seconds"]),
+        float(row["total_seconds"]),
+        rel_tol=1e-9,
+        abs_tol=1e-9,
+    ):
+        raise ContractError("rollout total_seconds must equal collection plus update")
+
+
+def _assert_rate(rate: Any, numerator: Any, seconds: Any, name: str) -> None:
+    actual = _positive_finite(rate, name)
+    expected = _positive_finite(numerator, f"{name}.numerator") / _positive_finite(seconds, f"{name}.seconds")
+    if not math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-9):
+        raise ContractError(f"{name} disagrees with measured totals")
+
+
+def _positive_or_negative_finite(value: Any, name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ContractError(f"{name} must be numeric")
+    as_float = float(value)
+    if not math.isfinite(as_float):
+        raise ContractError(f"{name} must be finite")
+    return as_float

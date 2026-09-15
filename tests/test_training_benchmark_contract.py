@@ -6,6 +6,7 @@ from training_benchmark_contract import (
     ContractError,
     END_TO_END_STAGES,
     SCHEMA_VERSION,
+    ai2_native_receipt,
     compare_receipts,
     validate_receipt,
 )
@@ -716,6 +717,232 @@ class ComparisonTests(unittest.TestCase):
                 self.assertFalse(result["promotion_eligible"])
                 self.assertEqual([f"correctness.{field}"], result["promotion_blockers"])
                 self.assertEqual(1.0, result["speedup_ratio"])
+
+
+def native_result(**overrides):
+    config = {
+        "games": 4,
+        "n_steps": 8,
+        "batch_size": 16,
+        "n_epochs": 3,
+        "net_arch": [128, 64],
+        "warmup_rollouts": 1,
+        "measured_rollouts": 2,
+        "seed": 11,
+        "device": "cuda",
+        "python_workers": 1,
+        "learning_rate": 0.00025,
+        "gamma": 0.98,
+        "gae_lambda": 0.94,
+        "clip_range": 0.18,
+        "ent_coef": 0.02,
+        "vf_coef": 0.6,
+        "max_grad_norm": 0.7,
+        "backends": ["native_cuda"],
+        "update_mode": "sb3",
+    }
+    row = {
+        "backend": "native_cuda",
+        "status": "passed",
+        "summary": {
+            "game_ticks": 64,
+            "player_transitions": 128,
+            "collection_seconds": 1.25,
+            "update_seconds": 2.75,
+            "total_seconds": 4.0,
+            "collection_game_ticks_per_second": 51.2,
+            "collection_player_transitions_per_second": 102.4,
+            "total_game_ticks_per_second": 16.0,
+            "total_player_transitions_per_second": 32.0,
+        },
+        "rollouts": [
+            {
+                "rollout": 0,
+                "measured": False,
+                "game_ticks": 32,
+                "player_transitions": 64,
+                "collection_seconds": 0.5,
+                "update_seconds": 1.0,
+                "total_seconds": 1.5,
+                "losses_finite": True,
+                "metrics": {
+                    "train/loss": 1.0,
+                    "train/policy_gradient_loss": 0.1,
+                    "train/value_loss": 0.2,
+                    "train/entropy_loss": -6.0,
+                },
+                "errors": [0, 0, 0, 0],
+            },
+            {
+                "rollout": 1,
+                "measured": True,
+                "game_ticks": 32,
+                "player_transitions": 64,
+                "collection_seconds": 0.75,
+                "update_seconds": 1.25,
+                "total_seconds": 2.0,
+                "losses_finite": True,
+                "metrics": {
+                    "train/loss": 0.9,
+                    "train/policy_gradient_loss": 0.08,
+                    "train/value_loss": 0.18,
+                    "train/entropy_loss": -5.5,
+                },
+                "errors": [0, 0, 0, 0],
+            },
+            {
+                "rollout": 2,
+                "measured": True,
+                "game_ticks": 32,
+                "player_transitions": 64,
+                "collection_seconds": 0.5,
+                "update_seconds": 1.5,
+                "total_seconds": 2.0,
+                "losses_finite": True,
+                "metrics": {
+                    "train/loss": 0.8,
+                    "train/policy_gradient_loss": 0.07,
+                    "train/value_loss": 0.16,
+                    "train/entropy_loss": -5.0,
+                },
+                "errors": [0, 0, 0, 0],
+            },
+        ],
+        "initial_policy": {"sha256": "0" * 64, "parameter_count": 4242},
+        "final_policy": {"sha256": "1" * 64, "parameter_count": 4242},
+        "parameters_changed": True,
+        "policy_architecture": "ignored because config is canonical",
+        "checkpoint": "/tmp/policy_final.zip",
+        "checkpoint_sha256": "2" * 64,
+        "python_workers": 0,
+        "baseline_scope": "native_cuda",
+        "measured_work": "collection includes game, policy, transfers, GAE, episode drain; update includes PPO and sync",
+    }
+    base = {
+        "schema": "ai2.raw_combat_training_benchmark.v1",
+        "status": "passed",
+        "config": config,
+        "provenance": {
+            "config": dict(config),
+            "environment_sha256": "e" * 64,
+            "attack_assets_sha256": "a" * 64,
+            "sources": {
+                "benchmark_native_combat_training.py": "b" * 64,
+                "native_game_lane_vec_env.py": "c" * 64,
+                "tensor_ppo.py": "d" * 64,
+                "tensor_rollout_buffer.py": "f" * 64,
+                "native/navigation_spaces.json": "9" * 64,
+            },
+            "ppo_update": {
+                "mode": "sb3",
+                "training_algorithm": "installed stable_baselines3.PPO.train",
+                "source_guard": {
+                    "required": False,
+                    "expected_version": "2.5.0",
+                    "expected_train_sha256": "8" * 64,
+                    "version": "2.5.0",
+                    "train_sha256": "8" * 64,
+                    "supported": True,
+                },
+            },
+            "system": "Linux-6.8-test",
+            "python": "3.10.19",
+            "cpu_count": 32,
+            "packages": {"torch": "2.4.1", "stable_baselines3": "2.5.0", "numpy": "2.1.1"},
+            "cuda_version": "12.4",
+            "gpu": "NVIDIA GeForce RTX 4090",
+            "policy_device": "cuda:0",
+            "torch_cpu_threads": 1,
+            "torch_interop_threads": 1,
+            "matmul_tf32": False,
+            "workload": "raw game rewards, both players jointly train shared Gaussian MLP; Box10, four-frame float32[256]",
+            "player_order": "game0/player0, game0/player1, ...",
+            "game_seed_rule": "seed+2*game_index",
+            "exclusions": "startup/build/initial reset/model initialization, logging, parameter hashing, checkpoint serialization excluded from timing; episode autoresets are timed",
+            "limitation": "infrastructure only; not curriculum training or evidence of combat mastery",
+        },
+        "backends": [row],
+    }
+    return deep_update(base, overrides)
+
+
+class NativeAdapterTests(unittest.TestCase):
+    def test_ai2_native_receipt_maps_raw_benchmark_to_canonical_contract(self):
+        raw = native_result()
+
+        receipt = ai2_native_receipt(raw, "native_cuda")
+        normalized = validate_receipt(receipt)
+
+        self.assertEqual("agent_transition", normalized["workload"]["unit"])
+        self.assertEqual(128, normalized["measurement"]["agent_transitions"])
+        self.assertEqual(4.0, normalized["timing"]["elapsed_seconds"])
+        self.assertEqual(32.0, normalized["measurement"]["derived_rate"])
+        self.assertEqual("NVIDIA GeForce RTX 4090", normalized["system"]["hardware"]["accelerator_model"])
+        self.assertEqual(1, normalized["system"]["hardware"]["accelerator_count"])
+        self.assertEqual(8, normalized["workload"]["rollout"]["num_envs"])
+        self.assertEqual(8, normalized["workload"]["rollout"]["horizon"])
+        self.assertEqual(64, normalized["workload"]["rollout"]["transitions_per_batch"])
+        self.assertEqual(4242, normalized["workload"]["model"]["parameter_count"])
+        self.assertEqual([128, 64], normalized["workload"]["model"]["architecture"]["policy_layers"])
+        self.assertEqual([128, 64], normalized["workload"]["model"]["architecture"]["value_layers"])
+        self.assertEqual(4, normalized["algorithm"]["minibatches"])
+        self.assertEqual(3, normalized["algorithm"]["ppo_epochs"])
+        self.assertEqual(3, normalized["algorithm"]["sample_reuse_epochs"])
+        self.assertEqual(
+            {
+                "type": "box",
+                "shape": [10],
+                "dtype": "float32",
+                "range": [-1.0, 1.0],
+                "button_threshold": 0.5,
+                "buttons": [
+                    "w/up",
+                    "a/left",
+                    "s/down",
+                    "d/right",
+                    "space/dodge",
+                    "h/pickup",
+                    "g/unused_source_button",
+                    "j/light",
+                    "k/heavy",
+                    "l/throw",
+                ],
+            },
+            normalized["workload"]["environment"]["action_contract"],
+        )
+        self.assertEqual(
+            {
+                "env_trace_parity": False,
+                "rollout_parity": False,
+                "fixed_transition_quality": False,
+                "fixed_wall_clock_quality": False,
+            },
+            normalized["correctness"],
+        )
+        self.assertEqual("not_run", normalized["correctness_evidence"]["env_trace_parity"]["status"])
+
+    def test_ai2_native_receipt_fails_closed_for_invalid_raw_results(self):
+        cases = (
+            ("top-level benchmark", lambda raw: raw.update(status="failed")),
+            ("backend native_cuda", lambda raw: raw["backends"][0].update(status="failed")),
+            ("parameters changed", lambda raw: raw["backends"][0].update(parameters_changed=False)),
+            ("policy parameters did not change", lambda raw: raw["backends"][0]["final_policy"].update(sha256="0" * 64)),
+            ("finite losses", lambda raw: raw["backends"][0]["rollouts"][1].update(losses_finite=False)),
+            ("rollout errors", lambda raw: raw["backends"][0]["rollouts"][1].update(errors=[0, 1, 0, 0])),
+            ("exact player transitions", lambda raw: raw["backends"][0]["rollouts"][1].update(player_transitions=63)),
+            ("summary totals", lambda raw: raw["backends"][0]["summary"].update(player_transitions=127)),
+            ("provenance.sources", lambda raw: raw["provenance"]["sources"].clear()),
+            ("provenance.gpu", lambda raw: raw["provenance"].update(gpu="")),
+            ("provenance.environment_sha256", lambda raw: raw["provenance"].update(environment_sha256="")),
+            ("config", lambda raw: raw["provenance"].update(config={"games": 99})),
+        )
+
+        for expected, corrupt in cases:
+            with self.subTest(expected=expected):
+                raw = native_result()
+                corrupt(raw)
+                with self.assertRaisesRegex(ContractError, expected):
+                    ai2_native_receipt(raw, "native_cuda")
 
 
 if __name__ == "__main__":

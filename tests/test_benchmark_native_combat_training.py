@@ -15,6 +15,7 @@ import weakref
 from unittest.mock import Mock, call, patch
 
 import numpy as np
+from training_benchmark_contract import validate_receipt
 
 
 FROZEN = Path(os.environ.get('AI2_FROZEN_SOURCE_ROOT', '/Users/elliot18/Projects/ml-research/AI_2-learning-validation-20260905/baselines/navigation-repair-20260905/payload/variants/corrected'))
@@ -116,6 +117,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
             receipt = json.loads((Path(temporary)/'run/result.json').read_text())
             self.assertEqual(receipt['status'], 'failed')
             self.assertIn('CUDA unavailable', receipt['error'])
+            self.assertEqual([], list((Path(temporary)/'run').glob('*/training-benchmark-contract.json')))
 
     def test_measured_boundaries_and_actual_valid_tick_accounting(self):
         config = self.mod.BenchmarkConfig(games=2, n_steps=4, batch_size=8)
@@ -260,12 +262,59 @@ class ConfigAndMeasurementTests(unittest.TestCase):
             logger = configure(*args)
             loggers.append(logger)
             return logger
+        def fake_provenance(config, frozen_root, device):
+            config_dict = asdict(config)
+            return {
+                'config': config_dict,
+                'environment_sha256': 'e'*64,
+                'attack_assets_sha256': 'a'*64,
+                'sources': {
+                    'benchmark_native_combat_training.py': 'b'*64,
+                    'native_game_lane_vec_env.py': 'c'*64,
+                    'tensor_ppo.py': 'd'*64,
+                    'tensor_rollout_buffer.py': 'f'*64,
+                    'native/navigation_spaces.json': '9'*64,
+                },
+                'ppo_update': {
+                    'mode': update_mode,
+                    'training_algorithm': 'test-pinned PPO update',
+                    'source_guard': {
+                        'required': update_mode == 'deferred_metrics',
+                        'expected_version': SB3_VERSION,
+                        'expected_train_sha256': SB3_TRAIN_SHA256,
+                        'version': SB3_VERSION,
+                        'train_sha256': SB3_TRAIN_SHA256,
+                        'supported': True,
+                    },
+                },
+                'system': 'test-system',
+                'python': '3.10.19',
+                'cpu_count': 12,
+                'packages': {'torch': '2.4.1', 'stable_baselines3': '2.5.0', 'numpy': '2.1.1'},
+                'cuda_version': '12.4',
+                'gpu': 'metadata-only test',
+                'policy_device': str(device),
+                'torch_cpu_threads': 1,
+                'torch_interop_threads': 1,
+                'matmul_tf32': False,
+                'workload': 'raw game rewards, both players jointly train shared Gaussian MLP; Box10, four-frame float32[256]',
+                'player_order': 'game0/player0, game0/player1, ...',
+                'game_seed_rule': 'seed+2*game_index',
+                'exclusions': 'startup/build/initial reset/model initialization, logging, parameter hashing, checkpoint serialization excluded from timing; episode autoresets are timed',
+                'limitation': 'infrastructure only; not curriculum training or evidence of combat mastery',
+            }
         with tempfile.TemporaryDirectory() as temporary:
+            write_events = []
+            real_write_json = self.mod._write_json
+            def tracked_write_json(path, value):
+                write_events.append((Path(path).name, Path(path).parent.name, value.get('status') if isinstance(value, dict) else None))
+                real_write_json(path, value)
             with patch.object(self.mod, 'require_cuda', return_value='cuda:0'), \
-                 patch.object(self.mod, 'provenance', return_value={'test_double': True}), \
+                 patch.object(self.mod, 'provenance', side_effect=fake_provenance), \
                  patch.object(self.mod, 'build_backend', side_effect=build), \
                  patch.object(self.mod, '_make_callback', return_value=callback), \
                  patch.object(self.mod, 'policy_receipt', side_effect=receipts), \
+                 patch.object(self.mod, '_write_json', side_effect=tracked_write_json), \
                  patch('tensor_ppo.TensorPPO', FakeModel), patch.object(torch.cuda, 'synchronize'), \
                  patch('ppo_update_optimizations.sb3_train_source_metadata', return_value=dict(
                      version=SB3_VERSION, train_sha256=SB3_TRAIN_SHA256, supported=True)), \
@@ -290,8 +339,33 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                 self.assertTrue(backend['parameters_changed'])
                 self.assertEqual(len(backend['checkpoint_sha256']), 64)
                 self.assertTrue((Path(backend['checkpoint']).parent/'benchmark.log').is_file())
+                sidecar = Path(backend['checkpoint']).parent/'training-benchmark-contract.json'
+                self.assertTrue(sidecar.is_file())
+                canonical = validate_receipt(json.loads(sidecar.read_text()))
+                self.assertEqual(backend['summary']['player_transitions'],
+                                 canonical['measurement']['agent_transitions'])
+                self.assertEqual(backend['summary']['total_seconds'],
+                                 canonical['timing']['elapsed_seconds'])
+                self.assertEqual('metadata-only test',
+                                 canonical['system']['hardware']['accelerator_model'])
+            final_result_index = max(index for index, event in enumerate(write_events)
+                                     if event == ('result.json', 'run', 'passed'))
+            first_sidecar_index = min(index for index, event in enumerate(write_events)
+                                      if event[0] == 'training-benchmark-contract.json')
+            self.assertGreater(first_sidecar_index, final_result_index)
             self.assertTrue(all(writer.file.closed for logger in loggers for writer in logger.output_formats))
             self.assertTrue(all(model() is None for model in models), 'previous models retained by callback cycles')
+
+    def test_failed_backend_emits_no_canonical_sidecar(self):
+        config = self.mod.BenchmarkConfig(games=1, n_steps=2, batch_size=4, backends=('native_cuda',))
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(self.mod, 'require_cuda', return_value='cuda:0'), \
+                 patch.object(self.mod, 'provenance', return_value={'config': asdict(config), 'gpu': 'test'}), \
+                 patch.object(self.mod, 'run_backend', side_effect=RuntimeError('backend failed')):
+                with self.assertRaisesRegex(RuntimeError, 'backend failed'):
+                    self.mod.run_benchmark(config, Path(temporary)/'run', FROZEN)
+            self.assertTrue((Path(temporary)/'run/native_cuda/failure.json').is_file())
+            self.assertFalse((Path(temporary)/'run/native_cuda/training-benchmark-contract.json').exists())
 
 
 class OriginalAdapterTests(unittest.TestCase):

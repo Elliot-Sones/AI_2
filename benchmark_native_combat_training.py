@@ -28,6 +28,7 @@ import traceback
 from types import SimpleNamespace
 
 import numpy as np
+from training_benchmark_contract import ai2_native_receipt
 
 ROOT = Path(__file__).resolve().parent
 BACKENDS = ('python', 'native_cpu', 'native_cuda')
@@ -644,6 +645,9 @@ def run_benchmark(config: BenchmarkConfig, output: Path, frozen_root: Path):
             _write_json(output/'result.json', result)
         result['status'] = 'passed'
         _write_json(output/'result.json', result)
+        for backend in result['backends']:
+            _write_json(output/backend['backend']/'training-benchmark-contract.json',
+                        ai2_native_receipt(result, backend['backend']))
         return result
     except BaseException as exc:
         result.update(status='failed', error=f'{type(exc).__name__}: {exc}')
