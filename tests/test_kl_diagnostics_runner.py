@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -137,7 +138,10 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
 
         fake_model = FakeModel()
         replacements = {
-            "torch": types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True)),
+            "torch": types.SimpleNamespace(
+                cuda=types.SimpleNamespace(is_available=lambda: True),
+                manual_seed=lambda _seed: None,
+            ),
             "stable_baselines3": types.ModuleType("stable_baselines3"),
             "stable_baselines3.common": types.ModuleType("stable_baselines3.common"),
             "stable_baselines3.common.callbacks": types.SimpleNamespace(BaseCallback=type("BaseCallback", (), {})),
@@ -170,6 +174,109 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
 
                 self.assertFalse(trace.exists())
                 self.assertEqual(list(Path(tmp).glob(f".{trace.name}.*.tmp")), [])
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = value
+
+    def test_run_replay_seeds_python_numpy_and_torch_after_checkpoint_load_before_collection(self):
+        module = importlib.import_module("kl_diagnostics_runner")
+        events = []
+
+        class FakeCuda:
+            @staticmethod
+            def is_available():
+                return True
+
+        class FakeTorch:
+            cuda = FakeCuda()
+
+            @staticmethod
+            def manual_seed(seed):
+                events.append(("torch.manual_seed", seed))
+
+        class FakeRandom:
+            @staticmethod
+            def seed(seed):
+                events.append(("random.seed", seed))
+
+        class FakeNumpy:
+            class random:
+                @staticmethod
+                def seed(seed):
+                    events.append(("numpy.random.seed", seed))
+
+        class FakeModel:
+            env = object()
+            rollout_buffer = object()
+            n_steps = 512
+            last_update_diagnostics = {"optimizer_steps": 1, "attempted_epochs": 1, "kl_early_stop": True}
+
+            def _setup_learn(self, **kwargs):
+                events.append(("_setup_learn", kwargs["total_timesteps"]))
+                return None, object()
+
+            def collect_rollouts(self, *_args):
+                events.append(("collect_rollouts",))
+                return True
+
+            def train(self):
+                events.append(("train",))
+                self.update_diagnostic_sink({"epoch": 0, "minibatch_ordinal": 0})
+
+        fake_model = FakeModel()
+        replacements = {
+            "torch": FakeTorch,
+            "stable_baselines3": types.ModuleType("stable_baselines3"),
+            "stable_baselines3.common": types.ModuleType("stable_baselines3.common"),
+            "stable_baselines3.common.callbacks": types.SimpleNamespace(BaseCallback=type("BaseCallback", (), {})),
+            "native_contact_lane_vec_env": types.SimpleNamespace(
+                build_contact_env=lambda lanes, device, seed: events.append(("build_env", seed)) or object()
+            ),
+            "native_curriculum_ppo": types.SimpleNamespace(
+                NativeCurriculumPPO=types.SimpleNamespace(
+                    load_contact_checkpoint=lambda *_args, **_kwargs: events.append(("load_checkpoint",)) or fake_model
+                )
+            ),
+            "tensor_ppo": types.SimpleNamespace(
+                TensorVecEnv=lambda raw_env, device: events.append(("wrap_env", device)) or object()
+            ),
+        }
+        previous = {name: sys.modules.get(name) for name in replacements}
+        try:
+            sys.modules.update(replacements)
+            with mock.patch.object(module, "random", FakeRandom, create=True), \
+                    mock.patch.object(module, "np", FakeNumpy, create=True), \
+                    tempfile.TemporaryDirectory() as tmp:
+                config = module.KLDiagnosticConfig(
+                    checkpoint="/tmp/canonical-contact-checkpoint.zip",
+                    expected_sha256="a" * 64,
+                    output=str(Path(tmp) / "receipt.json"),
+                    trace=str(Path(tmp) / "trace.jsonl"),
+                    seed=987,
+                )
+
+                result = module.run_replay(config)
+
+            self.assertEqual(result["runner"]["seed"], 987)
+            self.assertEqual(result["verification"]["rng_seed_applied"], True)
+            self.assertEqual(result["verification"]["rng_seed_order"], "after_checkpoint_load_before_setup_collect")
+            self.assertEqual(
+                events,
+                [
+                    ("build_env", 987),
+                    ("wrap_env", "cuda"),
+                    ("load_checkpoint",),
+                    ("random.seed", 987),
+                    ("numpy.random.seed", 987),
+                    ("torch.manual_seed", 987),
+                    ("_setup_learn", 32768),
+                    ("collect_rollouts",),
+                    ("train",),
+                ],
+            )
         finally:
             for name, value in previous.items():
                 if value is None:

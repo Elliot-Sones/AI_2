@@ -46,9 +46,15 @@ class NativeCombatRewardGateTests(unittest.TestCase):
             invalid = next(row for row in rows if row["scenario"] == "invalid_config_preserves_state")
             self.assertNotEqual(invalid["cpu"]["step_rc"], 0)
             self.assertTrue(invalid["cpu"]["state_bytes_preserved"])
-            self.assertTrue(all(row["comparison_status"] == "not_run" for row in rows))
-            self.assertTrue(all(row["exact"] is False for row in rows))
-            self.assertTrue(all(row["cuda"] is None for row in rows))
+            if result["status"] == "skipped_cuda":
+                self.assertTrue(all(row["comparison_status"] == "not_run" for row in rows))
+                self.assertTrue(all(row["exact"] is False for row in rows))
+                self.assertTrue(all(row["cuda"] is None for row in rows))
+            else:
+                self.assertEqual(result["cuda"]["status"], "passed")
+                self.assertTrue(all(row["comparison_status"] == "matched" for row in rows))
+                self.assertTrue(all(row["exact"] is True for row in rows))
+                self.assertTrue(all(row["cuda"] is not None for row in rows))
 
     def test_semantic_expectations_are_asserted_for_every_scenario(self):
         import native_combat_reward_gate as gate

@@ -99,6 +99,13 @@ class ProductionActionCudaGateTests(unittest.TestCase):
         args = gate.parse_args(["--output", "receipt.json", "--checkpoint", "checkpoint.zip"])
         self.assertEqual(args.update_mode, benchmark.ContactBenchmarkConfig().update_mode)
 
+    def test_fixture_uses_production_lane_geometry(self):
+        gate = self.subject()
+        fixture = gate._build_fixture_env(gate.torch.device("cpu"))
+        lanes = benchmark.ContactBenchmarkConfig().lanes
+        self.assertEqual(fixture.num_envs, lanes)
+        self.assertEqual(tuple(fixture.reset_tensor().shape), (lanes, 256))
+
     def test_success_path_spies_on_benchmark_validate_runtime_per_arm(self):
         gate = self.subject()
         calls = []

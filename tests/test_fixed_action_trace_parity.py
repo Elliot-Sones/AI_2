@@ -55,6 +55,34 @@ def exact_cuda_autoreset():
 
 
 class FixedActionTraceParityTests(unittest.TestCase):
+    def test_resident_cpu_replay_executes_default_stream_scope(self):
+        from unittest.mock import patch
+        try:
+            import torch
+            import native_game_lane_vec_env
+        except ImportError as error:
+            self.skipTest(str(error))
+
+        backend = types.SimpleNamespace(
+            torch=torch, device=torch.device("cpu"), kind="cpu",
+            valid_steps=torch.zeros(1, dtype=torch.int64),
+        )
+        calls = []
+
+        def reset(lane, draws, observation):
+            calls.append((lane, draws))
+            observation.zero_()
+
+        backend.replay_reset = reset
+        backend.drain = lambda: None
+        backend.close = lambda: calls.append("closed")
+        document = {"reset": {"draws": [], "outputs": {
+            "obs": {"0": [0.0] * 64, "1": [0.0] * 64}}}, "ticks": []}
+        with patch.object(native_game_lane_vec_env, "GameLaneBackend", return_value=backend):
+            result = parity._run_resident_replay_trace({}, document, "cpu")
+        self.assertTrue(result["resident_cpu_recorded_replay_exact"])
+        self.assertEqual(calls, [(0, []), "closed"])
+
     def test_suite_covers_all_ten_actions(self):
         suite = build_fixed_action_suite(seeds=[101], horizon=12)
         self.assertEqual({case["action_index"] for case in suite["cases"]}, set(range(10)))

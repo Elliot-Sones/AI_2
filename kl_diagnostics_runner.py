@@ -12,10 +12,13 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import random
 import os
 from pathlib import Path
 import tempfile
 from typing import Any
+
+import numpy as np
 
 
 SCHEMA_VERSION = "ai2.kl_diagnostics_replay_plan.v1"
@@ -180,6 +183,18 @@ def preflight_replay_artifacts(config: KLDiagnosticConfig) -> None:
             raise FileExistsError(f"refusing to overwrite existing KL diagnostic artifact: {path}")
 
 
+def apply_replay_seed(seed: int, torch_module: Any) -> dict[str, Any]:
+    """Seed the policy/update RNG stream after checkpoint deserialization."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch_module.manual_seed(seed)
+    return {
+        "rng_seed_applied": True,
+        "rng_seed": seed,
+        "rng_seed_order": "after_checkpoint_load_before_setup_collect",
+    }
+
+
 def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
     import torch
     from stable_baselines3.common.callbacks import BaseCallback
@@ -201,6 +216,7 @@ def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
         batch_size=config.batch_size,
         update_mode=config.update_mode,
     )
+    seed_verification = apply_replay_seed(config.seed, torch)
     sink = JSONLDiagnosticSink(config.trace_path, limit=config.max_diagnostics)
     try:
         model.update_diagnostic_sink = sink
@@ -228,6 +244,7 @@ def run_replay(config: KLDiagnosticConfig) -> dict[str, Any]:
             "checkpoint_loaded": True,
             "rollouts_collected": True,
             "update_executed": True,
+            **seed_verification,
         },
         "result": {
             "trace_rows": sink.count,

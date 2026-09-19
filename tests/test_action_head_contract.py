@@ -270,7 +270,7 @@ class ActionHeadContractTests(unittest.TestCase):
         bernoulli = self.module.CurriculumPPO.from_parent(
             parent, self.fixture_env(), action_ab_arm="B_neutral", n_steps=8, batch_size=8,
         )
-        observations = th.zeros((3, 256), dtype=th.float32)
+        observations = th.zeros((3, 256), dtype=th.float32, device=gaussian.device)
         with th.no_grad():
             gaussian_mean = gaussian.policy.action_net(gaussian.policy.mlp_extractor.policy_net(observations))
             bernoulli_logits = bernoulli.policy.action_net(bernoulli.policy.mlp_extractor.policy_net(observations))
@@ -311,7 +311,7 @@ class ActionHeadContractTests(unittest.TestCase):
         child = self.module.CurriculumPPO.from_parent(
             parent, self.fixture_env(), action_ab_arm="B_projected", n_steps=8, batch_size=8,
         )
-        observations = th.zeros((5, 256), dtype=th.float32)
+        observations = th.zeros((5, 256), dtype=th.float32, device=parent.device)
         with th.no_grad():
             parent_means = parent.policy.action_net(parent.policy.mlp_extractor.policy_net(observations))
             child_logits = child.policy.action_net(child.policy.mlp_extractor.policy_net(observations))

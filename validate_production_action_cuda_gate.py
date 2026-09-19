@@ -220,12 +220,13 @@ def export_and_verify_actor(model, load_actor_fn, *, arm: str, expected_head: st
 
 def _build_fixture_env(device):
     import numpy as np
+    from benchmark_native_contact_training import ContactBenchmarkConfig
     from gymnasium import spaces
     from native_curriculum_ppo import COMBAT_MASK, CONTACT_VERSION
     from tensor_ppo import TensorStep
 
     class Fixture:
-        num_envs = 16
+        num_envs = ContactBenchmarkConfig().lanes
         observation_space = spaces.Box(-10, 10, (256,), dtype=np.float32)
         action_space = spaces.Box(0, 1, (10,), dtype=np.float32)
         curriculum_task = "combat"
