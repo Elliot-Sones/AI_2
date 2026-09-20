@@ -416,6 +416,19 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             with self.assertRaisesRegex(q.QualificationError, "skipped"):
                 q.run_navigation_phase0b(args, output_dir=root / "out2", import_module=lambda name: skipped_module)
 
+    def test_navigation_receipt_accepts_ticks_for_python_and_steps_for_cuda(self):
+        q = self.subject()
+        q.validate_navigation_phase0b_receipt({
+            "python_cases": [
+                {"status": "passed", "ticks": 1200},
+                {"status": "passed", "ticks": 1200},
+            ],
+            "cuda_cases": [
+                {"status": "passed", "steps": 1200}
+                for _ in range(4)
+            ],
+        })
+
     def test_smoke_result_requires_artifact_and_finite_detailed_timings(self):
         q = self.subject()
         result = self.retention_result()
@@ -520,7 +533,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                     for index in range(python_cases)
                 ],
                 "cuda_cases": [
-                    {"name": f"cuda-{index}", "status": cuda_status, "ticks": 240}
+                    {"name": f"cuda-{index}", "status": cuda_status, "steps": 240}
                     for index in range(cuda_cases)
                 ],
             }))

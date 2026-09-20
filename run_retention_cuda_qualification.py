@@ -191,12 +191,15 @@ def validate_navigation_phase0b_receipt(receipt: dict[str, Any]) -> None:
     if not isinstance(cuda_cases, list) or len(cuda_cases) != 4:
         raise QualificationError("navigation phase-0b parity must record exactly 4 CUDA cases")
     for family, cases in (("Python", python_cases), ("CUDA", cuda_cases)):
+        progress_field = "ticks" if family == "Python" else "steps"
         for index, case in enumerate(cases):
             if case.get("status") != "passed":
                 raise QualificationError(f"navigation {family} case {index} was {case.get('status')}")
-            ticks = case.get("ticks")
-            if not isinstance(ticks, int) or ticks <= 0:
-                raise QualificationError(f"navigation {family} case {index} did not record positive ticks")
+            progress = case.get(progress_field)
+            if not isinstance(progress, int) or progress <= 0:
+                raise QualificationError(
+                    f"navigation {family} case {index} did not record positive {progress_field}"
+                )
 
 
 def run_unittest_gate(
