@@ -2,6 +2,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 
 
@@ -532,6 +533,83 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
         self.assertEqual(remote.writes, [])
 
+    def test_remote_retrieval_batches_missing_artifacts_and_skips_verified_existing_files(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = "safe-block"
+            self.preserved_train(root, name, recipe="R4C1N", seed=123, parent_sha=m.B40_SHA256)
+            remote = BulkReadRemote(remote_artifacts=self.remote_artifacts_for(root, name, include_files=True))
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+            controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+        self.assertEqual(remote.bulk_reads, [(name, ("final.zip", "result.json", "manifest.json"))])
+        self.assertGreaterEqual(remote.single_reads.count((name, "inventory.json")), 2)
+
+    def test_remote_retrieval_rejects_bulk_hash_mismatch(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = "safe-block"
+            self.preserved_train(root, name, recipe="R4C1N", seed=123, parent_sha=m.B40_SHA256)
+            artifacts = self.remote_artifacts_for(root, name, include_files=True)
+            artifacts[(name, "result.json")] = b"corrupt"
+            remote = BulkReadRemote(remote_artifacts=artifacts)
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            with self.assertRaisesRegex(ValueError, "remote artifact hash mismatch: result.json"):
+                controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+
+    def test_remote_retrieval_rejects_bulk_omitted_file(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = "safe-block"
+            self.preserved_train(root, name, recipe="R4C1N", seed=123, parent_sha=m.B40_SHA256)
+            remote = OmitBulkReadRemote(
+                omitted=("manifest.json",),
+                remote_artifacts=self.remote_artifacts_for(root, name, include_files=True),
+            )
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            with self.assertRaisesRegex(FileNotFoundError, "remote bulk artifact read omitted"):
+                controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+
+    def test_failure_evidence_uses_bulk_retrieval_for_inventory_files(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            train = m.build_initial_plan()[0]
+            failure_block = root / train.name
+            failure_block.mkdir()
+            (failure_block / "result.json").write_text(json.dumps({"failed": True}))
+            (failure_block / "manifest.json").write_text(json.dumps({"failed": True}))
+            self.inventory_and_ack(failure_block, train.name, ["result.json", "manifest.json"])
+            remote = BulkReadRemote(remote_artifacts=self.remote_artifacts_for(root, train.name, include_files=True))
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            receipt = controller._preserve_failure_inventory_block(train.name)
+        self.assertEqual(receipt["files"], ["manifest.json", "result.json"])
+        self.assertEqual(remote.bulk_reads, [(train.name, ("result.json", "manifest.json"))])
+
+    def test_contact_qualification_uses_bulk_retrieval_for_inventory_files(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = m.CONTACT_QUALIFICATION_BLOCK
+            self.preserved_qualification(root, name)
+            remote = BulkReadRemote(remote_artifacts=self.remote_artifacts_for(root, name, include_files=True))
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            controller.retrieve_and_preserve_contact_qualification()
+        self.assertEqual(remote.bulk_reads, [(name, ("qualification.json",))])
+
+    def test_remote_artifact_upload_accepts_matching_bytes_that_appear_after_create_race(self):
+        m = self.subject()
+        name = "safe-block"
+        data = b'{"verified":true}\n'
+        remote = RaceyExistingAckRemote(name=name, filename="preservation_ack.json", data=data)
+        result = m.RemoteClient.write_artifact_file(remote, name, "preservation_ack.json", data)
+        self.assertEqual(result["sha256"], m.bytes_sha256(data))
+        self.assertTrue(result["already_exists"])
+        self.assertEqual(remote.run_shell_calls, 1)
+
     def test_default_run_trains_evaluates_gates_and_continues_pareto_winner_once(self):
         m = self.subject()
         with TemporaryDirectory() as directory:
@@ -1059,6 +1137,58 @@ class FakeRemote:
         self.remote_artifacts[(name, filename)] = data
         self.writes.append((name, filename, data))
         return {"bytes": len(data)}
+
+
+class BulkReadRemote(FakeRemote):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.single_reads = []
+        self.bulk_reads = []
+
+    def read_artifact_file(self, name, filename):
+        self.single_reads.append((name, filename))
+        return super().read_artifact_file(name, filename)
+
+    def read_artifact_files(self, name, filenames):
+        self.bulk_reads.append((name, tuple(filenames)))
+        return {filename: self.remote_artifacts[(name, filename)] for filename in filenames}
+
+
+class OmitBulkReadRemote(BulkReadRemote):
+    def __init__(self, *, omitted, **kwargs):
+        super().__init__(**kwargs)
+        self.omitted = set(omitted)
+
+    def read_artifact_files(self, name, filenames):
+        self.bulk_reads.append((name, tuple(filenames)))
+        return {filename: self.remote_artifacts[(name, filename)] for filename in filenames if filename not in self.omitted}
+
+
+class RaceyExistingAckRemote(FakeRemote):
+    def __init__(self, *, name, filename, data):
+        super().__init__()
+        self.name = name
+        self.filename = filename
+        self.data = data
+        self.reads = 0
+        self.run_shell_calls = 0
+
+    def remote_file(self, path):
+        if path.name != self.filename:
+            return None
+        self.reads += 1
+        if self.reads == 1:
+            return None
+        return self.data
+
+    def _artifact_path(self, name, filename):
+        if name != self.name or filename != self.filename:
+            raise AssertionError((name, filename))
+        return Path("/remote") / name / filename
+
+    def run_shell(self, command, timeout):
+        self.run_shell_calls += 1
+        return SimpleNamespace(returncode=1, stderr=b"test ! -e failed")
 
 
 class StepClock:

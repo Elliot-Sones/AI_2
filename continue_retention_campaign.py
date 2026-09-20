@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 import base64
 from dataclasses import dataclass, asdict
+import io
 import json
 import math
 from pathlib import Path
 import shlex
 import subprocess
+import tarfile
 import time
 
 import continue_contact_campaign as contact
@@ -155,6 +157,42 @@ class RemoteClient(contact.RemoteClient):
             raise FileNotFoundError(f"remote artifact missing: {name}/{filename}")
         return data
 
+    def read_artifact_files(self, name, filenames):
+        contact.validate_name(name)
+        requested = []
+        for filename in filenames:
+            relative = _safe_artifact_relative(filename)
+            requested.append(relative.as_posix())
+        if not requested:
+            return {}
+        artifact_dir = self.remote_artifacts / name
+        command = (
+            f"cd {shlex.quote(str(artifact_dir))} && "
+            f"tar -cf - -- {' '.join(shlex.quote(filename) for filename in requested)}"
+        )
+        result = self.run_shell(command, timeout=max(60, len(requested) * 2))
+        if result.returncode:
+            raise FileNotFoundError(f"remote artifact bulk read failed for {name}: {result.stderr.decode(errors='replace')}")
+        found = {}
+        requested_set = set(requested)
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:*") as archive:
+            for member in archive:
+                relative = _safe_artifact_relative(member.name).as_posix()
+                if relative not in requested_set:
+                    raise ValueError(f"remote archive included unexpected artifact: {name}/{member.name}")
+                if relative in found:
+                    raise ValueError(f"remote archive included duplicate artifact: {name}/{member.name}")
+                if not member.isfile():
+                    raise ValueError(f"remote archive included non-file artifact: {name}/{member.name}")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise FileNotFoundError(f"remote archive could not extract artifact: {name}/{member.name}")
+                found[relative] = stream.read()
+        missing = sorted(requested_set - set(found))
+        if missing:
+            raise FileNotFoundError(f"remote archive missing artifacts for {name}: {missing}")
+        return found
+
     def write_artifact_file(self, name, filename, data):
         path = self._artifact_path(name, filename)
         existing = self.remote_file(path)
@@ -172,6 +210,9 @@ class RemoteClient(contact.RemoteClient):
         )
         result = self.run_shell(command, timeout=60)
         if result.returncode:
+            existing_after = self.remote_file(path)
+            if existing_after == data:
+                return {"path": str(path), "bytes": len(data), "sha256": bytes_sha256(data), "already_exists": True}
             raise RuntimeError(f"remote artifact upload failed for {name}/{filename}: {result.stderr.decode(errors='replace')}")
         return {"path": str(path), "bytes": len(data), "sha256": bytes_sha256(data)}
 
@@ -553,6 +594,18 @@ class Controller(contact.Controller):
     def validate_deadline(self):
         self.validate_budget()
 
+    def _read_remote_artifact_files(self, name, filenames):
+        filenames = [Path(filename).as_posix() for filename in filenames]
+        if not filenames:
+            return {}
+        if hasattr(self.remote, "read_artifact_files"):
+            data = self.remote.read_artifact_files(name, filenames)
+            missing = sorted(set(filenames) - set(data))
+            if missing:
+                raise FileNotFoundError(f"{name} remote bulk artifact read omitted: {missing}")
+            return data
+        return {filename: self.remote.read_artifact_file(name, filename) for filename in filenames}
+
     def retrieve_and_preserve_remote_block(self, name, *, require_final_zip):
         inventory_bytes = self.remote.read_artifact_file(name, "inventory.json")
         inventory = json.loads(inventory_bytes)
@@ -571,6 +624,7 @@ class Controller(contact.Controller):
         missing = sorted(required - set(files))
         if missing:
             raise ValueError(f"{name} remote inventory missing required artifacts: {missing}")
+        missing_locally = []
         for relative, row in files.items():
             destination = block / _safe_artifact_relative(relative)
             if destination.exists():
@@ -579,8 +633,13 @@ class Controller(contact.Controller):
                 if destination.stat().st_size == row.get("bytes") and sha256(destination) == row.get("sha256"):
                     continue
                 raise ValueError(f"{name} local artifact differs from remote inventory: {relative}")
+            missing_locally.append(relative)
+        artifact_bytes = self._read_remote_artifact_files(name, missing_locally)
+        for relative in missing_locally:
+            row = files[relative]
+            destination = block / _safe_artifact_relative(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            data = self.remote.read_artifact_file(name, relative)
+            data = artifact_bytes[relative]
             if len(data) != row.get("bytes") or bytes_sha256(data) != row.get("sha256"):
                 raise ValueError(f"{name} remote artifact hash mismatch: {relative}")
             destination.write_bytes(data)
@@ -616,9 +675,13 @@ class Controller(contact.Controller):
             raise ValueError(f"{name} remote failure inventory is invalid")
         block = self.local_root / name
         block.mkdir(parents=True, exist_ok=True)
+        files = {}
         copied = []
+        missing_locally = []
         for row in inventory.get("files", []):
             relative = row.get("path")
+            _safe_artifact_relative(relative)
+            files[relative] = row
             destination = block / _safe_artifact_relative(relative)
             if destination.exists():
                 if destination.is_symlink() or not destination.is_file():
@@ -627,7 +690,12 @@ class Controller(contact.Controller):
                     copied.append(relative)
                     continue
                 raise ValueError(f"{name} local failure artifact differs from remote inventory: {relative}")
-            data = self.remote.read_artifact_file(name, relative)
+            missing_locally.append(relative)
+        artifact_bytes = self._read_remote_artifact_files(name, missing_locally)
+        for relative in missing_locally:
+            row = files[relative]
+            destination = block / _safe_artifact_relative(relative)
+            data = artifact_bytes[relative]
             if len(data) != row.get("bytes") or bytes_sha256(data) != row.get("sha256"):
                 raise ValueError(f"{name} remote failure artifact hash mismatch: {relative}")
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -749,6 +817,7 @@ class Controller(contact.Controller):
             files[relative] = row
         if "qualification.json" not in files:
             raise ValueError("contact qualification remote inventory missing qualification.json")
+        missing_locally = []
         for relative, row in files.items():
             destination = block / _safe_artifact_relative(relative)
             if destination.exists():
@@ -757,8 +826,13 @@ class Controller(contact.Controller):
                 if destination.stat().st_size == row.get("bytes") and sha256(destination) == row.get("sha256"):
                     continue
                 raise ValueError(f"contact qualification local artifact differs: {relative}")
+            missing_locally.append(relative)
+        artifact_bytes = self._read_remote_artifact_files(name, missing_locally)
+        for relative in missing_locally:
+            row = files[relative]
+            destination = block / _safe_artifact_relative(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            data = self.remote.read_artifact_file(name, relative)
+            data = artifact_bytes[relative]
             if len(data) != row.get("bytes") or bytes_sha256(data) != row.get("sha256"):
                 raise ValueError(f"contact qualification remote artifact hash mismatch: {relative}")
             destination.write_bytes(data)
