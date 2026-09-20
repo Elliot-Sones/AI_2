@@ -143,7 +143,6 @@ class NativeTaskTensorRolloutBufferTests(unittest.TestCase):
         module, torch, buffer = self.make_buffer()
         actions = torch.ones((buffer.n_envs, 10), dtype=torch.float32)
         numeric_mask = np.asarray(module.TASK_MASKS['combat'], dtype=np.int8)
-        numeric_mask[7] = 2
         executed = actions * torch.tensor(module.TASK_MASKS['combat'], dtype=torch.float32)
         with self.assertRaisesRegex(ValueError, 'Wrong allowed-control mask'):
             buffer.add(torch.zeros((buffer.n_envs, *buffer.obs_shape), dtype=torch.float32), actions,
@@ -155,6 +154,8 @@ class NativeTaskTensorRolloutBufferTests(unittest.TestCase):
                           executed_actions=executed)
         with self.assertRaisesRegex(ValueError, 'Rollout mask'):
             buffer.validate('combat', numeric_mask)
+        with self.assertRaisesRegex(ValueError, 'Rollout mask'):
+            buffer.validate('combat', torch.tensor(module.TASK_MASKS['combat'], dtype=torch.int8))
 
     def test_task_specific_gaussian_executed_action_decode(self):
         module, torch, nav_buffer = self.make_buffer(action_head='gaussian')
@@ -417,34 +418,45 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         from tests.test_ppo_update_optimizations import PPOUpdateParityTests
         PPOUpdateParityTests.assert_tree_equal(self, left, right, exact=exact)
 
-    def environment(self):
+    def environment(self, task='combat'):
         """Tensor fixture tests collector contracts, not native game fidelity."""
         from gymnasium import spaces
         from tensor_ppo import TensorStep, TensorVecEnv
         torch, module = self.torch, self.module
+        mask = module.TASK_MASKS[task]
+        version = module.TASK_VERSIONS[task]
+        reset_value = .05 if task == 'combat' else .15
 
         class Fixture:
             num_envs = 16
             observation_space = spaces.Box(-10, 10, (256,), dtype=np.float32)
             action_space = spaces.Box(0, 1, (10,), dtype=np.float32)
-            curriculum_task = 'combat'
-            curriculum_version = module.CONTACT_VERSION
-            allowed_control_mask = module.COMBAT_MASK
+            curriculum_task = task
+            curriculum_version = version
+            allowed_control_mask = mask
             device = torch.device('cuda', torch.cuda.current_device())
             def reset_tensor(self, seeds=None):
                 self.tick = 0
-                return torch.zeros((16, 256), device=self.device)
+                return torch.full((16, 256), reset_value, device=self.device)
             def step_tensor(self, action):
                 self.last_action = action.clone()
                 self.tick += 1
                 obs = torch.full((16, 256), .01*(self.tick % 20), device=self.device)
                 done = torch.full((16,), self.tick % 32 == 0, device=self.device, dtype=torch.bool)
+                truncated = torch.zeros_like(done)
+                if task == 'navigation' and self.tick % 17 == 0:
+                    truncated[::3] = True
                 return TensorStep(obs, -action[:, 0].contiguous(), done,
-                                  torch.zeros_like(done), obs.clone())
+                                  truncated, obs.clone())
             def host_has_timeouts(self):
-                return False
+                return task == 'navigation'
             def drain_episode_infos(self):
-                return []
+                return [{
+                    'episode': {'r': 1.0, 'l': self.tick},
+                    'curriculum_task': task,
+                    'curriculum_version': version,
+                    'allowed_control_mask': mask,
+                }] if self.tick else []
         return TensorVecEnv(Fixture(), device='cuda')
 
     def model(self, mode='sb3'):
@@ -464,6 +476,52 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertTrue(model.collect_rollouts(model.env, callback, model.rollout_buffer, 512))
         callback.locals.clear()
         return model.rollout_buffer
+
+    def test_task_environment_switch_updates_shim_mask_and_resets_new_env_instances(self):
+        model = self.model()
+        from stable_baselines3.common.callbacks import BaseCallback
+        class Callback(BaseCallback):
+            def _on_step(self):
+                return True
+        _, callback = model._setup_learn(8192*4, callback=Callback(), reset_num_timesteps=False)
+        callback.locals.clear()
+        combat_obs = model._last_obs.clone()
+        combat_starts = model._last_episode_starts.clone()
+        model.rollout_buffer.full = True
+        model.rollout_buffer.consumed = True
+
+        nav_env = self.environment('navigation')
+        model.set_task_environment('navigation', nav_env)
+        self.assertIs(model.tensor_vec_env, nav_env)
+        self.assertEqual(model.env.num_envs, nav_env.num_envs)
+        self.assertEqual(model.task, 'navigation')
+        self.assertEqual(model.policy.task, 'navigation')
+        self.torch.testing.assert_close(model.policy.allowed_control_mask.detach().cpu(),
+                                        self.torch.as_tensor(self.module.TASK_MASKS['navigation']))
+        self.assertTrue(bool((model._last_obs == .15).all()))
+        model._last_obs.fill_(.77)
+        model._last_episode_starts.zero_()
+        model.rollout_buffer.full = True
+        model.rollout_buffer.consumed = True
+
+        combat_env = self.environment('combat')
+        model.set_task_environment('combat', combat_env, calibration=True)
+        self.assertIs(model.tensor_vec_env, combat_env)
+        self.assertEqual(model.policy.task, 'combat')
+        self.assertTrue(model.policy.calibration)
+        self.assertTrue(bool((model._last_obs == .05).all()))
+        self.assertTrue(bool((model._last_episode_starts == 1).all()))
+
+        model._last_obs.fill_(.33)
+        model._last_episode_starts.zero_()
+        model.rollout_buffer.full = True
+        model.rollout_buffer.consumed = True
+        model.set_task_environment('navigation', nav_env)
+        model.rollout_buffer.full = True
+        model.rollout_buffer.consumed = True
+        model.set_task_environment('combat', combat_env, calibration=True)
+        self.assertTrue(bool((model._last_obs == .33).all()))
+        self.assertTrue(bool((model._last_episode_starts == 0).all()))
 
     def copy_buffer(self, source, target):
         target.reset()
