@@ -802,7 +802,15 @@ class Controller(contact.Controller):
             self.emit(event="skip_completed_contact_qualification", name=self.contact_qualification_block)
             return {"local": local, "remote": remote}
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
-            pass
+            try:
+                remote = self.verify_remote_preservation(self.contact_qualification_block)
+                local = self.retrieve_and_preserve_contact_qualification()
+                if remote["inventory_sha256"] != local["inventory_sha256"]:
+                    raise ValueError("contact qualification remote inventory does not match local")
+                self.emit(event="retrieved_completed_contact_qualification", name=self.contact_qualification_block)
+                return {"local": local, "remote": remote}
+            except (FileNotFoundError, KeyError, json.JSONDecodeError):
+                pass
         step = PlanStep(
             kind="qualification",
             name=self.contact_qualification_block,

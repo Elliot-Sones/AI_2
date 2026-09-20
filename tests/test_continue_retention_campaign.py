@@ -284,6 +284,32 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         self.assertEqual(preserved["local"]["name"], block)
         self.assertEqual(remote.launches, [])
 
+    def test_missing_local_contact_qualification_is_retrieved_from_preserved_remote_block_without_launch(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            local = Path(directory) / "local"
+            source.mkdir()
+            local.mkdir()
+            block = m.CONTACT_QUALIFICATION_BLOCK
+            self.preserved_qualification(source, block)
+            remote = FakeRemote(remote_artifacts=self.remote_artifacts_for(source, block, include_files=True))
+            controller = m.Controller(
+                local_root=local,
+                remote=remote,
+                deadline_unix=1000,
+                now=StepClock([0, 0, 0]),
+                remaining_cost=lambda: 5.0,
+            )
+            preserved = controller.ensure_contact_qualification()
+            self.assertEqual(preserved["local"]["name"], block)
+            self.assertTrue((local / block / "qualification.json").is_file())
+            self.assertEqual(remote.launches, [])
+            self.assertIn(
+                {"time_unix": 0, "event": "retrieved_completed_contact_qualification", "name": block},
+                controller.events,
+            )
+
     def test_current_native_source_digest_changes_train_names_without_changing_checkpoint_lineage(self):
         m = self.subject()
         with TemporaryDirectory() as directory:
