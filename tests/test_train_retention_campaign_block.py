@@ -30,6 +30,8 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         self.assertEqual(cfg.batch_size, 16384)
         self.assertEqual(cfg.n_epochs, 4)
         self.assertEqual(cfg.learning_rate, 3e-5)
+        self.assertEqual(cfg.action_ab_arm, "B_projected")
+        self.assertEqual(tuple(m.SUPPORTED_ARMS), ("B_projected",))
         self.assertEqual(cfg.transitions_per_rollout, 2_097_152)
         self.assertEqual(cfg.total_transitions, 10_485_760)
         self.assertEqual(cfg.task_transition_totals, {"combat": 6_291_456, "navigation": 4_194_304})
@@ -42,6 +44,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             {"n_epochs": 3},
             {"learning_rate": 1e-4},
             {"device": "cpu"},
+            {"action_ab_arm": "G_keep"},
         ):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 m.RetentionCampaignConfig(**changes)
@@ -222,8 +225,8 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             device="cuda",
             learning_rate=3e-5,
             update_mode="deferred_metrics",
-            action_ab_arm="G_keep",
-            action_head=m.ACTION_EXPERIMENT_ARMS["G_keep"]["action_head"],
+            action_ab_arm="B_projected",
+            action_head=m.ACTION_EXPERIMENT_ARMS["B_projected"]["action_head"],
             clip_range=0.1,
             target_kl=0.01,
             ent_coef=0.001,
@@ -232,6 +235,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             episodes_per_lane=16,
             record_capacity=8,
             nominal_optimizer_steps=2,
+            transitions_per_rollout=8,
         )
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -249,7 +253,11 @@ class RetentionCampaignBlockTests(unittest.TestCase):
                 load_calls.append(env.task)
                 if len(load_calls) == 1:
                     return model
-                return loaded_navigation if env.task == "navigation" else loaded_combat
+                loaded = loaded_navigation if env.task == "navigation" else loaded_combat
+                loaded.task = env.task
+                loaded.policy.task = env.task
+                loaded.policy.allowed_control_mask = [bool(value) for value in m.TASK_MASKS[env.task]]
+                return loaded
 
             with patch.object(m, "RetentionCampaignConfig", return_value=smoke_cfg), \
                  patch.object(m.base, "require_cuda", return_value="cuda:0"), \
@@ -403,6 +411,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         )
 
     def fake_model(self, cfg, *, start_timesteps, fail_on_collect=None):
+        task_masks = self.subject().TASK_MASKS
         model = SimpleNamespace(
             n_steps=cfg.n_steps,
             batch_size=cfg.batch_size,
@@ -422,7 +431,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             policy=SimpleNamespace(
                 task="combat",
                 calibration=False,
-                allowed_control_mask=[True] * 10,
+                allowed_control_mask=[bool(value) for value in task_masks["combat"]],
                 parameters=lambda: [self.fake_parameter([1, 2, model.num_timesteps % 251])],
                 optimizer=SimpleNamespace(
                     param_groups=[{"lr": cfg.learning_rate}],
@@ -460,6 +469,9 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             self.assertIs(env.task, task)
             self.assertFalse(calibration)
             model.task = task
+            model.policy.task = task
+            model.policy.calibration = calibration
+            model.policy.allowed_control_mask = [bool(value) for value in task_masks[task]]
             model.switches.append(task)
 
         def collect(env, callback, buffer, n_steps):
@@ -469,14 +481,19 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             self.assertEqual(env.task, model.task)
             model.collect_tasks.append(model.task)
             model.num_timesteps += cfg.transitions_per_rollout
-            env.backend.valid_steps = [value + n_steps for value in env.backend.valid_steps]
+            if hasattr(env.backend, "valid_steps"):
+                env.backend.valid_steps = [value + n_steps for value in env.backend.valid_steps]
             payload_key = "contact" if model.task == "combat" else "navigation"
+            task_payload = {"lane": 0, "episode_index": model.num_timesteps}
+            if model.task == "combat":
+                task_payload["diagnostics"] = {"hit": True}
             callback.episodes = [
                 {
-                    payload_key: {"lane": 0, "episode_index": model.num_timesteps},
+                    payload_key: task_payload,
                     "episode": {"r": 1.0, "l": 1},
                     "curriculum_task": model.task,
                     "curriculum_version": "bridge_b1_contact-v1" if model.task == "combat" else "bridge_0b_navigation-v1",
+                    "allowed_control_mask": [bool(value) for value in self.subject().TASK_MASKS[model.task]],
                 }
             ]
             return True

@@ -388,6 +388,12 @@ def run_qualification(
             "n_epochs": args.n_epochs,
         },
         "production_gate_args": dict(PRODUCTION_GATE_GEOMETRY),
+        "external_preconditions": {
+            "vast_inventory_before_create": "required_by_orchestrator_before_this_runner",
+            "code_upload_and_remote_sha_ack": "required_by_orchestrator_before_this_runner",
+            "artifact_download_and_hash_verify": "required_by_orchestrator_after_this_runner",
+            "wandb_mode": "offline",
+        },
         "seed": args.seed,
         "gates": {},
     }

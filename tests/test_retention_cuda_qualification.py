@@ -112,6 +112,14 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             self.assertEqual(os.environ.get("WANDB_MODE"), "offline")
             self.assertEqual(receipt["geometry"], {"lanes": 8, "n_steps": 4, "batch_size": 16, "n_epochs": 1})
             self.assertEqual(receipt["production_gate_args"], q.PRODUCTION_GATE_GEOMETRY)
+            self.assertEqual(
+                receipt["external_preconditions"]["vast_inventory_before_create"],
+                "required_by_orchestrator_before_this_runner",
+            )
+            self.assertEqual(
+                receipt["external_preconditions"]["artifact_download_and_hash_verify"],
+                "required_by_orchestrator_after_this_runner",
+            )
             self.assertEqual(receipt["checkpoint_expected_sha256"], checkpoint_sha)
             self.assertEqual(receipt["checkpoint_sha256"], q.sha256(checkpoint))
             self.assertTrue(receipt["checkpoint_verified"])
@@ -229,6 +237,17 @@ class RetentionCudaQualificationTests(unittest.TestCase):
         with self.assertRaisesRegex(q.QualificationError, "zero tests"):
             q.run_unittest_gate("tests.test_contact_action_update_parity", cwd=Path("."), env=env,
                                 command_runner=zero, timeout=1)
+
+    def test_production_gate_requires_usable_gpu_utilization_evidence(self):
+        q = self.subject()
+        q.validate_utilization_samples({"available": False, "samples": [], "max_sm_util": None}, production_gate=False)
+        with self.assertRaisesRegex(q.QualificationError, "utilization evidence"):
+            q.validate_utilization_samples({"available": False, "samples": [], "max_sm_util": None}, production_gate=True)
+        with self.assertRaisesRegex(q.QualificationError, "non-zero SM"):
+            q.validate_utilization_samples({"available": True, "samples": ["0 0 10"], "max_sm_util": 0},
+                                           production_gate=True)
+        q.validate_utilization_samples({"available": True, "samples": ["0 7 10"], "max_sm_util": 7},
+                                       production_gate=True)
 
     def test_navigation_receipt_must_cover_exact_cases_ticks_and_no_skips(self):
         q = self.subject()

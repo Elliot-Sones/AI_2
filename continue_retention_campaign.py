@@ -37,6 +37,10 @@ TARGET_ADDED_TRANSITIONS = 5 * CYCLE_TRANSITIONS
 INITIAL_RECIPES = ("R4C1N", "R3C2N")
 INITIAL_SEEDS = {"R4C1N": 404101, "R3C2N": 302102}
 ACTION_AB_ARM = "B_projected"
+SCHEDULES = {
+    "R4C1N": ("combat", "combat", "combat", "combat", "navigation"),
+    "R3C2N": ("combat", "combat", "combat", "navigation", "navigation"),
+}
 
 sha256 = contact.sha256
 bytes_sha256 = contact.bytes_sha256
@@ -174,11 +178,12 @@ def _panel_mode(result, panel, mode):
 def _require_contact_terminal_attribution(row, name):
     bad = {
         "self_losses": row.get("self_losses", 0),
+        "opponent_self_losses": row.get("opponent_self_losses", 0),
         "timeouts": row.get("timeouts", 0),
         "ambiguous": row.get("ambiguous", 0),
     }
     if any(value != 0 for value in bad.values()):
-        raise ValueError(f"{name} terminal attribution must have no self-loss, timeout, or ambiguous endings")
+        raise ValueError(f"{name} terminal attribution must have no self-loss, opponent self-loss, timeout, or ambiguous endings")
 
 
 def _component_values(result):
@@ -426,6 +431,12 @@ class Controller(contact.Controller):
             candidate["local"]["files"]["final.zip"]["sha256"],
             "--verified-ack",
             str(REMOTE_ARTIFACTS / step.resume_from / "preservation_ack.json"),
+            "--frozen-root",
+            str(self.frozen_root),
+            "--reference-root",
+            str(self.reference_root),
+            "--qualification",
+            str(self.qualification),
             "--output",
             str(REMOTE_ARTIFACTS / step.name),
             "--deadline-unix",
@@ -436,22 +447,44 @@ class Controller(contact.Controller):
         self.validate_train_step(step)
         result = preserved["result"]
         manifest = preserved["manifest"]
+        expected_schedule = list(SCHEDULES[step.recipe])
         if result.get("status") != "trained_not_evaluated":
             raise ValueError(f"{step.name} did not finish as a training block")
+        if result.get("schema_version") != "ai2.retention_campaign_block.v1":
+            raise ValueError(f"{step.name} schema_version mismatch")
         if result.get("checkpoint_sha256") != preserved["files"]["final.zip"]["sha256"]:
             raise ValueError(f"{step.name} checkpoint sha mismatch")
         if result.get("schedule_id") != step.recipe or (manifest.get("config") or {}).get("schedule_id") != step.recipe:
             raise ValueError(f"{step.name} schedule mismatch")
+        if result.get("schedule") != expected_schedule or manifest.get("schedule") != expected_schedule:
+            raise ValueError(f"{step.name} schedule lineage mismatch")
+        if (manifest.get("config") or {}).get("action_ab_arm") != ACTION_AB_ARM or result.get("action_ab_arm") not in (None, ACTION_AB_ARM):
+            raise ValueError(f"{step.name} action_ab_arm contract mismatch")
         if (manifest.get("config") or {}).get("seed") != step.seed:
             raise ValueError(f"{step.name} seed mismatch")
         if (manifest.get("checkpoint") or {}).get("sha256") != step.parent_sha256:
             raise ValueError(f"{step.name} lineage parent checkpoint sha mismatch")
         if (result.get("summary") or {}).get("measured_transitions") != CYCLE_TRANSITIONS:
             raise ValueError(f"{step.name} measured transitions mismatch")
-        for row in result.get("rollouts") or []:
+        rollouts = result.get("rollouts") or []
+        if len(rollouts) != ROLLOUTS_PER_CYCLE:
+            raise ValueError(f"{step.name} rollout count mismatch")
+        for index, row in enumerate(rollouts):
+            if row.get("task") != expected_schedule[index]:
+                raise ValueError(f"{step.name} rollout {index} task mismatch")
+            if row.get("transitions") != TRANSITIONS_PER_ROLLOUT or row.get("game_ticks") != TRANSITIONS_PER_ROLLOUT:
+                raise ValueError(f"{step.name} rollout {index} transition/game tick mismatch")
+            for key in ("collection_seconds", "update_seconds", "total_seconds"):
+                if not _finite(row.get(key)):
+                    raise ValueError(f"{step.name} rollout {index} non-finite {key}")
             actual = row.get("actual_update") or {}
-            if actual.get("kl_early_stop") or actual.get("low_update"):
-                raise ValueError(f"{step.name} has KL/low-update rollout diagnostics")
+            if actual.get("optimizer_steps") != 512 or actual.get("nominal_optimizer_steps") != 512:
+                raise ValueError(f"{step.name} rollout {index} optimizer steps mismatch")
+            if actual.get("kl_early_stop") is not False or actual.get("low_update") is not False:
+                raise ValueError(f"{step.name} rollout {index} KL early stop or low update")
+            for value in (row.get("metrics") or {}).values():
+                if not _finite(value):
+                    raise ValueError(f"{step.name} rollout {index} non-finite metric")
         return True
 
     def validate_eval_receipt(self, step: PlanStep, preserved: dict):
@@ -527,6 +560,7 @@ def parse_args(argv=None):
     parser.add_argument("--event-log", type=Path)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--poll-seconds", type=float, default=contact.POLL_SECONDS)
+    parser.add_argument("--remaining-budget-dollars", type=float, required=True)
     return parser.parse_args(argv)
 
 
@@ -541,6 +575,7 @@ def main(argv=None):
         deadline_unix=args.deadline_unix,
         event_log=event_log,
         poll_seconds=args.poll_seconds,
+        remaining_cost=lambda: args.remaining_budget_dollars,
     )
     started = time.time()
     result = controller.run()
