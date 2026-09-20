@@ -20,12 +20,14 @@ import time
 import continue_contact_campaign as contact
 
 
+ROOT = Path(__file__).resolve().parent
 B40_SHA256 = "6d7b83a287b1a29bf8741295d769178764fd8b4beaf101a678b62cdc41bd73f0"
 B40_BLOCK_NAME = "B_projected-040m"
 REMOTE_ROOT = Path("/workspace/AI_2/staged-20260920")
 REMOTE_ARTIFACTS = REMOTE_ROOT / "artifacts"
 LOCAL_ROOT = Path("/Users/elliot18/Projects/ml-research/AI_2/baselines/native-retention-20260920/campaign")
-CONTACT_QUALIFICATION_BLOCK = "contact-qualification-current"
+CONTACT_SOURCE_DIGEST = contact.sha256(ROOT / "native_curriculum_ppo.py")
+CONTACT_QUALIFICATION_BLOCK = f"contact-qualification-src{CONTACT_SOURCE_DIGEST[:12]}"
 QUALIFICATION = REMOTE_ARTIFACTS / CONTACT_QUALIFICATION_BLOCK / "qualification.json"
 CONTACT_QUALIFICATION_CHECKPOINT = REMOTE_ROOT / "inputs/calibration/final.zip"
 FROZEN_ROOT = contact.FROZEN_ROOT
@@ -238,8 +240,7 @@ def _step_name(recipe: str, cumulative_added: int, seed: int, source_digest: str
     return f"{recipe}-cycle{cycle:02d}-add{cumulative_added}-s{seed}-src{_source_prefix(source_digest)}"
 
 
-def build_initial_plan(parent_sha256=B40_SHA256, source_digest=None):
-    source_digest = source_digest or parent_sha256
+def build_initial_plan(parent_sha256=B40_SHA256, source_digest=CONTACT_SOURCE_DIGEST):
     steps = []
     for recipe in INITIAL_RECIPES:
         seed = INITIAL_SEEDS[recipe]
@@ -529,7 +530,7 @@ class Controller(contact.Controller):
         self.contact_qualification_checkpoint = Path(contact_qualification_checkpoint)
         contact.validate_name(contact_qualification_block)
         self.contact_qualification_block = contact_qualification_block
-        self.plan_source_digest = plan_source_digest or B40_SHA256
+        self.plan_source_digest = plan_source_digest or CONTACT_SOURCE_DIGEST
         _source_prefix(self.plan_source_digest)
         self.remote_artifacts = Path(remote_artifacts)
         if qualification is None or Path(qualification) == QUALIFICATION:
