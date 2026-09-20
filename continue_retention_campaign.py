@@ -238,19 +238,20 @@ def _step_name(recipe: str, cumulative_added: int, seed: int, source_digest: str
     return f"{recipe}-cycle{cycle:02d}-add{cumulative_added}-s{seed}-src{_source_prefix(source_digest)}"
 
 
-def build_initial_plan(parent_sha256=B40_SHA256):
+def build_initial_plan(parent_sha256=B40_SHA256, source_digest=None):
+    source_digest = source_digest or parent_sha256
     steps = []
     for recipe in INITIAL_RECIPES:
         seed = INITIAL_SEEDS[recipe]
         steps.append(
             PlanStep(
                 kind="train",
-                name=_step_name(recipe, CYCLE_TRANSITIONS, seed, parent_sha256, cycle=1),
+                name=_step_name(recipe, CYCLE_TRANSITIONS, seed, source_digest, cycle=1),
                 recipe=recipe,
                 seed=seed,
                 cumulative_added_transitions=CYCLE_TRANSITIONS,
                 parent_sha256=parent_sha256,
-                source_digest=parent_sha256,
+                source_digest=source_digest,
                 cycle=1,
             )
         )
@@ -512,6 +513,8 @@ class Controller(contact.Controller):
     def __init__(self, *, remaining_cost=lambda: float("inf"), cost_reserve=COST_RESERVE_DOLLARS,
                  qualification=None, frozen_root=FROZEN_ROOT, reference_root=REFERENCE_ROOT,
                  contact_qualification_checkpoint=CONTACT_QUALIFICATION_CHECKPOINT,
+                 contact_qualification_block=CONTACT_QUALIFICATION_BLOCK,
+                 plan_source_digest=None,
                  initial_checkpoint=None,
                  initial_checkpoint_ack=None,
                  remote_artifacts=REMOTE_ARTIFACTS,
@@ -524,9 +527,13 @@ class Controller(contact.Controller):
         self.frozen_root = Path(frozen_root)
         self.reference_root = Path(reference_root)
         self.contact_qualification_checkpoint = Path(contact_qualification_checkpoint)
+        contact.validate_name(contact_qualification_block)
+        self.contact_qualification_block = contact_qualification_block
+        self.plan_source_digest = plan_source_digest or B40_SHA256
+        _source_prefix(self.plan_source_digest)
         self.remote_artifacts = Path(remote_artifacts)
         if qualification is None or Path(qualification) == QUALIFICATION:
-            self.qualification = self.remote_artifacts / CONTACT_QUALIFICATION_BLOCK / "qualification.json"
+            self.qualification = self.remote_artifacts / self.contact_qualification_block / "qualification.json"
         else:
             self.qualification = Path(qualification)
         self.initial_checkpoint = Path(initial_checkpoint) if initial_checkpoint is not None else self.remote_artifacts / B40_BLOCK_NAME / "final.zip"
@@ -699,7 +706,7 @@ class Controller(contact.Controller):
             raise
 
     def verify_local_qualification_preservation(self):
-        name = CONTACT_QUALIFICATION_BLOCK
+        name = self.contact_qualification_block
         block = self.local_root / name
         inventory_path = block / "inventory.json"
         ack_path = block / "preservation_ack.json"
@@ -725,7 +732,7 @@ class Controller(contact.Controller):
         return {"name": name, "directory": block, "files": {"qualification.json": row}, "receipt": receipt, **verified}
 
     def retrieve_and_preserve_contact_qualification(self):
-        name = CONTACT_QUALIFICATION_BLOCK
+        name = self.contact_qualification_block
         inventory_bytes = self.remote.read_artifact_file(name, "inventory.json")
         inventory = json.loads(inventory_bytes)
         if inventory.get("schema_version") != "curriculum-inventory-v1" or inventory.get("block_id") != name:
@@ -776,7 +783,7 @@ class Controller(contact.Controller):
             "-B",
             "qualify_native_contact_training.py",
             "--output-dir",
-            str(self.remote_artifacts / CONTACT_QUALIFICATION_BLOCK),
+            str(self.remote_artifacts / self.contact_qualification_block),
             "--reference-root",
             str(self.reference_root),
             "--frozen-root",
@@ -788,16 +795,16 @@ class Controller(contact.Controller):
     def ensure_contact_qualification(self):
         try:
             local = self.verify_local_qualification_preservation()
-            remote = self.verify_remote_preservation(CONTACT_QUALIFICATION_BLOCK)
+            remote = self.verify_remote_preservation(self.contact_qualification_block)
             if remote["inventory_sha256"] != local["inventory_sha256"]:
                 raise ValueError("contact qualification remote inventory does not match local")
-            self.emit(event="skip_completed_contact_qualification", name=CONTACT_QUALIFICATION_BLOCK)
+            self.emit(event="skip_completed_contact_qualification", name=self.contact_qualification_block)
             return {"local": local, "remote": remote}
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
             pass
         step = PlanStep(
             kind="qualification",
-            name=CONTACT_QUALIFICATION_BLOCK,
+            name=self.contact_qualification_block,
             recipe="contact",
             seed=0,
             cumulative_added_transitions=0,
@@ -805,7 +812,7 @@ class Controller(contact.Controller):
         )
         self.ensure_job_started_or_finished(step, self.qualification_command())
         local = self.retrieve_and_preserve_contact_qualification()
-        remote = self.verify_remote_preservation(CONTACT_QUALIFICATION_BLOCK)
+        remote = self.verify_remote_preservation(self.contact_qualification_block)
         if remote["inventory_sha256"] != local["inventory_sha256"]:
             raise ValueError("contact qualification remote inventory does not match local")
         return {"local": local, "remote": remote}
@@ -1058,7 +1065,7 @@ class Controller(contact.Controller):
 
         self.ensure_contact_qualification()
         completed = []
-        initial = build_initial_plan()
+        initial = build_initial_plan(source_digest=self.plan_source_digest)
         initial_sequence = []
         for step in initial:
             initial_sequence.extend([step, eval_step(step)])
@@ -1181,6 +1188,8 @@ def parse_args(argv=None):
     parser.add_argument("--remote-artifacts", type=Path, default=REMOTE_ARTIFACTS)
     parser.add_argument("--remote-python", type=Path)
     parser.add_argument("--qualification", type=Path, default=QUALIFICATION)
+    parser.add_argument("--contact-qualification-block", default=CONTACT_QUALIFICATION_BLOCK)
+    parser.add_argument("--plan-source-digest")
     parser.add_argument("--frozen-root", type=Path, default=FROZEN_ROOT)
     parser.add_argument("--reference-root", type=Path, default=REFERENCE_ROOT)
     parser.add_argument("--initial-checkpoint", type=Path)
@@ -1218,6 +1227,8 @@ def main(argv=None):
         ).remaining,
         remote_artifacts=remote_artifacts,
         qualification=args.qualification,
+        contact_qualification_block=args.contact_qualification_block,
+        plan_source_digest=args.plan_source_digest,
         frozen_root=args.frozen_root,
         reference_root=args.reference_root,
         initial_checkpoint=args.initial_checkpoint or (remote_artifacts / B40_BLOCK_NAME / "final.zip"),

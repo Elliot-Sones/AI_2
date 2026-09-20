@@ -253,6 +253,69 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         self.assertEqual(Path(values["--checkpoint"]), Path("/remote/inputs/calibration/final.zip"))
         self.assertEqual(Path(values["--output-dir"]) / "qualification.json", qualification)
 
+    def test_custom_contact_qualification_block_is_used_for_command_preservation_and_training(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            block = "contact-qualification-425dbc61be7f"
+            self.preserved_qualification(root, block)
+            remote = FakeRemote(
+                finished={block},
+                remote_artifacts=self.remote_artifacts_for(root, block, include_files=True),
+            )
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=StepClock([0, 0, 0]),
+                remaining_cost=lambda: 5.0,
+                remote_artifacts=Path("/remote/artifacts"),
+                contact_qualification_block=block,
+            )
+            command = controller.qualification_command()
+            train_command = controller.train_command(m.build_initial_plan()[0])
+            preserved = controller.ensure_contact_qualification()
+        qualification = Path("/remote/artifacts") / block / "qualification.json"
+        values = dict(zip(command[3::2], command[4::2]))
+        self.assertEqual(Path(values["--output-dir"]), Path("/remote/artifacts") / block)
+        self.assertEqual(Path(train_command[train_command.index("--qualification") + 1]), qualification)
+        self.assertEqual(controller.qualification, qualification)
+        self.assertEqual(preserved["local"]["name"], block)
+        self.assertEqual(remote.launches, [])
+
+    def test_plan_source_digest_changes_train_names_without_changing_checkpoint_lineage(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            block = "contact-qualification-425dbc61be7f"
+            self.preserved_qualification(root, block)
+            old = m.build_initial_plan()[0]
+            source_digest = "425dbc61be7f07f953b8492dfa889dad4567ed33058a1c0b34846e578091af74"
+            remote = FakeRemote(
+                finished={block},
+                failed={old.name: 1},
+                remote_artifacts=self.remote_artifacts_for(root, block, include_files=True),
+            )
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=StepClock([0, 1, 2, 3]),
+                sleeper=lambda _: None,
+                max_wait_seconds=1,
+                remaining_cost=lambda: 5.0,
+                contact_qualification_block=block,
+                plan_source_digest=source_digest,
+            )
+            with self.assertRaises(TimeoutError):
+                controller.run(max_cycles=1)
+        self.assertEqual(len(remote.launches), 1)
+        launched_name = remote.launches[0][0]
+        self.assertNotEqual(launched_name, old.name)
+        self.assertIn("src425dbc61be7f", launched_name)
+        command = remote.launches[0][1]
+        self.assertEqual(command[command.index("--checkpoint-sha256") + 1], m.B40_SHA256)
+
     def test_full_campaign_run_preflights_current_contact_qualification_before_training(self):
         m = self.subject()
         with TemporaryDirectory() as directory:
