@@ -106,22 +106,22 @@ class RetentionEvaluationTests(unittest.TestCase):
     def test_contact_attribution_derives_actual_b40_like_episode_rows_without_marking_safe_successes_ambiguous(self):
         m = self.subject()
         deterministic = [
-            {"mode": "deterministic", "outcome": "success", "success": True, "evidence_valid": True, "training_qualified": True, "stock_events": []}
-            for _ in range(19)
+            {"mode": "deterministic", "player_slot": index // 10, "outcome": "success", "success": True, "evidence_valid": True, "training_qualified": True, "stock_events": []}
+            for index in range(19)
         ] + [
-            {"mode": "deterministic", "outcome": "timeout", "success": False, "evidence_valid": True, "training_qualified": True, "stock_events": []}
+            {"mode": "deterministic", "player_slot": 1, "outcome": "timeout", "success": False, "evidence_valid": True, "training_qualified": True, "stock_events": []}
         ]
         sampled = [
-            {"mode": "sampled", "outcome": "success", "success": True, "evidence_valid": True, "training_qualified": True, "stock_events": []}
-            for _ in range(14)
+            {"mode": "sampled", "player_slot": index // 10, "outcome": "success", "success": True, "evidence_valid": True, "training_qualified": True, "stock_events": []}
+            for index in range(14)
         ] + [
-            {"mode": "sampled", "outcome": "opponent_stock_loss", "success": False, "stock_events": [{"attribution": "unknown"}]}
+            {"mode": "sampled", "player_slot": 1, "outcome": "opponent_stock_loss", "success": False, "stock_events": [{"attribution": "unknown"}]}
             for _ in range(2)
         ] + [
-            {"mode": "sampled", "outcome": "unsafe_floor_support", "success": False, "evidence_valid": False, "training_qualified": False, "stock_events": []}
+            {"mode": "sampled", "player_slot": 1, "outcome": "unsafe_floor_support", "success": False, "evidence_valid": False, "training_qualified": False, "stock_events": []}
             for _ in range(2)
         ] + [
-            {"mode": "sampled", "outcome": "no_attack", "success": False, "evidence_valid": True, "training_qualified": False, "stock_events": []}
+            {"mode": "sampled", "player_slot": 1, "outcome": "no_attack", "success": False, "evidence_valid": True, "training_qualified": False, "stock_events": []}
             for _ in range(2)
         ]
         summaries = {
@@ -183,6 +183,151 @@ class RetentionEvaluationTests(unittest.TestCase):
         self.assertEqual(counts["self_losses"], 0)
         self.assertEqual(counts["opponent_self_losses"], 0)
         self.assertEqual(counts["timeouts"], 0)
+
+    def test_episode_rows_add_slot_breakdown_without_changing_aggregate_panel_counts(self):
+        m = self.subject()
+
+        def rows(mode, *, slot0_successes, slot1_successes, slot0_falls=0, slot1_falls=0):
+            result = []
+            for slot, successes, falls in ((0, slot0_successes, slot0_falls), (1, slot1_successes, slot1_falls)):
+                for index in range(10):
+                    success = index < successes
+                    failure_index = index - successes
+                    row = {
+                        "mode": mode,
+                        "player_slot": slot,
+                        "outcome": "success" if success else ("fall" if failure_index < falls else "failure"),
+                        "success": success,
+                    }
+                    if not success and failure_index < falls:
+                        row["fell"] = True
+                    result.append(row)
+            return result
+
+        contact_det = [
+            {
+                "mode": "deterministic",
+                "player_slot": slot,
+                "outcome": "success",
+                "success": True,
+                "evidence_valid": True,
+                "training_qualified": True,
+                "stock_events": [],
+            }
+            for slot in (0, 1)
+            for _ in range(10)
+        ]
+        contact_sampled = [
+            {
+                "mode": "sampled",
+                "player_slot": 0,
+                "outcome": "success",
+                "success": True,
+                "evidence_valid": True,
+                "training_qualified": True,
+                "stock_events": [],
+            }
+            for _ in range(10)
+        ] + [
+            {
+                "mode": "sampled",
+                "player_slot": 1,
+                "outcome": "timeout",
+                "success": False,
+                "evidence_valid": True,
+                "training_qualified": True,
+                "stock_events": [],
+            }
+            for _ in range(10)
+        ]
+        summaries = {
+            "combat": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 20},
+                    "sampled": {"episodes": 20, "successes": 10},
+                },
+                "episodes": contact_det + contact_sampled,
+            },
+            "near": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 19, "falls": 1},
+                    "sampled": {"episodes": 20, "successes": 18, "falls": 2},
+                },
+                "episodes": rows("deterministic", slot0_successes=10, slot1_successes=9, slot1_falls=1)
+                + rows("sampled", slot0_successes=9, slot1_successes=9, slot0_falls=1, slot1_falls=1),
+            },
+            "wide": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 13, "falls": 7},
+                    "sampled": {"episodes": 20, "successes": 12, "falls": 8},
+                },
+                "episodes": rows("deterministic", slot0_successes=7, slot1_successes=6, slot0_falls=3, slot1_falls=4)
+                + rows("sampled", slot0_successes=6, slot1_successes=6, slot0_falls=4, slot1_falls=4),
+            },
+        }
+        result = m.build_result(
+            summaries,
+            candidate={"checkpoint_sha256": "a" * 64},
+            qualification={"qualified": True},
+            qualification_sha256="b" * 64,
+            wall_seconds=1.5,
+        )
+
+        panel = result["panels"]["wide"]["deterministic"]
+        self.assertEqual(panel["successes"], 13)
+        self.assertEqual(panel["falls"], 7)
+        self.assertEqual(
+            panel["by_player_slot"],
+            {
+                "0": {"episodes": 10, "successes": 7, "falls": 3},
+                "1": {"episodes": 10, "successes": 6, "falls": 4},
+            },
+        )
+        self.assertEqual(result["panels"]["contact"]["sampled"]["by_player_slot"]["1"]["timeouts"], 10)
+        self.assertEqual(result["slot_breakdown"]["nearby"]["sampled"]["0"]["falls"], 1)
+
+    def test_episode_rows_require_balanced_player_slots_per_mode(self):
+        m = self.subject()
+        unbalanced = [
+            {"mode": "deterministic", "player_slot": 0, "outcome": "success", "success": True}
+            for _ in range(11)
+        ] + [
+            {"mode": "deterministic", "player_slot": 1, "outcome": "success", "success": True}
+            for _ in range(9)
+        ] + [
+            {"mode": "sampled", "player_slot": slot, "outcome": "success", "success": True}
+            for slot in (0, 1)
+            for _ in range(10)
+        ]
+        summaries = {
+            "combat": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 20, "self_losses": 0, "opponent_self_losses": 0, "timeouts": 0, "ambiguous": 0},
+                    "sampled": {"episodes": 20, "successes": 20, "self_losses": 0, "opponent_self_losses": 0, "timeouts": 0, "ambiguous": 0},
+                },
+            },
+            "near": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 20, "falls": 0},
+                    "sampled": {"episodes": 20, "successes": 20, "falls": 0},
+                },
+                "episodes": unbalanced,
+            },
+            "wide": {
+                "modes": {
+                    "deterministic": {"episodes": 20, "successes": 13, "falls": 7},
+                    "sampled": {"episodes": 20, "successes": 13, "falls": 7},
+                },
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "nearby deterministic panel must contain exactly 10 slot0 and 10 slot1"):
+            m.build_result(
+                summaries,
+                candidate={"checkpoint_sha256": "a" * 64},
+                qualification={"qualified": True},
+                qualification_sha256="b" * 64,
+                wall_seconds=1.5,
+            )
 
     def test_evaluate_requires_preserved_checkpoint_ack_and_qualification_before_subprocess(self):
         m = self.subject()

@@ -27,6 +27,9 @@ SCHEMA_VERSION = "ai2.retention_campaign_block.v1"
 SCHEDULES = {
     "R4C1N": ("combat", "combat", "combat", "combat", "navigation"),
     "R3C2N": ("combat", "combat", "combat", "navigation", "navigation"),
+    "P1C": ("combat",),
+    "P1N": ("navigation",),
+    "CNCNC": ("combat", "navigation", "combat", "navigation", "combat"),
 }
 TASK_VERSIONS = {
     "combat": base.CONTACT_VERSION,

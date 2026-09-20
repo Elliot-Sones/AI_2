@@ -91,6 +91,74 @@ def _episode_mode(episode):
     return episode.get("mode") or episode.get("action_mode") or episode.get("policy_mode")
 
 
+def _episode_player_slot(episode):
+    value = episode.get("player_slot")
+    if value is None and isinstance(episode.get("scenario"), dict):
+        value = episode["scenario"].get("player_slot")
+    if value is None and isinstance(episode.get("case"), dict):
+        value = episode["case"].get("player_slot")
+    if type(value) is not int or value not in (0, 1):
+        raise ValueError("episode rows must include integer player_slot 0 or 1")
+    return value
+
+
+def _episode_success(episode):
+    if type(episode.get("success")) is bool:
+        return episode["success"]
+    result = str(episode.get("result") or episode.get("outcome") or "").lower()
+    return result in {"success", "win"}
+
+
+def _episode_fall(episode):
+    if any(episode.get(key) is True for key in ("fall", "fell", "nav_fall", "self_fall")):
+        return True
+    text = " ".join(str(episode.get(key, "")).lower() for key in ("result", "outcome", "terminal_reason", "terminal_cause", "cause"))
+    return "fall" in text
+
+
+def _mode_episode_rows(task_summary, mode, episodes, *, domain):
+    rows = task_summary.get("episodes")
+    if rows is None:
+        return None
+    if not isinstance(rows, list):
+        raise ValueError(f"{domain} episode rows must be a list when present")
+    selected = [row for row in rows if isinstance(row, dict) and _episode_mode(row) == mode]
+    if len(selected) != episodes:
+        raise ValueError(f"{domain} {mode} panel must include exactly {episodes} episode rows")
+    return selected
+
+
+def _slot_breakdown(task_summary, mode, episodes, *, domain):
+    selected = _mode_episode_rows(task_summary, mode, episodes, domain=domain)
+    if selected is None:
+        return None
+    by_slot = {0: [], 1: []}
+    for row in selected:
+        by_slot[_episode_player_slot(row)].append(row)
+    if len(by_slot[0]) != 10 or len(by_slot[1]) != 10:
+        raise ValueError(f"{domain} {mode} panel must contain exactly 10 slot0 and 10 slot1 episodes")
+    breakdown = {}
+    for slot, rows in by_slot.items():
+        counts = {
+            "episodes": len(rows),
+            "successes": sum(1 for row in rows if _episode_success(row)),
+            "falls": sum(1 for row in rows if _episode_fall(row)),
+        }
+        if domain == "contact":
+            attribution = _derive_contact_attribution({"episodes": rows}, mode, len(rows))
+            counts.update(
+                {
+                    "self_losses": attribution["self_losses"],
+                    "opponent_self_losses": attribution["opponent_self_losses"],
+                    "timeouts": attribution["timeouts"],
+                    "ambiguous": attribution["ambiguous"],
+                }
+            )
+            counts.pop("falls")
+        breakdown[str(slot)] = counts
+    return breakdown
+
+
 def _derive_contact_attribution(task_summary, mode, episodes):
     rows = task_summary.get("episodes")
     if not isinstance(rows, list):
@@ -173,11 +241,15 @@ def _summary_counts(summary, *, domain, task_summary=None, mode=None):
             raise ValueError(f"{domain} panel summary field {key} must be an integer")
     if panel["episodes"] != 20:
         raise ValueError(f"{domain} panel must contain exactly 20 episodes")
+    breakdown = _slot_breakdown(task_summary or {}, mode, panel["episodes"], domain=domain)
+    if breakdown is not None:
+        panel["by_player_slot"] = breakdown
     return panel
 
 
 def build_result(summaries, *, candidate, qualification, qualification_sha256, wall_seconds):
     panels = {}
+    slot_breakdown = {}
     raw = {}
     for task in TASKS:
         domain = TASK_TO_DOMAIN[task]
@@ -190,6 +262,8 @@ def build_result(summaries, *, candidate, qualification, qualification_sha256, w
             if mode not in modes:
                 raise ValueError(f"{task} summary missing {mode} mode")
             panels.setdefault(domain, {})[mode] = _summary_counts(modes[mode], domain=domain, task_summary=task_summary, mode=mode)
+            if "by_player_slot" in panels[domain][mode]:
+                slot_breakdown.setdefault(domain, {})[mode] = panels[domain][mode]["by_player_slot"]
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "evaluated_not_promoted",
@@ -199,6 +273,7 @@ def build_result(summaries, *, candidate, qualification, qualification_sha256, w
         "qualification": qualification,
         "qualification_sha256": qualification_sha256,
         "panels": panels,
+        "slot_breakdown": slot_breakdown,
         "raw_panels": raw,
         "wall_seconds": wall_seconds,
         "finished_unix": time.time(),
@@ -231,6 +306,7 @@ def evaluate(args):
             "candidate": preserved,
             "qualification_sha256": sha256(args.qualification),
             "episodes_per_mode": args.episodes,
+            "player_slot_balance": {"required_when_episode_rows_present": True, "slot0": 10, "slot1": 10},
             "panels": [{"task": job["task"], "domain": job["domain"], "output": str(job_output(args, job))} for job in jobs],
             "commands": [evaluation_command(args, job) for job in jobs],
             "started_unix": time.time(),

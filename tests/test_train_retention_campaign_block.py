@@ -22,10 +22,13 @@ class RetentionCampaignBlockTests(unittest.TestCase):
 
         return train_retention_campaign_block
 
-    def test_config_freezes_the_two_alternating_cuda_schedules(self):
+    def test_config_freezes_existing_retention_schedules_and_adds_causal_schedules(self):
         m = self.subject()
         self.assertEqual(m.SCHEDULES["R4C1N"], ("combat", "combat", "combat", "combat", "navigation"))
         self.assertEqual(m.SCHEDULES["R3C2N"], ("combat", "combat", "combat", "navigation", "navigation"))
+        self.assertEqual(m.SCHEDULES["P1C"], ("combat",))
+        self.assertEqual(m.SCHEDULES["P1N"], ("navigation",))
+        self.assertEqual(m.SCHEDULES["CNCNC"], ("combat", "navigation", "combat", "navigation", "combat"))
         cfg = m.RetentionCampaignConfig(schedule_id="R3C2N")
         self.assertEqual(cfg.lanes, 4096)
         self.assertEqual(cfg.n_steps, 512)
@@ -38,6 +41,12 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         self.assertEqual(cfg.total_transitions, 10_485_760)
         self.assertEqual(cfg.task_transition_totals, {"combat": 6_291_456, "navigation": 4_194_304})
         self.assertEqual(cfg.nominal_optimizer_steps, 512)
+        one_rollout = m.RetentionCampaignConfig(schedule_id="P1N")
+        self.assertEqual(one_rollout.total_transitions, 2_097_152)
+        self.assertEqual(one_rollout.task_transition_totals, {"combat": 0, "navigation": 2_097_152})
+        causal_mix = m.RetentionCampaignConfig(schedule_id="CNCNC")
+        self.assertEqual(causal_mix.total_transitions, 10_485_760)
+        self.assertEqual(causal_mix.task_transition_totals, {"combat": 6_291_456, "navigation": 4_194_304})
         for changes in (
             {"schedule_id": "bad"},
             {"lanes": 2048},
@@ -66,9 +75,33 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         ]
         with self.assertRaises(SystemExit):
             m.parse_args(base)
-        args = m.parse_args(base + ["--schedule", "R4C1N", "--resume"])
-        self.assertEqual(args.schedule, "R4C1N")
+        args = m.parse_args(base + ["--schedule", "P1N", "--resume"])
+        self.assertEqual(args.schedule, "P1N")
         self.assertTrue(args.resume)
+
+    def test_mocked_one_rollout_navigation_schedule_accounts_only_navigation_transitions(self):
+        m = self.subject()
+        cfg = m.RetentionCampaignConfig(schedule_id="P1N")
+        with TemporaryDirectory() as directory:
+            args = self.args(Path(directory), schedule="P1N", resume=False)
+            contact_env = self.fake_env(cfg, "combat")
+            navigation_env = self.fake_env(cfg, "navigation")
+            model = self.fake_model(cfg, start_timesteps=m.throughput.CHECKPOINT_STEPS)
+            with self.common_patches(m, cfg, contact_env, navigation_env, model), \
+                 patch.object(m.contact_block, "load_fresh_campaign_model", return_value=model):
+                result = m.run_block(args)
+
+            self.assertEqual(model.switches, ["navigation"])
+            self.assertEqual(model.collect_tasks, ["navigation"])
+            self.assertEqual(model.train_count, 1)
+            self.assertEqual(result["schedule"], ["navigation"])
+            self.assertEqual(result["task_transition_totals"], {"combat": 0, "navigation": cfg.transitions_per_rollout})
+            self.assertEqual(result["final_model_counters"]["num_timesteps"], m.throughput.CHECKPOINT_STEPS + cfg.transitions_per_rollout)
+            rows = [json.loads((args.output / f"rollout-{index:03d}.json").read_text()) for index in range(1)]
+            self.assertEqual(rows[0]["task"], "navigation")
+            self.assertEqual(rows[0]["cumulative_task_transitions"], {"combat": 0, "navigation": cfg.transitions_per_rollout})
+            self.assertEqual(rows[0]["episode_info"]["path"], "episodes-navigation-000.json.gz")
+            self.assertFalse((args.output / "rollout-001.json").exists())
 
     def test_mocked_success_writes_homogeneous_rollout_rows_task_episode_files_and_one_final_model(self):
         m = self.subject()
