@@ -16,6 +16,176 @@ from unittest.mock import patch
 import numpy as np
 
 
+class NativeTaskTensorRolloutBufferTests(unittest.TestCase):
+    def module(self):
+        self.assertIsNotNone(importlib.util.find_spec('native_curriculum_ppo'),
+                             'the CUDA curriculum adapter is not implemented')
+        if importlib.util.find_spec('torch') is None:
+            self.skipTest('torch is not installed in this local contract environment')
+        return importlib.import_module('native_curriculum_ppo')
+
+    def make_buffer(self, *, action_head='gaussian', buffer_size=2, n_envs=3):
+        module = self.module()
+        torch = module.th
+        buffer = object.__new__(module.TaskTensorRolloutBuffer)
+        buffer.torch = torch
+        buffer.buffer_size = buffer_size
+        buffer.n_envs = n_envs
+        buffer.device = torch.device('cpu')
+        buffer.obs_shape = (4,)
+        buffer.action_dim = 10
+        buffer.pos = 0
+        buffer.full = False
+        buffer.generator_ready = False
+        buffer._computed_returns_and_advantage = False
+        buffer.validation_mode = 'step'
+        buffer._flat_tensors = {}
+        buffer.observations = torch.empty((buffer_size, n_envs, 4), dtype=torch.float32)
+        buffer.actions = torch.empty((buffer_size, n_envs, 10), dtype=torch.float32)
+        buffer.rewards = torch.empty((buffer_size, n_envs), dtype=torch.float32)
+        buffer.episode_starts = torch.empty((buffer_size, n_envs), dtype=torch.float32)
+        buffer.values = torch.empty((buffer_size, n_envs), dtype=torch.float32)
+        buffer.log_probs = torch.empty((buffer_size, n_envs), dtype=torch.float32)
+        buffer.advantages = torch.zeros((buffer_size, n_envs), dtype=torch.float32)
+        buffer.returns = torch.zeros((buffer_size, n_envs), dtype=torch.float32)
+        buffer._invalid_data = torch.zeros((), dtype=torch.bool)
+        buffer.executed_actions = torch.empty_like(buffer.actions)
+        buffer.task_ids = torch.empty((buffer_size, n_envs), dtype=torch.int8)
+        buffer.allowed_control_masks = torch.empty(buffer.actions.shape, dtype=torch.bool)
+        buffer.task = None
+        buffer.consumed = False
+        buffer.action_head = action_head
+        buffer._task_masks = {
+            task: torch.tensor(module.TASK_MASKS[task], dtype=torch.bool)
+            for task in module.TASK_IDS
+        }
+
+        def require_float32(_name, tensor, shape):
+            self.assertEqual(tuple(tensor.shape), shape)
+            self.assertEqual(tensor.dtype, torch.float32)
+            return tensor.contiguous()
+
+        def require_vector(_name, tensor):
+            self.assertIn(tuple(tensor.shape), ((n_envs,), (n_envs, 1)))
+            return tensor.reshape(n_envs).to(dtype=torch.float32).contiguous()
+
+        buffer._require_cuda_float32 = require_float32
+        buffer._require_vector_or_column = require_vector
+        return module, torch, buffer
+
+    def fill_rollout(self, buffer, torch, module, *, task, actions, executed_actions):
+        mask = np.asarray(module.TASK_MASKS[task], dtype=bool)
+        for step in range(buffer.buffer_size):
+            buffer.add(
+                torch.full((buffer.n_envs, *buffer.obs_shape), float(step), dtype=torch.float32),
+                actions.clone(),
+                torch.zeros(buffer.n_envs, dtype=torch.float32),
+                torch.zeros(buffer.n_envs, dtype=torch.float32),
+                torch.zeros(buffer.n_envs, dtype=torch.float32),
+                torch.zeros(buffer.n_envs, dtype=torch.float32),
+                task=task,
+                mask=mask,
+                executed_actions=executed_actions.clone(),
+            )
+        buffer._computed_returns_and_advantage = True
+
+    def test_task_ids_and_masks_are_canonical(self):
+        module = self.module()
+        self.assertEqual(module.TASK_IDS, {'navigation': 0, 'combat': 1})
+        for task, task_id in module.TASK_IDS.items():
+            with self.subTest(task=task):
+                mask = module._canonical_task_mask(task)
+                self.assertEqual(mask.dtype, np.dtype(bool))
+                np.testing.assert_array_equal(mask, np.asarray(module.TASK_MASKS[task], dtype=bool))
+                self.assertEqual(task_id, int(module.TASK_IDS[task]))
+        with self.assertRaisesRegex(ValueError, 'Unsupported native curriculum task'):
+            module._canonical_task_mask('full_combat')
+
+    def test_full_navigation_and_contact_rollouts_validate(self):
+        for task in ('navigation', 'combat'):
+            with self.subTest(task=task):
+                module, torch, buffer = self.make_buffer()
+                actions = torch.tensor([[1.5, -.25, .25, .75, 1.0, .6, .8, .9, .7, .4]],
+                                       dtype=torch.float32).repeat(buffer.n_envs, 1)
+                executed = actions.clamp(0, 1) * torch.tensor(module.TASK_MASKS[task], dtype=torch.float32)
+                self.fill_rollout(buffer, torch, module, task=task, actions=actions,
+                                  executed_actions=executed)
+                buffer.validate(task, np.asarray(module.TASK_MASKS[task], dtype=bool))
+                self.assertEqual(buffer.task, task)
+                self.assertTrue(bool((buffer.task_ids == module.TASK_IDS[task]).all()))
+                self.assertTrue(bool((buffer.allowed_control_masks ==
+                                      torch.tensor(module.TASK_MASKS[task], dtype=torch.bool)).all()))
+
+    def test_changing_task_or_mask_after_first_transition_raises(self):
+        module, torch, buffer = self.make_buffer()
+        actions = torch.ones((buffer.n_envs, 10), dtype=torch.float32)
+        combat_mask = np.asarray(module.TASK_MASKS['combat'], dtype=bool)
+        combat_executed = actions * torch.tensor(module.TASK_MASKS['combat'], dtype=torch.float32)
+        buffer.add(torch.zeros((buffer.n_envs, *buffer.obs_shape), dtype=torch.float32), actions,
+                   torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs),
+                   torch.zeros(buffer.n_envs), task='combat', mask=combat_mask,
+                   executed_actions=combat_executed)
+        with self.assertRaisesRegex(ValueError, 'Cannot mix tasks'):
+            buffer.add(torch.zeros((buffer.n_envs, *buffer.obs_shape), dtype=torch.float32), actions,
+                       torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs),
+                       torch.zeros(buffer.n_envs), task='navigation',
+                       mask=np.asarray(module.TASK_MASKS['navigation'], dtype=bool),
+                       executed_actions=actions * torch.tensor(module.TASK_MASKS['navigation'], dtype=torch.float32))
+        wrong_mask = combat_mask.copy()
+        wrong_mask[7] = False
+        with self.assertRaisesRegex(ValueError, 'Wrong allowed-control mask'):
+            buffer.add(torch.zeros((buffer.n_envs, *buffer.obs_shape), dtype=torch.float32), actions,
+                       torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs),
+                       torch.zeros(buffer.n_envs), task='combat', mask=wrong_mask,
+                       executed_actions=combat_executed)
+
+    def test_numeric_masks_are_not_coerced_to_bool(self):
+        module, torch, buffer = self.make_buffer()
+        actions = torch.ones((buffer.n_envs, 10), dtype=torch.float32)
+        numeric_mask = np.asarray(module.TASK_MASKS['combat'], dtype=np.int8)
+        numeric_mask[7] = 2
+        executed = actions * torch.tensor(module.TASK_MASKS['combat'], dtype=torch.float32)
+        with self.assertRaisesRegex(ValueError, 'Wrong allowed-control mask'):
+            buffer.add(torch.zeros((buffer.n_envs, *buffer.obs_shape), dtype=torch.float32), actions,
+                       torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs), torch.zeros(buffer.n_envs),
+                       torch.zeros(buffer.n_envs), task='combat', mask=numeric_mask,
+                       executed_actions=executed)
+
+        self.fill_rollout(buffer, torch, module, task='combat', actions=actions,
+                          executed_actions=executed)
+        with self.assertRaisesRegex(ValueError, 'Rollout mask'):
+            buffer.validate('combat', numeric_mask)
+
+    def test_task_specific_gaussian_executed_action_decode(self):
+        module, torch, nav_buffer = self.make_buffer(action_head='gaussian')
+        actions = torch.tensor([[1.25, -.5, .25, .75, 1.0, .6, .9, .95, .8, .4]],
+                               dtype=torch.float32).repeat(nav_buffer.n_envs, 1)
+        nav_executed = actions.clamp(0, 1) * torch.tensor(module.TASK_MASKS['navigation'], dtype=torch.float32)
+        self.fill_rollout(nav_buffer, torch, module, task='navigation', actions=actions,
+                          executed_actions=nav_executed)
+        nav_buffer.validate('navigation', np.asarray(module.TASK_MASKS['navigation'], dtype=bool))
+        self.assertTrue(bool((nav_buffer.executed_actions[..., 7] == 0).all()))
+
+        _module, torch, combat_buffer = self.make_buffer(action_head='gaussian')
+        combat_executed = actions.clamp(0, 1) * torch.tensor(module.TASK_MASKS['combat'], dtype=torch.float32)
+        self.fill_rollout(combat_buffer, torch, module, task='combat', actions=actions,
+                          executed_actions=combat_executed)
+        combat_buffer.validate('combat', np.asarray(module.TASK_MASKS['combat'], dtype=bool))
+        self.assertTrue(bool((combat_buffer.executed_actions[..., 7] > 0).all()))
+
+    def test_bernoulli_actions_must_be_exact_binary_and_are_masked(self):
+        module, torch, buffer = self.make_buffer(action_head='bernoulli_10')
+        actions = torch.ones((buffer.n_envs, 10), dtype=torch.float32)
+        executed = actions * torch.tensor(module.TASK_MASKS['navigation'], dtype=torch.float32)
+        self.fill_rollout(buffer, torch, module, task='navigation', actions=actions,
+                          executed_actions=executed)
+        buffer.validate('navigation', np.asarray(module.TASK_MASKS['navigation'], dtype=bool))
+        self.assertTrue(bool((buffer.executed_actions[..., 7] == 0).all()))
+        buffer.actions[0, 0, 0] = .5
+        with self.assertRaisesRegex(ValueError, 'Bernoulli rollout actions'):
+            buffer.validate('navigation', np.asarray(module.TASK_MASKS['navigation'], dtype=bool))
+
+
 class NativeCurriculumContractTests(unittest.TestCase):
     def module(self):
         self.assertIsNotNone(importlib.util.find_spec('native_curriculum_ppo'),

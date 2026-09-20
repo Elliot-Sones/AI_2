@@ -27,6 +27,7 @@ from tensor_ppo import TensorPPO, TensorVecEnv
 from tensor_rollout_buffer import TensorRolloutBuffer
 
 CONTACT_VERSION = 'bridge_b1_contact-v1'
+TASK_IDS = {'navigation': 0, 'combat': 1}
 COMBAT_MASK = TASK_MASKS['combat']
 CURRICULUM_SOURCE_SHA256 = '380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40'
 CALIBRATED_CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
@@ -75,6 +76,18 @@ def curriculum_explained_variance(values, returns):
     return explained_variance(*(value.swapaxes(0, 1).flatten() for value in arrays))
 
 
+def _canonical_task_mask(task):
+    if task not in TASK_IDS:
+        raise ValueError(f'Unsupported native curriculum task: {task!r}')
+    return np.asarray(TASK_MASKS[task], dtype=bool)
+
+
+def _mask_matches(actual, expected):
+    if th.is_tensor(actual):
+        actual = actual.detach().cpu().numpy()
+    return np.array_equal(np.asarray(actual), expected)
+
+
 def validate_contact_environment(env):
     if getattr(env, 'curriculum_task', None) != 'combat':
         raise ValueError('Environment must explicitly identify the combat curriculum task')
@@ -119,7 +132,7 @@ def _preserve_rng():
 
 
 class TaskTensorRolloutBuffer(TensorRolloutBuffer):
-    """Homogeneous contact rollout, including the actions actually executed.
+    """Homogeneous native-task rollout, including the actions actually executed.
 
     Labels and masks live beside each transition on CUDA. Numeric errors remain
     latched by TensorRolloutBuffer and are checked before any optimizer update.
@@ -130,7 +143,10 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         self.executed_actions = th.empty_like(self.actions)
         self.task_ids = th.empty((self.buffer_size, self.n_envs), dtype=th.int8, device=self.device)
         self.allowed_control_masks = th.empty(self.actions.shape, dtype=th.bool, device=self.device)
-        self._contact_mask = th.tensor(COMBAT_MASK, dtype=th.bool, device=self.device)
+        self._task_masks = {
+            task: th.tensor(_canonical_task_mask(task), dtype=th.bool, device=self.device)
+            for task in TASK_IDS
+        }
         self.task, self.consumed = None, False
         self.action_head = 'gaussian'
 
@@ -139,9 +155,10 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         self.task, self.consumed = None, False
 
     def add(self, *args, task, mask, executed_actions):
-        if task != 'combat' or (self.task is not None and self.task != task):
-            raise ValueError('Cannot mix tasks within a contact rollout')
-        if not np.array_equal(mask, COMBAT_MASK):
+        expected_mask = _canonical_task_mask(task)
+        if self.task is not None and self.task != task:
+            raise ValueError('Cannot mix tasks within one rollout')
+        if not _mask_matches(mask, expected_mask):
             raise ValueError('Wrong allowed-control mask for rollout task')
         executed = self._require_cuda_float32('executed_actions', executed_actions,
                                               (self.n_envs, self.action_dim))
@@ -149,16 +166,19 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         super().add(*args)
         self._accumulate_finite_check(executed)
         self.executed_actions[position].copy_(executed)
-        self.task_ids[position].fill_(1)
-        self.allowed_control_masks[position].copy_(self._contact_mask)
+        self.task_ids[position].fill_(TASK_IDS[task])
+        self.allowed_control_masks[position].copy_(self._task_masks[task])
         self.task = task
 
     def validate(self, task, mask):
+        expected_mask = _canonical_task_mask(task)
+        expected_task_id = TASK_IDS[task]
+        expected_mask_tensor = self._task_masks[task]
         if not self.full or self.consumed:
             raise ValueError('A full, unconsumed rollout is required')
-        if task != 'combat' or self.task != task or not bool((self.task_ids == 1).all()):
+        if self.task != task or not bool((self.task_ids == expected_task_id).all()):
             raise ValueError('Wrong task or mixed task identities in rollout')
-        if not np.array_equal(mask, COMBAT_MASK) or not bool((self.allowed_control_masks == self._contact_mask).all()):
+        if not _mask_matches(mask, expected_mask) or not bool((self.allowed_control_masks == expected_mask_tensor).all()):
             raise ValueError('Rollout mask differs from the current policy mask')
         if not self._computed_returns_and_advantage:
             raise ValueError('Rollout returns and advantages must be computed')
@@ -167,11 +187,11 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         self._accumulate_finite_check(self.executed_actions)
         self._raise_if_invalid_data()
         if self.action_head == 'gaussian':
-            expected = self.actions.clamp(0, 1)*self._contact_mask
+            expected = self.actions.clamp(0, 1)*expected_mask_tensor
         elif self.action_head == 'bernoulli_10':
             if not bool(((self.actions == 0) | (self.actions == 1)).all()):
                 raise ValueError('Bernoulli rollout actions must be exact 0/1 buttons')
-            expected = self.actions*self._contact_mask
+            expected = self.actions*expected_mask_tensor
         else:
             raise ValueError(f'Unsupported rollout action head: {self.action_head!r}')
         if not th.equal(self.executed_actions, expected):
