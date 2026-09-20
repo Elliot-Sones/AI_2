@@ -441,6 +441,9 @@ class NativeCurriculumPPO(TensorPPO):
         model.action_head = actual_action_head
         model.action_init_strategy = actual_action_init
         model.action_ab_arm = actual_action_arm
+        # set_parameters() restores the checkpoint's saved task mask buffer.
+        # Reapply the caller's requested task without recording a live task switch.
+        model.policy.set_task(requested_task, requested_calibration)
         _apply_contact_learning_rate(model, source_learning_rate)
         for name in ('ep_info_buffer', 'ep_success_buffer'):
             value = getattr(source, name, None)

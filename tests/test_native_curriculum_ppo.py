@@ -661,6 +661,38 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         model = self.module.NativeCurriculumPPO.from_curriculum(source, env)
         self.assertEqual(model.seed, source.seed)
 
+    def test_source_conversion_reapplies_requested_task_after_parameter_restore(self):
+        from curriculum_ppo import CurriculumPPO
+        combat_env = self.environment('combat')
+        source = CurriculumPPO(env=combat_env.as_sb3_vec_env(), device='cuda', calibration=False,
+            policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=29)
+        source.task_history.append({'task': 'combat', 'num_timesteps': 0})
+        source_optimizer = source.policy.optimizer.state_dict()
+
+        model = self.module.NativeCurriculumPPO.from_curriculum(
+            source, self.environment('navigation'), task='navigation',
+        )
+
+        self.assertEqual(model.task, 'navigation')
+        self.assertEqual(model.policy.task, 'navigation')
+        self.assertFalse(model.calibration)
+        self.assertFalse(model.policy.calibration)
+        self.torch.testing.assert_close(
+            model.policy.allowed_control_mask.detach().cpu(),
+            self.torch.as_tensor(self.module.TASK_MASKS['navigation']),
+        )
+        self.torch.testing.assert_close(
+            model.policy.action_dist.mask.detach().cpu(),
+            self.torch.as_tensor(self.module.TASK_MASKS['navigation']),
+        )
+        self.assertTrue(all(parameter.requires_grad
+                            for parameter in model.policy.mlp_extractor.value_net.parameters()))
+        self.assertTrue(all(not parameter.requires_grad
+                            for parameter in model.policy.combat_value_features.parameters()))
+        self.assertEqual(model.task_history, source.task_history)
+        self.assert_tree_equal(source_optimizer, model.policy.optimizer.state_dict())
+        model._policy_contract()
+
     def test_bernoulli_conversion_provenance_survives_metadata_copy_and_uses_fresh_optimizer(self):
         from curriculum_ppo import CurriculumPPO
         env = self.environment()
