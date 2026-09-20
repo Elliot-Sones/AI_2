@@ -27,6 +27,8 @@ REMOTE_ROOT = Path("/workspace/AI_2/staged-20260920")
 REMOTE_ARTIFACTS = REMOTE_ROOT / "artifacts"
 LOCAL_ROOT = Path("/Users/elliot18/Projects/ml-research/AI_2/baselines/native-retention-20260920/campaign")
 CONTACT_SOURCE_DIGEST = contact.sha256(ROOT / "native_curriculum_ppo.py")
+RETENTION_RUNNER_DIGEST = contact.sha256(ROOT / "train_retention_campaign_block.py")
+PLAN_SOURCE_DIGEST = contact.bytes_sha256(f"{CONTACT_SOURCE_DIGEST}\n{RETENTION_RUNNER_DIGEST}\n".encode("ascii"))
 CONTACT_QUALIFICATION_BLOCK = f"contact-qualification-src{CONTACT_SOURCE_DIGEST[:12]}"
 QUALIFICATION = REMOTE_ARTIFACTS / CONTACT_QUALIFICATION_BLOCK / "qualification.json"
 CONTACT_QUALIFICATION_CHECKPOINT = REMOTE_ROOT / "inputs/calibration/final.zip"
@@ -240,7 +242,7 @@ def _step_name(recipe: str, cumulative_added: int, seed: int, source_digest: str
     return f"{recipe}-cycle{cycle:02d}-add{cumulative_added}-s{seed}-src{_source_prefix(source_digest)}"
 
 
-def build_initial_plan(parent_sha256=B40_SHA256, source_digest=CONTACT_SOURCE_DIGEST):
+def build_initial_plan(parent_sha256=B40_SHA256, source_digest=PLAN_SOURCE_DIGEST):
     steps = []
     for recipe in INITIAL_RECIPES:
         seed = INITIAL_SEEDS[recipe]
@@ -530,7 +532,7 @@ class Controller(contact.Controller):
         self.contact_qualification_checkpoint = Path(contact_qualification_checkpoint)
         contact.validate_name(contact_qualification_block)
         self.contact_qualification_block = contact_qualification_block
-        self.plan_source_digest = plan_source_digest or CONTACT_SOURCE_DIGEST
+        self.plan_source_digest = plan_source_digest or PLAN_SOURCE_DIGEST
         _source_prefix(self.plan_source_digest)
         self.remote_artifacts = Path(remote_artifacts)
         if qualification is None or Path(qualification) == QUALIFICATION:

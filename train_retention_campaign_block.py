@@ -202,6 +202,18 @@ def completed_retention_episode_infos(callback, task):
     return infos
 
 
+def _episode_json_value(value):
+    if isinstance(value, np.ndarray):
+        return [_episode_json_value(item) for item in value.tolist()]
+    if isinstance(value, np.generic):
+        return _episode_json_value(value.item())
+    if isinstance(value, dict):
+        return {str(key): _episode_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_episode_json_value(item) for item in value]
+    return value
+
+
 def write_task_episode_infos(output, rollout_index, task, infos):
     for info in infos:
         if info.get("curriculum_task") != task:
@@ -210,7 +222,7 @@ def write_task_episode_infos(output, rollout_index, task, infos):
         if payload_key not in info:
             raise RuntimeError(f"{task} episode info is missing {payload_key} payload")
     path = Path(output) / f"episodes-{task}-{rollout_index:03d}.json.gz"
-    payload = json.dumps(infos, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf8")
+    payload = json.dumps(_episode_json_value(infos), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf8")
     throughput.atomic_bytes(path, gzip.compress(payload, mtime=0))
     return {
         "path": path.name,

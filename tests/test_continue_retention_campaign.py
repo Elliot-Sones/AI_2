@@ -23,7 +23,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             self.assertIn(step.recipe, step.name)
             self.assertIn(str(step.cumulative_added_transitions), step.name)
             self.assertIn(f"s{step.seed}", step.name)
-            self.assertIn(m.CONTACT_SOURCE_DIGEST[:12], step.name)
+            self.assertIn(m.PLAN_SOURCE_DIGEST[:12], step.name)
 
     def test_started_remote_job_is_adopted_not_duplicated(self):
         m = self.subject()
@@ -337,7 +337,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         self.assertEqual(len(remote.launches), 1)
         launched_name = remote.launches[0][0]
         self.assertNotEqual(launched_name, old.name)
-        self.assertIn(f"src{m.CONTACT_SOURCE_DIGEST[:12]}", launched_name)
+        self.assertIn(f"src{m.PLAN_SOURCE_DIGEST[:12]}", launched_name)
         command = remote.launches[0][1]
         self.assertEqual(command[command.index("--checkpoint-sha256") + 1], m.B40_SHA256)
 
@@ -537,7 +537,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
-            initial = m.build_initial_plan(source_digest=m.CONTACT_SOURCE_DIGEST)
+            initial = m.build_initial_plan(source_digest=m.PLAN_SOURCE_DIGEST)
             for step in initial:
                 final_sha = self.preserved_train(root, step.name, recipe=step.recipe, seed=step.seed, parent_sha=m.B40_SHA256)
                 result = self.metrics(contact_deterministic=19, contact_sampled=14, wide_deterministic_falls=7, wide_sampled_falls=7)
@@ -571,7 +571,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
-            initial = m.build_initial_plan(source_digest=m.CONTACT_SOURCE_DIGEST)
+            initial = m.build_initial_plan(source_digest=m.PLAN_SOURCE_DIGEST)
             winner = None
             for step in initial:
                 final_sha = self.preserved_train(
@@ -657,7 +657,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
-            initial = m.build_initial_plan(source_digest=m.CONTACT_SOURCE_DIGEST)
+            initial = m.build_initial_plan(source_digest=m.PLAN_SOURCE_DIGEST)
             left_sha = self.preserved_train(root, initial[0].name, recipe=initial[0].recipe, seed=initial[0].seed, parent_sha=m.B40_SHA256)
             right_sha = self.preserved_train(root, initial[1].name, recipe=initial[1].recipe, seed=initial[1].seed, parent_sha=m.B40_SHA256)
             self.preserved_eval(

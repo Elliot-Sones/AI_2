@@ -161,6 +161,30 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "task/mask/version"):
             m.completed_retention_episode_infos(callback, "navigation")
 
+    def test_episode_info_writer_serializes_numpy_navigation_diagnostics_losslessly(self):
+        m = self.subject()
+        mask = np.asarray(m.TASK_MASKS["navigation"], dtype=bool)
+        infos = [{
+            "episode": {"r": np.float32(1.25), "l": np.int64(7)},
+            "navigation": {
+                "lane": np.int64(3),
+                "valid_steps": np.int32(7),
+                "target": np.asarray([1.5, -2.0], dtype=np.float32),
+            },
+            "terminal_observation": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+            "allowed_control_mask": mask,
+            "curriculum_task": "navigation",
+            "curriculum_version": m.TASK_VERSIONS["navigation"],
+        }]
+        with TemporaryDirectory() as directory:
+            receipt = m.write_task_episode_infos(Path(directory), 4, "navigation", infos)
+            payload = gzip.decompress((Path(directory) / receipt["path"]).read_bytes())
+        decoded = json.loads(payload)
+        self.assertEqual(decoded[0]["episode"], {"l": 7, "r": 1.25})
+        self.assertEqual(decoded[0]["navigation"]["target"], [1.5, -2.0])
+        self.assertEqual(decoded[0]["terminal_observation"], [0.0, 1.0, 2.0])
+        self.assertEqual(decoded[0]["allowed_control_mask"], [bool(value) for value in m.TASK_MASKS["navigation"]])
+
     def test_retention_runtime_validator_accepts_requested_task_without_contact_only_rejection(self):
         m = self.subject()
         cfg = m.RetentionCampaignConfig(schedule_id="R4C1N")
