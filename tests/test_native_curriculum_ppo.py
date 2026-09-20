@@ -1,6 +1,7 @@
 """Native curriculum contracts; policy execution is CUDA-only, including tests."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib
 import importlib.util
@@ -542,7 +543,16 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertTrue(self.torch.equal(expected, buffer.executed_actions))
         observed = buffer.observations.reshape(-1, 256)
         actions = buffer.actions.reshape(-1, 10)
-        _values, log_probs, _entropy = model.policy.evaluate_actions(observed, actions)
+        # Match collection's per-step batch geometry. One giant matrix multiply
+        # can differ by a final FP32 bit even when every stored log probability
+        # is correct because cuBLAS selects a different reduction geometry.
+        log_probs = self.torch.cat([
+            model.policy.evaluate_actions(
+                observed[offset:offset + model.n_envs],
+                actions[offset:offset + model.n_envs],
+            )[1]
+            for offset in range(0, observed.shape[0], model.n_envs)
+        ])
         self.torch.testing.assert_close(log_probs, buffer.log_probs.reshape(-1), rtol=0, atol=0)
         self.torch.testing.assert_close(model.tensor_vec_env.env.last_action, buffer.executed_actions[-1], rtol=0, atol=0)
         with self.assertRaisesRegex(ValueError, 'consumed'):
@@ -667,7 +677,14 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         source = CurriculumPPO(env=combat_env.as_sb3_vec_env(), device='cuda', calibration=False,
             policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=29)
         source.task_history.append({'task': 'combat', 'num_timesteps': 0})
-        source_optimizer = source.policy.optimizer.state_dict()
+        source.policy.optimizer.zero_grad(set_to_none=True)
+        for parameter in source.policy.parameters():
+            if parameter.requires_grad:
+                parameter.grad = self.torch.ones_like(parameter)
+        source.policy.optimizer.step()
+        source.policy.optimizer.zero_grad(set_to_none=True)
+        source_optimizer = copy.deepcopy(source.policy.optimizer.state_dict())
+        self.assertTrue(source_optimizer['state'])
 
         model = self.module.NativeCurriculumPPO.from_curriculum(
             source, self.environment('navigation'), task='navigation',
@@ -708,11 +725,12 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertIs(model.policy.optimizer._policy_ref(), model.policy)
         self.assertFalse(model.policy.optimizer.state_dict()['state'])
 
-    def test_no_arg_from_curriculum_preserves_nondefault_action_arm_but_not_optimizer_claims(self):
+    def test_no_arg_from_curriculum_preserves_nondefault_action_arm_and_optimizer_claims(self):
         from curriculum_ppo import CurriculumPPO
         env = self.environment()
         source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
-            action_ab_arm='B_neutral', policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=23)
+            action_head='bernoulli_10', action_ab_arm='B_neutral',
+            policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=23)
         source.action_ab_arm = 'B_projected'
         source.action_init_strategy = 'projected'
         source.action_init_metadata = {'schema': 'ai2-action-ab-init-v1', 'arm': 'B_projected',
@@ -726,7 +744,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertEqual(model.action_init_metadata['arm'], 'B_projected')
         self.assertEqual(model.action_init_metadata['strategy'], 'projected')
         self.assertIn('policy/action tensors copied', model.optimizer_provenance)
-        self.assertIn('optimizer state not transferred', model.optimizer_provenance)
+        self.assertIn('source optimizer state copied', model.optimizer_provenance)
         self.assertNotEqual(model.optimizer_provenance, source.optimizer_provenance)
         self.assertFalse(model.policy.optimizer.state_dict()['state'])
         self.assert_tree_equal(source.policy.state_dict(), model.policy.state_dict())
