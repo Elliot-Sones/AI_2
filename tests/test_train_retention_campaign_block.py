@@ -2,6 +2,7 @@ import gzip
 import importlib.util
 import json
 import math
+import numpy as np
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -143,11 +144,27 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "navigation payload"):
             m.completed_retention_episode_infos(callback, "navigation")
 
+    def test_retention_episode_extractor_accepts_cuda_tensor_masks_but_rejects_numeric_tensors(self):
+        m = self.subject()
+        callback = SimpleNamespace(episodes=[{
+            "episode": {"r": 1.0, "l": 4},
+            "navigation": {"lane": 0, "valid_steps": 4},
+            "curriculum_task": "navigation",
+            "curriculum_version": m.TASK_VERSIONS["navigation"],
+            "allowed_control_mask": self.fake_tensor_mask(m.TASK_MASKS["navigation"], dtype=bool),
+        }])
+        infos = m.completed_retention_episode_infos(callback, "navigation")
+        self.assertEqual(infos[0]["navigation"]["lane"], 0)
+
+        callback.episodes[0]["allowed_control_mask"] = self.fake_tensor_mask(m.TASK_MASKS["navigation"], dtype=np.int8)
+        with self.assertRaisesRegex(RuntimeError, "task/mask/version"):
+            m.completed_retention_episode_infos(callback, "navigation")
+
     def test_retention_runtime_validator_accepts_requested_task_without_contact_only_rejection(self):
         m = self.subject()
         cfg = m.RetentionCampaignConfig(schedule_id="R4C1N")
         model = self.fake_model(cfg, start_timesteps=m.throughput.CHECKPOINT_STEPS)
-        model.policy.allowed_control_mask = [bool(value) for value in m.TASK_MASKS["navigation"]]
+        model.policy.allowed_control_mask = self.fake_tensor_mask(m.TASK_MASKS["navigation"], dtype=bool)
         model.task = "navigation"
         model.policy.task = "navigation"
         optimizer = m.validate_retention_runtime(model, cfg, fresh=False, requested_task="navigation")
@@ -156,6 +173,27 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         model.calibration = True
         with self.assertRaisesRegex(ValueError, "non-calibration"):
             m.validate_retention_runtime(model, cfg, fresh=False, requested_task="navigation")
+
+    def test_requested_task_readiness_requires_exact_bool_mask_and_no_calibration(self):
+        m = self.subject()
+        cfg = m.RetentionCampaignConfig(schedule_id="R4C1N")
+        model = self.fake_model(cfg, start_timesteps=m.throughput.CHECKPOINT_STEPS)
+        model.task = "navigation"
+        model.policy.task = "navigation"
+        model.calibration = False
+        model.policy.allowed_control_mask = self.fake_tensor_mask(
+            m.TASK_MASKS["navigation"], dtype=bool
+        )
+        self.assertTrue(m._ready_for_requested_task(model, "navigation"))
+        model.policy.allowed_control_mask = self.fake_tensor_mask(
+            m.TASK_MASKS["navigation"], dtype=np.int8
+        )
+        self.assertFalse(m._ready_for_requested_task(model, "navigation"))
+        model.policy.allowed_control_mask = self.fake_tensor_mask(
+            m.TASK_MASKS["navigation"], dtype=bool
+        )
+        model.calibration = True
+        self.assertFalse(m._ready_for_requested_task(model, "navigation"))
 
     def test_resume_uses_existing_checkpoint_once_without_reconstructing_policy_or_optimizer(self):
         m = self.subject()
@@ -187,22 +225,27 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             args.checkpoint.write_bytes(b"navigation-saved checkpoint")
             contact_env = self.fake_env(cfg, "combat")
             navigation_env = self.fake_env(cfg, "navigation")
+            contact_wrapper = self.fake_wrapper(contact_env)
+            navigation_wrapper = self.fake_wrapper(navigation_env)
             model = self.fake_model(cfg, start_timesteps=m.throughput.CHECKPOINT_STEPS + cfg.transitions_per_rollout)
             load_envs = []
 
             def load_resume(checkpoint, env, cfg_arg, expected_sha256):
                 load_envs.append(env)
-                self.assertIs(env, contact_env)
+                self.assertIs(env, contact_wrapper)
                 self.assertEqual(env.task, "combat")
                 model.task = "combat"
                 model.policy.task = "combat"
                 return model
 
-            with self.common_patches(m, cfg, contact_env, navigation_env, model), \
+            with self.common_patches(m, cfg, contact_env, navigation_env, model, wrappers={
+                    "combat": contact_wrapper,
+                    "navigation": navigation_wrapper,
+                 }), \
                  patch.object(m, "sha256", return_value="c" * 64), \
                  patch.object(m.contact_block, "load_resume_campaign_model", side_effect=load_resume):
                 m.run_block(args)
-            self.assertEqual(load_envs, [contact_env])
+            self.assertEqual(load_envs, [contact_wrapper])
             self.assertEqual(model.collect_tasks[0], "combat")
 
     def test_qualification_smoke_validates_real_alternating_contract_from_runner_hooks(self):
@@ -244,6 +287,8 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             output = root / "smoke"
             contact_env = self.fake_env(smoke_cfg, "combat")
             navigation_env = self.fake_env(smoke_cfg, "navigation")
+            contact_wrapper = self.fake_wrapper(contact_env)
+            navigation_wrapper = self.fake_wrapper(navigation_env)
             model = self.fake_smoke_model(smoke_cfg)
             loaded_navigation = self.fake_smoke_model(smoke_cfg)
             loaded_combat = self.fake_smoke_model(smoke_cfg)
@@ -257,17 +302,30 @@ class RetentionCampaignBlockTests(unittest.TestCase):
                 loaded.task = env.task
                 loaded.policy.task = env.task
                 loaded.policy.allowed_control_mask = [bool(value) for value in m.TASK_MASKS[env.task]]
+                loaded.saved_state = model.saved_state
+                loaded.actor_value = model.actor_value
+                loaded.navigation_critic_value = model.navigation_critic_value
+                loaded.combat_critic_value = model.combat_critic_value
+                loaded.optimizer_steps_total = model.optimizer_steps_total
+                loaded.task_history = list(model.task_history)
+                loaded.num_timesteps = model.num_timesteps
+                loaded._total_timesteps = model._total_timesteps
+                loaded._n_updates = getattr(model, "_n_updates", -1)
+                loaded._episode_num = getattr(model, "_episode_num", -1)
                 return loaded
 
             with patch.object(m, "RetentionCampaignConfig", return_value=smoke_cfg), \
                  patch.object(m.base, "require_cuda", return_value="cuda:0"), \
                  patch.object(m.throughput, "build_contact_env", return_value=contact_env), \
                  patch.object(m, "build_navigation_curriculum_env", return_value=navigation_env), \
-                 patch.object(m.throughput, "tensor_vec_env", side_effect=lambda env, device: env), \
+                 patch.object(m.throughput, "tensor_vec_env", side_effect=lambda env, device: (
+                     contact_wrapper if env is contact_env else navigation_wrapper
+                 )), \
                  patch.object(m.throughput, "configure_logger", return_value=self.fake_logger()), \
                  patch.object(m.throughput, "synchronize_cuda"), \
                  patch.object(m.throughput, "optimizer_state_summary", side_effect=lambda ppo: ppo.optimizer_summary()), \
                  patch.object(m.throughput, "policy_parameter_digest", side_effect=lambda ppo: ppo.actor_digest()), \
+                 patch.object(m.throughput, "perf_counter_sequence", side_effect=self.clock()), \
                  patch.object(m, "sha256", return_value="d" * 64), \
                  patch.object(m, "save_checkpoint", side_effect=lambda path, ppo: ppo.save(path) or {"path": str(path), "sha256": "e" * 64}), \
                  patch.object(m.NativeCurriculumPPO, "load", side_effect=load_model):
@@ -290,6 +348,18 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             self.assertFalse(result["kl_early_stop"])
             self.assertTrue(result["save_load_exact"])
             self.assertEqual(result["next_task_continuation"], {"navigation": True, "combat": True})
+            self.assertEqual(set(result["timings"]), {
+                "navigation_collection_seconds",
+                "navigation_update_seconds",
+                "combat_collection_seconds",
+                "combat_update_seconds",
+                "save_load_seconds",
+                "total_seconds",
+            })
+            self.assertTrue(all(result["timings"][key] > 0 for key in result["timings"]))
+            for rollout in result["rollouts"]:
+                self.assertGreater(rollout["collection_seconds"], 0)
+                self.assertGreater(rollout["update_seconds"], 0)
             self.assertEqual(load_calls, ["navigation", "navigation", "combat"])
             self.assertTrue((output / "alternating-smoke.json").is_file())
 
@@ -347,7 +417,8 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             resume=resume,
         )
 
-    def common_patches(self, m, cfg, contact_env, navigation_env, model):
+    def common_patches(self, m, cfg, contact_env, navigation_env, model, *, wrappers=None):
+        wrappers = wrappers or {"combat": contact_env, "navigation": navigation_env}
         patches = [
             patch.object(m, "RetentionCampaignConfig", return_value=cfg),
             patch.object(m.base, "require_checkpoint_preservation", return_value={"verified": True}),
@@ -357,7 +428,9 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             patch.object(m.throughput, "seed_everything"),
             patch.object(m.throughput, "build_contact_env", return_value=contact_env),
             patch.object(m, "build_navigation_curriculum_env", return_value=navigation_env),
-            patch.object(m.throughput, "tensor_vec_env", side_effect=lambda env, device: env),
+            patch.object(m.throughput, "tensor_vec_env", side_effect=lambda env, device: (
+                wrappers["combat"] if env is contact_env else wrappers["navigation"]
+            )),
             patch.object(m.throughput, "synchronize_cuda"),
             patch.object(m.throughput, "cuda_peak_memory", return_value=5678),
             patch.object(m.throughput, "cuda_device_name", return_value="mock-gpu"),
@@ -383,11 +456,14 @@ class RetentionCampaignBlockTests(unittest.TestCase):
     def fake_env(self, cfg, task):
         task_masks = self.subject().TASK_MASKS
         task_versions = self.subject().TASK_VERSIONS
-        backend = SimpleNamespace(
-            valid_steps=[0] * cfg.lanes,
-            errors=[0] * cfg.lanes,
-            scenario_metadata={"task": task, "lanes": cfg.lanes, "episodes_per_lane": cfg.episodes_per_lane},
-        )
+        if task == "combat":
+            backend = SimpleNamespace(
+                valid_steps=[0] * cfg.lanes,
+                errors=[0] * cfg.lanes,
+                scenario_metadata={"task": task, "lanes": cfg.lanes, "episodes_per_lane": cfg.episodes_per_lane},
+            )
+        else:
+            backend = SimpleNamespace()
         return SimpleNamespace(
             task=task,
             curriculum_task=task,
@@ -396,6 +472,14 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             backend=backend,
             host_has_timeouts=lambda: task == "navigation",
             close=lambda: None,
+        )
+
+    def fake_wrapper(self, raw):
+        return SimpleNamespace(
+            env=raw,
+            task=raw.task,
+            num_envs=getattr(raw, "num_envs", None),
+            close=lambda: raw.close(),
         )
 
     def fake_logger(self):
@@ -479,10 +563,11 @@ class RetentionCampaignBlockTests(unittest.TestCase):
             if fail_on_collect is not None and index == fail_on_collect:
                 raise RuntimeError("injected collection failure")
             self.assertEqual(env.task, model.task)
+            raw_env = getattr(env, "env", env)
             model.collect_tasks.append(model.task)
             model.num_timesteps += cfg.transitions_per_rollout
-            if hasattr(env.backend, "valid_steps"):
-                env.backend.valid_steps = [value + n_steps for value in env.backend.valid_steps]
+            if hasattr(raw_env.backend, "valid_steps"):
+                raw_env.backend.valid_steps = [value + n_steps for value in raw_env.backend.valid_steps]
             payload_key = "contact" if model.task == "combat" else "navigation"
             task_payload = {"lane": 0, "episode_index": model.num_timesteps}
             if model.task == "combat":
@@ -540,6 +625,14 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         def optimizer_summary():
             return {"available": True, "state_tensor_elements": 3, "optimizer_steps_total": model.optimizer_steps_total}
 
+        def optimizer_state_exact():
+            return {
+                "steps": model.optimizer_steps_total,
+                "actor": model.actor_value,
+                "nav": model.navigation_critic_value,
+                "combat": model.combat_critic_value,
+            }
+
         def train():
             model.train_count += 1
             model.actor_value += 1
@@ -559,6 +652,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
                 "actor": model.actor_digest(),
                 "critics": model.critic_digests(),
                 "optimizer": model.optimizer_summary(),
+                "optimizer_exact": model.optimizer_state_exact(),
                 "counters": {"num_timesteps": model.num_timesteps},
                 "task_history": list(model.task_history),
                 "masks": [bool(value) for value in model.policy.allowed_control_mask],
@@ -577,11 +671,24 @@ class RetentionCampaignBlockTests(unittest.TestCase):
         model.actor_digest = actor_digest
         model.critic_digests = critic_digests
         model.optimizer_summary = optimizer_summary
+        model.optimizer_state_exact = optimizer_state_exact
         model.train = train
         model.save = save
         model.set_task_environment = switch
         model.loaded_exact_state = lambda state: state == model.saved_state if model.saved_state is not None else True
         return model
+
+    def fake_tensor_mask(self, values, *, dtype):
+        class FakeTensorMask:
+            def __init__(self, array):
+                self.array = np.asarray(array, dtype=dtype)
+            def detach(self):
+                return self
+            def cpu(self):
+                return self
+            def numpy(self):
+                return self.array
+        return FakeTensorMask(values)
 
     def fake_parameter(self, values):
         class Parameter:

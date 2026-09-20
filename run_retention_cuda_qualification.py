@@ -24,6 +24,10 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
 SCHEMA = "ai2.native_retention_cuda_qualification.v1"
+CANONICAL_CONTACT_CALIBRATION_CHECKPOINT_SHA256 = (
+    "301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6"
+)
+CONTACT_CALIBRATION_CHECKPOINT_SHA256 = CANONICAL_CONTACT_CALIBRATION_CHECKPOINT_SHA256
 NAVIGATION_PHASE = "0b"
 PRODUCTION_GATE_GEOMETRY = {"lanes": 4096, "n_steps": 512, "batch_size": 16384, "n_epochs": 4}
 SMOKE_SCHEDULE = ("navigation", "combat")
@@ -38,6 +42,7 @@ LOCAL_SOURCE_CANDIDATES = (
     "native_curriculum_ppo.py",
     "native_navigation_curriculum_env.py",
     "train_retention_campaign_block.py",
+    "qualify_native_contact_training.py",
     "qualify_navigation_curriculum.py",
     "tests/test_contact_action_update_parity.py",
     "tests/test_native_combat_update_parity.py",
@@ -66,6 +71,20 @@ def atomic_json(path: Path | str, value: dict[str, Any]) -> None:
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("x", encoding="utf8") as stream:
         stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.link(temporary, path)
+    temporary.unlink()
+
+
+def atomic_text(path: Path | str, value: str) -> None:
+    path = Path(path)
+    if path.exists():
+        raise FileExistsError(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("x", encoding="utf8") as stream:
+        stream.write(value)
         stream.flush()
         os.fsync(stream.fileno())
     os.link(temporary, path)
@@ -102,10 +121,18 @@ def artifact_hashes(output_dir: Path, *, exclude: set[str] | None = None) -> dic
 
 def write_inventory(output_dir: Path, *, block_id: str) -> dict[str, Any]:
     files = []
-    for rel, row in artifact_hashes(output_dir, exclude={"inventory.json"}).items():
-        files.append({"path": rel, **row})
+    excluded = {"inventory.json", "local-verified.json", "preservation_receipt.json", "preservation_ack.json"}
+    for path in sorted(output_dir.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("symlinks are not valid preserved artifacts")
+        rel = path.relative_to(output_dir).as_posix()
+        if not path.is_file() or rel in excluded:
+            continue
+        if ".tmp" in path.name:
+            raise ValueError("unfinished artifact cannot be inventoried")
+        files.append({"path": rel, "bytes": path.stat().st_size, "sha256": sha256(path)})
     inventory = {
-        "schema": "ai2.native_retention_cuda_qualification.inventory.v1",
+        "schema_version": "curriculum-inventory-v1",
         "block_id": block_id,
         "files": files,
     }
@@ -284,7 +311,7 @@ def run_alternating_smoke(
 
 def _parse_dmon_samples(stdout: str) -> dict[str, Any]:
     samples = []
-    max_sm_util = None
+    sm_values = []
     for line in stdout.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -296,8 +323,13 @@ def _parse_dmon_samples(stdout: str) -> dict[str, Any]:
                 value = int(parts[1])
             except ValueError:
                 continue
-            max_sm_util = value if max_sm_util is None else max(max_sm_util, value)
-    return {"samples": samples, "max_sm_util": max_sm_util}
+            sm_values.append(value)
+    return {
+        "samples": samples,
+        "sample_count": len(sm_values),
+        "max_sm_util": max(sm_values) if sm_values else None,
+        "mean_sm_util": (sum(sm_values) / len(sm_values)) if sm_values else None,
+    }
 
 
 def start_nvidia_dmon(
@@ -315,6 +347,7 @@ def start_nvidia_dmon(
 
 
 def finish_nvidia_dmon(monitor: dict[str, Any]) -> dict[str, Any]:
+    output_dir = monitor.pop("output_dir", None)
     process = monitor.pop("process", None)
     if process is None:
         return monitor
@@ -335,11 +368,23 @@ def finish_nvidia_dmon(monitor: dict[str, Any]) -> dict[str, Any]:
     finally:
         returncode = getattr(process, "returncode", None)
     parsed = _parse_dmon_samples(stdout or "")
+    raw_artifact = None
+    if output_dir is not None:
+        raw_path = Path(output_dir) / "gpu-utilization-dmon.txt"
+        atomic_text(raw_path, stdout or "")
+        raw_artifact = {
+            "path": raw_path.relative_to(output_dir).as_posix(),
+            "bytes": raw_path.stat().st_size,
+            "sha256": sha256(raw_path),
+        }
     return {
         **monitor,
         "returncode": returncode,
         "samples": parsed["samples"],
+        "sample_count": parsed["sample_count"],
         "max_sm_util": parsed["max_sm_util"],
+        "mean_sm_util": parsed["mean_sm_util"],
+        "raw_artifact": raw_artifact,
         "stderr_tail": (stderr or "")[-2000:],
     }
 
@@ -349,8 +394,25 @@ def validate_utilization_samples(samples: dict[str, Any], *, production_gate: bo
         return
     if samples.get("available") is not True or not samples.get("samples"):
         raise QualificationError("production gate requires usable nvidia-smi dmon utilization evidence")
+    raw_artifact = samples.get("raw_artifact")
+    if not isinstance(raw_artifact, dict) or raw_artifact.get("bytes", 0) <= 0:
+        raise QualificationError("production gate requires a non-empty raw dmon artifact")
+    if not isinstance(samples.get("sample_count"), int) or samples["sample_count"] <= 0:
+        raise QualificationError("production gate requires valid dmon samples")
     if not isinstance(samples.get("max_sm_util"), int) or samples["max_sm_util"] <= 0:
         raise QualificationError("production gate requires non-zero SM utilization evidence")
+
+
+def verify_contact_calibration_checkpoint(args: argparse.Namespace) -> dict[str, Any]:
+    actual = sha256(args.contact_calibration_checkpoint)
+    if actual != CONTACT_CALIBRATION_CHECKPOINT_SHA256:
+        raise QualificationError("contact calibration checkpoint sha256 mismatch")
+    return {
+        "path": str(args.contact_calibration_checkpoint),
+        "expected_sha256": CONTACT_CALIBRATION_CHECKPOINT_SHA256,
+        "sha256": actual,
+        "verified": True,
+    }
 
 
 def run_qualification(
@@ -407,8 +469,14 @@ def run_qualification(
         if actual_checkpoint_sha != args.checkpoint_sha256:
             raise QualificationError("checkpoint sha256 mismatch")
         receipt["checkpoint_verified"] = True
-        run_env["AI2_CONTACT_CHECKPOINT"] = str(args.checkpoint)
+        calibration = verify_contact_calibration_checkpoint(args)
+        receipt["contact_calibration_checkpoint"] = calibration["path"]
+        receipt["contact_calibration_checkpoint_expected_sha256"] = calibration["expected_sha256"]
+        receipt["contact_calibration_checkpoint_sha256"] = calibration["sha256"]
+        receipt["contact_calibration_checkpoint_verified"] = calibration["verified"]
+        run_env["AI2_CONTACT_CHECKPOINT"] = calibration["path"]
         dmon_monitor = start_nvidia_dmon(cwd=ROOT, env=run_env, dmon_popen=dmon_popen)
+        dmon_monitor["output_dir"] = output_dir
         receipt["gates"]["navigation_phase0b_parity"] = run_navigation_phase0b(
             args, output_dir=output_dir, import_module=import_module)
         receipt["gates"]["contact_action_update_parity"] = run_unittest_gate(
@@ -443,6 +511,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", choices=("cuda",), required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--checkpoint-sha256", required=True)
+    parser.add_argument("--contact-calibration-checkpoint", type=Path, required=True)
     parser.add_argument("--lanes", type=int, default=64)
     parser.add_argument("--n-steps", type=int, default=32)
     parser.add_argument("--batch-size", type=int, default=512)
@@ -467,6 +536,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.output_dir = args.output_dir.resolve()
     if args.checkpoint is not None:
         args.checkpoint = args.checkpoint.resolve()
+    args.contact_calibration_checkpoint = args.contact_calibration_checkpoint.resolve()
     if not re.fullmatch(r"[0-9a-fA-F]{64}", args.checkpoint_sha256):
         parser.error("--checkpoint-sha256 must be a 64-character hex digest")
     args.checkpoint_sha256 = args.checkpoint_sha256.lower()

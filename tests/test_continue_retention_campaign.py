@@ -47,9 +47,10 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         m = self.subject()
         with TemporaryDirectory() as directory:
             root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
             train = m.build_initial_plan()[0]
             self.preserved_train(root, train.name, recipe=train.recipe, seed=train.seed, parent_sha=m.B40_SHA256)
-            remote = FakeRemote()
+            remote = FakeRemote(remote_artifacts=self.remote_artifacts_for(root, m.CONTACT_QUALIFICATION_BLOCK, include_files=True))
             controller = m.Controller(
                 local_root=root,
                 remote=remote,
@@ -98,7 +99,14 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
                 "wide_sampled",
                 "wide_deterministic_falls",
                 "wide_sampled_falls",
-                "terminal_attribution",
+                "contact_deterministic_self_losses",
+                "contact_deterministic_opponent_self_losses",
+                "contact_deterministic_timeouts",
+                "contact_deterministic_ambiguous",
+                "contact_sampled_self_losses",
+                "contact_sampled_opponent_self_losses",
+                "contact_sampled_timeouts",
+                "contact_sampled_ambiguous",
             },
         )
         self.assertNotIn("score", accepted.raw)
@@ -109,8 +117,50 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             m.diagnostic_gate({"score": 0.99, **candidate}, baseline)
         with self.assertRaisesRegex(ValueError, "20 episodes"):
             m.diagnostic_gate(self.metrics(contact_sampled_episodes=19), baseline)
-        with self.assertRaisesRegex(ValueError, "terminal attribution"):
-            m.diagnostic_gate(self.metrics(contact_sampled_self_losses=1), baseline)
+        failed_terminal = m.diagnostic_gate(self.metrics(contact_sampled_self_losses=1), baseline)
+        self.assertFalse(failed_terminal.eligible)
+        self.assertIn("contact_sampled_self_losses", failed_terminal.reason)
+
+    def test_b40_baseline_uses_actual_attribution_counts_and_gate_rejects_regression(self):
+        m = self.subject()
+        baseline = m.B40_BASELINE
+        self.assertEqual(baseline["panels"]["contact"]["deterministic"]["timeouts"], 1)
+        self.assertEqual(baseline["panels"]["contact"]["sampled"]["ambiguous"], 2)
+        candidate = self.metrics(
+            contact_deterministic=19,
+            contact_sampled=14,
+            contact_deterministic_timeouts=1,
+            contact_sampled_ambiguous=2,
+            wide_deterministic_falls=7,
+            wide_sampled_falls=7,
+        )
+        self.assertTrue(m.diagnostic_gate(candidate, baseline).eligible)
+        timeout_regression = m.diagnostic_gate(
+            self.metrics(
+                contact_deterministic=19,
+                contact_sampled=14,
+                contact_deterministic_timeouts=2,
+                contact_sampled_ambiguous=2,
+                wide_deterministic_falls=7,
+                wide_sampled_falls=7,
+            ),
+            baseline,
+        )
+        self.assertFalse(timeout_regression.eligible)
+        self.assertIn("contact_deterministic_timeouts", timeout_regression.reason)
+        ambiguous_regression = m.diagnostic_gate(
+            self.metrics(
+                contact_deterministic=19,
+                contact_sampled=14,
+                contact_deterministic_timeouts=1,
+                contact_sampled_ambiguous=3,
+                wide_deterministic_falls=7,
+                wide_sampled_falls=7,
+            ),
+            baseline,
+        )
+        self.assertFalse(ambiguous_regression.eligible)
+        self.assertIn("contact_sampled_ambiguous", ambiguous_regression.reason)
 
     def test_train_command_roundtrips_through_actual_retention_runner_parser(self):
         m = self.subject()
@@ -145,6 +195,103 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         self.assertEqual(Path(values["--frozen-root"]), frozen)
         self.assertEqual(Path(values["--reference-root"]), reference)
         self.assertEqual(values["--action-ab-arm"], "B_projected")
+        self.assertIn("--resume", command)
+
+    def test_remote_commands_use_the_configured_venv_python(self):
+        m = self.subject()
+        remote_python = Path("/workspace/run/venv/bin/python")
+        remote = m.RemoteClient(
+            remote_root=Path("/workspace/run"),
+            remote_artifacts=Path("/workspace/run/artifacts"),
+            remote_python=remote_python,
+            deadline_unix=12345,
+        )
+        controller = m.Controller(
+            local_root=Path("/unused"),
+            remote=remote,
+            deadline_unix=12345,
+            remaining_cost=lambda: 5.0,
+        )
+        self.assertEqual(controller.train_command(m.build_initial_plan()[0])[0], str(remote_python))
+        self.assertEqual(controller.qualification_command()[0], str(remote_python))
+
+    def test_remote_launch_uses_configurable_deadline_job_wrapper(self):
+        m = self.subject()
+        command = m.build_bounded_background_launch_shell(
+            remote_root=Path("/workspace/run"),
+            remote_python=Path("/workspace/run/venv/bin/python"),
+            deadline_unix=12345.5,
+            name="safe-job",
+            command=["/workspace/run/venv/bin/python", "-B", "train_retention_campaign_block.py"],
+        )
+        self.assertIn("source/run_campaign_job.py", command)
+        self.assertIn("--root /workspace/run", command)
+        self.assertIn("--deadline-unix 12345.5", command)
+        self.assertIn("jobs/safe-job.controller-launch.log", command)
+
+    def test_contact_qualification_command_uses_current_source_runner_and_new_receipt_block(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = m.Controller(
+                local_root=root,
+                remote=FakeRemote(),
+                deadline_unix=1000,
+                remaining_cost=lambda: 5.0,
+                remote_artifacts=Path("/remote/artifacts"),
+                frozen_root=Path("/remote/inputs/frozen"),
+                reference_root=Path("/remote/inputs/reference"),
+                contact_qualification_checkpoint=Path("/remote/inputs/calibration/final.zip"),
+            )
+            command = controller.qualification_command()
+            qualification = controller.qualification
+        values = dict(zip(command[3::2], command[4::2]))
+        self.assertEqual(command[:3], ["python3", "-B", "qualify_native_contact_training.py"])
+        self.assertEqual(Path(values["--output-dir"]), Path("/remote/artifacts") / m.CONTACT_QUALIFICATION_BLOCK)
+        self.assertEqual(Path(values["--reference-root"]), Path("/remote/inputs/reference"))
+        self.assertEqual(Path(values["--frozen-root"]), Path("/remote/inputs/frozen"))
+        self.assertEqual(Path(values["--checkpoint"]), Path("/remote/inputs/calibration/final.zip"))
+        self.assertEqual(Path(values["--output-dir"]) / "qualification.json", qualification)
+
+    def test_full_campaign_run_preflights_current_contact_qualification_before_training(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            qualification_name = m.CONTACT_QUALIFICATION_BLOCK
+            self.preserved_qualification(root, qualification_name)
+            step = m.build_initial_plan()[0]
+            remote = FakeRemote(finished={qualification_name}, remote_artifacts=self.remote_artifacts_for(root, qualification_name, include_files=True))
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=StepClock([0, 0, 0]),
+                remaining_cost=lambda: 5.0,
+            )
+            with self.assertRaises(TimeoutError):
+                controller.run([step])
+            self.assertEqual(len(remote.launches), 1)
+            self.assertNotEqual(remote.launches[0][0], qualification_name)
+            self.assertIn(str(m.QUALIFICATION), remote.launches[0][1])
+            self.assertTrue((root / qualification_name / "qualification.json").is_file())
+
+    def test_custom_remote_artifact_root_derives_initial_b40_paths(self):
+        m = self.subject()
+        root = Path("/custom/remote/artifacts")
+        controller = m.Controller(
+            local_root=Path("/unused"),
+            remote=FakeRemote(),
+            remaining_cost=lambda: 5.0,
+            remote_artifacts=root,
+        )
+        self.assertEqual(
+            controller.initial_checkpoint,
+            root / m.B40_BLOCK_NAME / "final.zip",
+        )
+        self.assertEqual(
+            controller.initial_checkpoint_ack,
+            root / m.B40_BLOCK_NAME / "preservation_ack.json",
+        )
 
     def test_train_receipt_rejects_wrong_schedule_low_update_and_bad_lineage(self):
         m = self.subject()
@@ -184,12 +331,12 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
                     **self.remote_artifacts_for(root, m.eval_step(steps[1]).name),
                 }
             )
-            controller = m.Controller(local_root=root, remote=remote, deadline_unix=1000, remaining_cost=lambda: 5.0)
+            controller = m.Controller(local_root=root, remote=remote, deadline_unix=1000, now=lambda: 0, remaining_cost=lambda: 5.0)
             summary = controller.apply_eval_gate(steps, b40_baseline=self.metrics())
         self.assertIn(steps[0].name, summary["stopped_lineages"])
         self.assertNotIn(steps[1].name, summary["stopped_lineages"])
 
-    def test_pareto_winner_or_exactly_one_matched_comparison_on_tradeoff(self):
+    def test_pareto_winner_or_tradeoff_without_synthetic_comparison_step(self):
         m = self.subject()
         left = self.metrics(contact_sampled=16, wide_sampled_falls=1)
         right = self.metrics(contact_sampled=14, wide_sampled_falls=2)
@@ -199,8 +346,8 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             self.metrics(contact_sampled=14, nearby_sampled=20),
         )
         self.assertIsNone(tradeoff.winner)
-        self.assertEqual(len(tradeoff.matched_comparisons), 1)
-        self.assertIn("matched-comparison", tradeoff.matched_comparisons[0].name)
+        self.assertEqual(tradeoff.relation, "tradeoff")
+        self.assertEqual(tradeoff.matched_comparisons, ())
 
     def test_winner_continues_immutable_five_rollout_cycles_toward_50m(self):
         m = self.subject()
@@ -238,6 +385,387 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             controller.validate_budget()
 
+    def test_elapsed_budget_meter_subtracts_hourly_cost_before_each_external_action(self):
+        m = self.subject()
+        meter = m.ElapsedBudgetMeter(
+            initial_remaining_dollars=5.00,
+            hourly_cost_dollars=2.00,
+            started_unix=1000,
+            now=lambda: 1000 + 1800,
+        )
+        self.assertAlmostEqual(meter.remaining(), 4.00)
+        controller = m.Controller(
+            local_root=Path("/unused"),
+            remote=FakeRemote(),
+            now=lambda: 1000 + 2 * 3600,
+            deadline_unix=1000 + 10 * 3600,
+            remaining_cost=m.ElapsedBudgetMeter(
+                initial_remaining_dollars=1.00,
+                hourly_cost_dollars=0.20,
+                started_unix=1000,
+                now=lambda: 1000 + 2 * 3600,
+            ).remaining,
+        )
+        with self.assertRaises(TimeoutError):
+            controller.validate_budget()
+
+    def test_cli_requires_hourly_cost_for_live_budget_meter(self):
+        m = self.subject()
+        with self.assertRaises(SystemExit):
+            m.parse_args(["--deadline-unix", "123", "--remaining-budget-dollars", "5"])
+        args = m.parse_args(["--deadline-unix", "123", "--remaining-budget-dollars", "5", "--hourly-cost-dollars", "0.8"])
+        self.assertEqual(args.hourly_cost_dollars, 0.8)
+
+    def test_remote_retrieval_rejects_inventory_paths_that_escape_local_block(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = "safe-block"
+            self.preserved_train(root, name, recipe="R4C1N", seed=123, parent_sha=m.B40_SHA256)
+            artifacts = self.remote_artifacts_for(root, name, include_files=True)
+            inventory = json.loads(artifacts[(name, "inventory.json")])
+            inventory["files"].append({"path": "../evil.txt", "bytes": 4, "sha256": m.bytes_sha256(b"evil")})
+            artifacts[(name, "inventory.json")] = json.dumps(inventory, sort_keys=True).encode()
+            artifacts[(name, "../evil.txt")] = b"evil"
+            remote = FakeRemote(remote_artifacts=artifacts)
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            with self.assertRaisesRegex(ValueError, "unsafe artifact path"):
+                controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+
+    def test_remote_preservation_ack_upload_is_idempotent_when_matching_ack_already_exists(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = "safe-block"
+            self.preserved_train(root, name, recipe="R4C1N", seed=123, parent_sha=m.B40_SHA256)
+            artifacts = self.remote_artifacts_for(root, name, include_files=True)
+            remote = FakeRemote(remote_artifacts=artifacts)
+            controller = m.Controller(local_root=root / "download", remote=remote, remaining_cost=lambda: 5.0)
+            controller.retrieve_and_preserve_remote_block(name, require_final_zip=True)
+        self.assertEqual(remote.writes, [])
+
+    def test_default_run_trains_evaluates_gates_and_continues_pareto_winner_once(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
+            initial = m.build_initial_plan()
+            for step in initial:
+                final_sha = self.preserved_train(root, step.name, recipe=step.recipe, seed=step.seed, parent_sha=m.B40_SHA256)
+                result = self.metrics(contact_deterministic=19, contact_sampled=14, wide_deterministic_falls=7, wide_sampled_falls=7)
+                if step.recipe == "R4C1N":
+                    result = self.metrics(contact_deterministic=20, contact_sampled=15, wide_deterministic_falls=6, wide_sampled_falls=6)
+                self.preserved_eval(root, m.eval_step(step).name, train_name=step.name, result=result)
+                if step.recipe == "R4C1N":
+                    winner = replace(step, result_sha256=final_sha)
+            continuation = m.build_continuation_step(winner, 2)
+            self.preserved_train(root, continuation.name, recipe=continuation.recipe, seed=continuation.seed, parent_sha=continuation.parent_sha256)
+            self.preserved_eval(root, m.eval_step(continuation).name, train_name=continuation.name, result=self.metrics(contact_deterministic=20, contact_sampled=16, wide_deterministic_falls=6, wide_sampled_falls=6))
+            names = [step.name for step in initial]
+            names += [m.eval_step(step).name for step in initial]
+            names += [continuation.name, m.eval_step(continuation).name]
+            remote_names = [m.CONTACT_QUALIFICATION_BLOCK, *names]
+            remote = FakeRemote(
+                finished=set(remote_names),
+                remote_artifacts={key: value for name in remote_names for key, value in self.remote_artifacts_for(root, name, include_files=name == m.CONTACT_QUALIFICATION_BLOCK).items()},
+            )
+            controller = m.Controller(local_root=root, remote=remote, deadline_unix=1000, now=lambda: 0, remaining_cost=lambda: 5.0)
+            summary = controller.run(max_cycles=2)
+        self.assertEqual(summary["winner"], continuation.name)
+        self.assertEqual(summary["selected_candidate"], initial[0].name)
+        self.assertIn(continuation.name, [row["name"] for row in summary["completed"]])
+        self.assertFalse(summary["baseline_provenance"]["regenerated_in_this_controller"])
+        self.assertIn("B_projected B40", summary["baseline_provenance"]["source"])
+        self.assertEqual(summary["status"], "complete")
+
+    def test_failed_continuation_keeps_last_eligible_checkpoint_as_winner(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
+            initial = m.build_initial_plan()
+            winner = None
+            for step in initial:
+                final_sha = self.preserved_train(
+                    root,
+                    step.name,
+                    recipe=step.recipe,
+                    seed=step.seed,
+                    parent_sha=m.B40_SHA256,
+                )
+                result = self.metrics(
+                    contact_deterministic=19,
+                    contact_sampled=14,
+                    wide_deterministic_falls=7,
+                    wide_sampled_falls=7,
+                )
+                if step.recipe == "R4C1N":
+                    result = self.metrics(
+                        contact_deterministic=20,
+                        contact_sampled=15,
+                        wide_deterministic_falls=6,
+                        wide_sampled_falls=6,
+                    )
+                    winner = replace(step, result_sha256=final_sha)
+                self.preserved_eval(root, m.eval_step(step).name, train_name=step.name, result=result)
+            continuation = m.build_continuation_step(winner, 2)
+            self.preserved_train(
+                root,
+                continuation.name,
+                recipe=continuation.recipe,
+                seed=continuation.seed,
+                parent_sha=continuation.parent_sha256,
+            )
+            self.preserved_eval(
+                root,
+                m.eval_step(continuation).name,
+                train_name=continuation.name,
+                result=self.metrics(
+                    nearby_sampled=18,
+                    contact_deterministic=20,
+                    contact_sampled=16,
+                    wide_deterministic_falls=6,
+                    wide_sampled_falls=6,
+                ),
+            )
+            names = [step.name for step in initial]
+            names += [m.eval_step(step).name for step in initial]
+            names += [continuation.name, m.eval_step(continuation).name]
+            remote_names = [m.CONTACT_QUALIFICATION_BLOCK, *names]
+            remote = FakeRemote(
+                finished=set(remote_names),
+                remote_artifacts={
+                    key: value
+                    for name in remote_names
+                    for key, value in self.remote_artifacts_for(root, name, include_files=name == m.CONTACT_QUALIFICATION_BLOCK).items()
+                },
+            )
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=lambda: 0,
+                remaining_cost=lambda: 5.0,
+            )
+            summary = controller.run(max_cycles=2)
+
+        self.assertEqual(summary["status"], "stopped_failed_gate")
+        self.assertEqual(summary["winner"], winner.name)
+        self.assertEqual(summary["failed_checkpoint"], continuation.name)
+        self.assertEqual(summary["selected_candidate"], winner.name)
+
+    def test_initial_pareto_tradeoff_runs_real_matched_cycle_then_continues_from_selected_cycle2_checkpoint(self):
+        m = self.subject()
+
+        class RecordingController(m.Controller):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.run_plans = []
+
+            def _run_steps(self, plan):
+                self.run_plans.append([step.name for step in plan])
+                return super()._run_steps(plan)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
+            initial = m.build_initial_plan()
+            left_sha = self.preserved_train(root, initial[0].name, recipe=initial[0].recipe, seed=initial[0].seed, parent_sha=m.B40_SHA256)
+            right_sha = self.preserved_train(root, initial[1].name, recipe=initial[1].recipe, seed=initial[1].seed, parent_sha=m.B40_SHA256)
+            self.preserved_eval(
+                root,
+                m.eval_step(initial[0]).name,
+                train_name=initial[0].name,
+                result=self.metrics(contact_sampled=16, nearby_sampled=19, wide_deterministic_falls=7, wide_sampled_falls=7),
+            )
+            self.preserved_eval(
+                root,
+                m.eval_step(initial[1]).name,
+                train_name=initial[1].name,
+                result=self.metrics(contact_sampled=14, nearby_sampled=20, wide_deterministic_falls=7, wide_sampled_falls=7),
+            )
+
+            left_cycle2 = m.build_continuation_step(replace(initial[0], result_sha256=left_sha), 2)
+            right_cycle2 = m.build_continuation_step(replace(initial[1], result_sha256=right_sha), 2)
+            left_cycle2_sha = self.preserved_train(root, left_cycle2.name, recipe=left_cycle2.recipe, seed=left_cycle2.seed, parent_sha=left_cycle2.parent_sha256)
+            right_cycle2_sha = self.preserved_train(root, right_cycle2.name, recipe=right_cycle2.recipe, seed=right_cycle2.seed, parent_sha=right_cycle2.parent_sha256)
+            self.preserved_eval(
+                root,
+                m.eval_step(left_cycle2).name,
+                train_name=left_cycle2.name,
+                result=self.metrics(contact_sampled=17, nearby_sampled=20, wide_deterministic_falls=6, wide_sampled_falls=6),
+            )
+            self.preserved_eval(
+                root,
+                m.eval_step(right_cycle2).name,
+                train_name=right_cycle2.name,
+                result=self.metrics(contact_sampled=14, nearby_sampled=20, wide_deterministic_falls=7, wide_sampled_falls=7),
+            )
+
+            left_cycle3 = m.build_continuation_step(replace(left_cycle2, result_sha256=left_cycle2_sha), 3)
+            self.preserved_train(root, left_cycle3.name, recipe=left_cycle3.recipe, seed=left_cycle3.seed, parent_sha=left_cycle2_sha)
+            self.preserved_eval(
+                root,
+                m.eval_step(left_cycle3).name,
+                train_name=left_cycle3.name,
+                result=self.metrics(contact_sampled=17, nearby_sampled=20, wide_deterministic_falls=6, wide_sampled_falls=6),
+            )
+
+            names = [
+                *(step.name for step in initial),
+                *(m.eval_step(step).name for step in initial),
+                left_cycle2.name,
+                m.eval_step(left_cycle2).name,
+                right_cycle2.name,
+                m.eval_step(right_cycle2).name,
+                left_cycle3.name,
+                m.eval_step(left_cycle3).name,
+            ]
+            remote_names = [m.CONTACT_QUALIFICATION_BLOCK, *names]
+            remote = FakeRemote(
+                finished=set(remote_names),
+                remote_artifacts={key: value for name in remote_names for key, value in self.remote_artifacts_for(root, name, include_files=name == m.CONTACT_QUALIFICATION_BLOCK).items()},
+            )
+            controller = RecordingController(local_root=root, remote=remote, deadline_unix=1000, now=lambda: 0, remaining_cost=lambda: 5.0)
+            summary = controller.run(max_cycles=3)
+
+        matched_cycle_names = {left_cycle2.name, m.eval_step(left_cycle2).name, right_cycle2.name, m.eval_step(right_cycle2).name}
+        self.assertTrue(any(matched_cycle_names.issubset(set(plan)) for plan in controller.run_plans))
+        completed_by_name = {row["name"]: row for row in summary["completed"]}
+        self.assertIn(left_cycle3.name, completed_by_name)
+        self.assertEqual(completed_by_name[left_cycle3.name]["resume_from"], left_cycle2.name)
+        self.assertEqual(completed_by_name[left_cycle3.name]["parent_sha256"], left_cycle2_sha)
+        self.assertEqual(summary["winner"], left_cycle3.name)
+        self.assertEqual(summary["selected_candidate"], left_cycle2.name)
+        self.assertEqual(summary["matched_comparison"]["winner"], left_cycle2.name)
+        self.assertNotIn("needs_matched_comparison", summary["status"])
+        self.assertEqual(summary["matched_comparison"]["relation"], "left_dominates")
+
+    def test_remote_job_preservation_callback_runs_before_eval_command(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
+            train = m.build_initial_plan()[0]
+            evaluation = m.eval_step(train)
+            remote = FakeRemote(
+                finished={m.CONTACT_QUALIFICATION_BLOCK, train.name, evaluation.name},
+                remote_artifacts=self.remote_artifacts_for(root, m.CONTACT_QUALIFICATION_BLOCK, include_files=True),
+            )
+            events = []
+
+            def preserve(name, *, require_final_zip):
+                events.append(("preserve", name, require_final_zip))
+                if name == train.name:
+                    self.preserved_train(root, train.name, recipe=train.recipe, seed=train.seed, parent_sha=m.B40_SHA256)
+                elif name == evaluation.name:
+                    self.assertIn(("preserve", train.name, True), events)
+                    self.assertTrue((root / train.name / "preservation_ack.json").is_file())
+                    self.preserved_eval(
+                        root,
+                        evaluation.name,
+                        train_name=train.name,
+                        result=self.metrics(contact_deterministic=20, contact_sampled=15, wide_deterministic_falls=6, wide_sampled_falls=6),
+                    )
+                remote.remote_artifacts.update(self.remote_artifacts_for(root, name))
+
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=lambda: 0,
+                remaining_cost=lambda: 5.0,
+                preserve_after_job=preserve,
+            )
+            summary = controller.run([train, evaluation])
+        self.assertEqual(events, [("preserve", train.name, True), ("preserve", evaluation.name, False)])
+        self.assertEqual([row["name"] for row in summary["completed"]], [train.name, evaluation.name])
+
+    def test_failed_remote_job_preserves_inventory_block_and_job_receipts_before_reraising(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.preserved_qualification(root, m.CONTACT_QUALIFICATION_BLOCK)
+            train = m.build_initial_plan()[0]
+            failure_block = root / train.name
+            failure_block.mkdir()
+            (failure_block / "result.json").write_text(json.dumps({"status": "failed", "error": "cuda assert"}))
+            (failure_block / "manifest.json").write_text(json.dumps({"config": {"seed": train.seed}}))
+            self.inventory_and_ack(failure_block, train.name, ["result.json", "manifest.json"])
+            remote = FakeRemote(
+                finished={m.CONTACT_QUALIFICATION_BLOCK},
+                failed={train.name: 7},
+                remote_artifacts={
+                    **self.remote_artifacts_for(root, m.CONTACT_QUALIFICATION_BLOCK, include_files=True),
+                    **self.remote_artifacts_for(root, train.name, include_files=True),
+                },
+                job_files={
+                    f"{train.name}.started.json": json.dumps({"pid": 123, "name": train.name}).encode(),
+                    f"{train.name}.json": json.dumps({"returncode": 7, "name": train.name}).encode(),
+                    f"{train.name}.log": b"traceback\ncuda assert\n",
+                },
+            )
+            for child in failure_block.iterdir():
+                child.unlink()
+            failure_block.rmdir()
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=lambda: 0,
+                remaining_cost=lambda: 5.0,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "returncode"):
+                controller.run([train])
+
+            self.assertEqual((root / train.name / "result.json").read_text(), json.dumps({"status": "failed", "error": "cuda assert"}))
+            self.assertTrue((root / train.name / "failure_preservation.json").is_file())
+            self.assertFalse((root / train.name / "preservation_ack.json").exists())
+            self.assertEqual(json.loads((root / "jobs" / f"{train.name}.started.json").read_text())["pid"], 123)
+            self.assertEqual(json.loads((root / "jobs" / f"{train.name}.json").read_text())["returncode"], 7)
+            self.assertIn("cuda assert", (root / "jobs" / f"{train.name}.log").read_text())
+
+    def test_timed_out_remote_job_preserves_available_failure_receipts_before_reraising(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            train = m.build_initial_plan()[0]
+            failure_block = root / train.name
+            failure_block.mkdir()
+            (failure_block / "result.json").write_text(json.dumps({"status": "running", "last_step": 12}))
+            (failure_block / "manifest.json").write_text(json.dumps({"config": {"seed": train.seed}}))
+            self.inventory_and_ack(failure_block, train.name, ["result.json", "manifest.json"])
+            remote = FakeRemote(
+                started={train.name},
+                remote_artifacts=self.remote_artifacts_for(root, train.name, include_files=True),
+                job_files={
+                    f"{train.name}.started.json": json.dumps({"pid": 456, "name": train.name}).encode(),
+                    f"{train.name}.log": b"still running\nlast step 12\n",
+                },
+            )
+            for child in failure_block.iterdir():
+                child.unlink()
+            failure_block.rmdir()
+            controller = m.Controller(
+                local_root=root,
+                remote=remote,
+                deadline_unix=1000,
+                now=StepClock([0, 0, 2]),
+                sleeper=lambda _: None,
+                max_wait_seconds=1,
+                remaining_cost=lambda: 5.0,
+            )
+
+            with self.assertRaisesRegex(TimeoutError, "timed out waiting for job receipt"):
+                controller.wait_for_job_rc0(train.name)
+
+            self.assertEqual(json.loads((root / train.name / "result.json").read_text())["last_step"], 12)
+            self.assertTrue((root / train.name / "failure_preservation.json").is_file())
+            self.assertEqual(json.loads((root / "jobs" / f"{train.name}.started.json").read_text())["pid"], 456)
+            self.assertFalse((root / "jobs" / f"{train.name}.json").exists())
+            self.assertIn("last step 12", (root / "jobs" / f"{train.name}.log").read_text())
+
     def metrics(
         self,
         *,
@@ -259,6 +787,8 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
         wide_sampled_episodes=20,
         contact_deterministic_self_losses=0,
         contact_sampled_self_losses=0,
+        contact_deterministic_opponent_self_losses=0,
+        contact_sampled_opponent_self_losses=0,
         contact_deterministic_timeouts=0,
         contact_sampled_timeouts=0,
         contact_deterministic_ambiguous=0,
@@ -273,7 +803,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
                         "episodes": contact_deterministic_episodes,
                         "successes": contact_deterministic,
                         "self_losses": contact_deterministic_self_losses,
-                        "opponent_self_losses": 0,
+                        "opponent_self_losses": contact_deterministic_opponent_self_losses,
                         "timeouts": contact_deterministic_timeouts,
                         "ambiguous": contact_deterministic_ambiguous,
                     },
@@ -281,7 +811,7 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
                         "episodes": contact_sampled_episodes,
                         "successes": contact_sampled,
                         "self_losses": contact_sampled_self_losses,
-                        "opponent_self_losses": 0,
+                        "opponent_self_losses": contact_sampled_opponent_self_losses,
                         "timeouts": contact_sampled_timeouts,
                         "ambiguous": contact_sampled_ambiguous,
                     },
@@ -374,23 +904,45 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             "inventory_sha256": m.sha256(path / "inventory.json"),
         }))
 
-    def remote_artifacts_for(self, root, name):
+    def preserved_qualification(self, root, name):
+        m = self.subject()
         path = Path(root) / name
-        return {
+        path.mkdir()
+        (path / "qualification.json").write_text(json.dumps({
+            "schema_version": "ai2.native_contact_qualification.v1",
+            "qualified": True,
+            "checks": {"original_cpu_exact": True, "cpu_cuda_exact": True, "learner_update_exact": True},
+            "evidence": [],
+        }))
+        self.inventory_and_ack(path, name, ["qualification.json"])
+
+    def remote_artifacts_for(self, root, name, *, include_files=False):
+        path = Path(root) / name
+        artifacts = {
             (name, "inventory.json"): (path / "inventory.json").read_bytes(),
             (name, "preservation_ack.json"): (path / "preservation_ack.json").read_bytes(),
         }
+        if include_files:
+            inventory = json.loads((path / "inventory.json").read_text())
+            for row in inventory["files"]:
+                artifacts[(name, row["path"])] = (path / row["path"]).read_bytes()
+        return artifacts
 
 
 class FakeRemote:
-    def __init__(self, *, started=(), finished=(), remote_artifacts=None):
+    def __init__(self, *, started=(), finished=(), failed=None, remote_artifacts=None, job_files=None):
         self.started = set(started)
         self.finished = set(finished)
+        self.failed = failed or {}
         self.remote_artifacts = remote_artifacts or {}
+        self.job_files = job_files or {}
         self.launches = []
         self.events = []
+        self.writes = []
 
     def job_receipt(self, name):
+        if name in self.failed:
+            return {"returncode": self.failed[name], "name": name}
         if name in self.finished:
             return {"returncode": 0, "name": name}
         return None
@@ -407,6 +959,18 @@ class FakeRemote:
 
     def read_artifact_file(self, name, filename):
         return self.remote_artifacts[(name, filename)]
+
+    def read_job_file(self, filename):
+        return self.job_files.get(filename)
+
+    def write_artifact_file(self, name, filename, data):
+        if (name, filename) in self.remote_artifacts:
+            if self.remote_artifacts[(name, filename)] == data:
+                return {"already_exists": True}
+            raise FileExistsError(f"remote artifact differs: {name}/{filename}")
+        self.remote_artifacts[(name, filename)] = data
+        self.writes.append((name, filename, data))
+        return {"bytes": len(data)}
 
 
 class StepClock:

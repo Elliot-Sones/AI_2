@@ -155,9 +155,24 @@ def receipt_callback_base():
     return throughput.receipt_callback_base()
 
 
+def _raw_env(env):
+    return getattr(env, "env", env)
+
+
+def _to_numpy(value):
+    for name in ("detach", "cpu", "contiguous"):
+        method = getattr(value, name, None)
+        if callable(method):
+            value = method()
+    method = getattr(value, "numpy", None)
+    if callable(method):
+        return method()
+    return np.asarray(value)
+
+
 def _strict_bool_mask(value, task):
     expected = np.asarray(TASK_MASKS[task], dtype=bool)
-    actual = np.asarray(value)
+    actual = np.asarray(_to_numpy(value))
     if actual.dtype != np.dtype(bool) or actual.shape != expected.shape or not np.array_equal(actual, expected):
         raise RuntimeError("episode info task/mask/version does not match the active rollout")
     return actual.tolist()
@@ -251,15 +266,16 @@ def build_task_environments(args, cfg, device):
 
 
 def task_scenario_metadata(env, task):
-    backend = getattr(env, "backend", None)
+    raw = _raw_env(env)
+    backend = getattr(raw, "backend", None)
     metadata = getattr(backend, "scenario_metadata", None)
     if metadata is not None:
         return metadata
     return {
-        "curriculum_task": getattr(env, "curriculum_task", task),
-        "curriculum_version": getattr(env, "curriculum_version", TASK_VERSIONS[task]),
-        "allowed_control_mask": _strict_bool_mask(getattr(env, "allowed_control_mask"), task),
-        "host_has_timeouts": bool(env.host_has_timeouts()),
+        "curriculum_task": getattr(raw, "curriculum_task", task),
+        "curriculum_version": getattr(raw, "curriculum_version", TASK_VERSIONS[task]),
+        "allowed_control_mask": _strict_bool_mask(getattr(raw, "allowed_control_mask"), task),
+        "host_has_timeouts": bool(raw.host_has_timeouts()),
         "backend_class": type(backend).__name__ if backend is not None else None,
     }
 
@@ -271,12 +287,13 @@ def _validate_rollout_progress(env, cfg, *, task, before_steps, before_count, mo
         raise RuntimeError(f"native {task} learner transition count is incorrect")
     if task == "navigation":
         return int(learner_delta)
-    after_steps = list(getattr(env.backend, "valid_steps", []))
+    raw = _raw_env(env)
+    after_steps = list(getattr(raw.backend, "valid_steps", []))
     delta = [int(after) - int(before) for after, before in zip(after_steps, before_steps)]
     if (
         len(delta) != cfg.lanes
         or any(value != cfg.n_steps for value in delta)
-        or any(getattr(env.backend, "errors", []))
+        or any(getattr(raw.backend, "errors", []))
     ):
         raise RuntimeError("native combat lane error or incorrect learner transition count")
     return int(sum(delta))
@@ -295,7 +312,7 @@ def validate_retention_runtime(model, cfg, *, fresh, requested_task):
     if model.calibration or model.task != requested_task or getattr(model.policy, "task", None) != requested_task:
         raise ValueError("retention blocks require joint, non-calibration learning on the requested task")
     expected_mask = np.asarray(TASK_MASKS[requested_task], dtype=bool)
-    actual_mask = np.asarray(getattr(model.policy, "allowed_control_mask", None))
+    actual_mask = np.asarray(_to_numpy(getattr(model.policy, "allowed_control_mask", None)))
     if actual_mask.dtype != np.dtype(bool) or not np.array_equal(actual_mask, expected_mask):
         raise ValueError("model policy mask differs from the requested retention task")
     if getattr(model, "arm", None) != "E1":
@@ -323,7 +340,7 @@ def _tensor_digest(values):
 
     digest = hashlib.sha256()
     for index, value in enumerate(values):
-        array = value.detach().cpu().contiguous().numpy()
+        array = _to_numpy(value)
         digest.update(str(index).encode("ascii") + b"\0")
         digest.update(str(getattr(array, "shape", "")).encode("ascii") + b"\0")
         digest.update(array.tobytes())
@@ -368,24 +385,80 @@ def critic_digests(model):
     }
 
 
-def _roundtrip_state(model):
+def _digest_structure(value):
+    import hashlib
+
+    digest = hashlib.sha256()
+
+    def update(item):
+        if isinstance(item, dict):
+            digest.update(b"d{")
+            for key in sorted(item, key=lambda candidate: repr(candidate)):
+                digest.update(repr(key).encode("utf8") + b":")
+                update(item[key])
+            digest.update(b"}")
+            return
+        if isinstance(item, (list, tuple)):
+            digest.update(b"l[")
+            for child in item:
+                update(child)
+            digest.update(b"]")
+            return
+        try:
+            array = _to_numpy(item)
+        except Exception:
+            array = None
+        if array is not None and hasattr(array, "tobytes") and getattr(array, "shape", None) is not None:
+            digest.update(b"a")
+            digest.update(str(array.dtype).encode("ascii") + b"\0")
+            digest.update(str(array.shape).encode("ascii") + b"\0")
+            digest.update(array.tobytes())
+            return
+        digest.update(b"s")
+        digest.update(repr(item).encode("utf8"))
+
+    update(value)
+    return digest.hexdigest()
+
+
+def optimizer_exact_digest(model):
+    custom = getattr(model, "optimizer_state_exact", None)
+    if callable(custom):
+        return _digest_structure(custom())
+    optimizer = getattr(getattr(model, "policy", None), "optimizer", None)
+    if optimizer is None or not callable(getattr(optimizer, "state_dict", None)):
+        raise ValueError("optimizer exact state is unavailable")
+    return _digest_structure(optimizer.state_dict())
+
+
+def _checkpoint_invariant_state(model):
     return {
         "actor": actor_digest(model),
         "critics": critic_digests(model),
-        "optimizer": throughput.optimizer_state_summary(model),
+        "optimizer_exact": optimizer_exact_digest(model),
         "counters": throughput.final_model_counters(model),
         "task_history": list(getattr(model, "task_history", [])),
-        "task": getattr(model, "task", None),
-        "policy_task": getattr(getattr(model, "policy", None), "task", None),
-        "mask": np.asarray(getattr(model.policy, "allowed_control_mask")).astype(bool).tolist(),
     }
 
 
 def _states_match(source_state, loaded_model):
-    custom = getattr(loaded_model, "loaded_exact_state", None)
-    if callable(custom) and custom(source_state):
-        return True
-    return source_state == _roundtrip_state(loaded_model)
+    return source_state == _checkpoint_invariant_state(loaded_model)
+
+
+def _ready_for_requested_task(model, task):
+    try:
+        actual_mask = np.asarray(_to_numpy(model.policy.allowed_control_mask))
+    except Exception:
+        return False
+    expected_mask = np.asarray(TASK_MASKS[task], dtype=bool)
+    return (
+        getattr(model, "task", None) == task
+        and getattr(model.policy, "task", None) == task
+        and getattr(model, "calibration", None) is False
+        and actual_mask.dtype == np.dtype(bool)
+        and actual_mask.shape == expected_mask.shape
+        and np.array_equal(actual_mask, expected_mask)
+    )
 
 
 def _make_smoke_config(cfg):
@@ -426,6 +499,7 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
     args = SimpleNamespace(navigation_build_dir=Path(build_dir))
     environments = {}
     logger = None
+    started = throughput.perf_counter_sequence()
     try:
         environments = build_task_environments(args, smoke_cfg, device)
         checkpoint_sha = sha256(checkpoint)
@@ -447,6 +521,7 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
         actor_changed = {}
         critic_change_matrix = {}
         update_steps = 0
+        timings = {}
         rows = []
         for index, task in enumerate(schedule):
             env = environments[task]
@@ -455,14 +530,24 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
             before_actor = actor_digest(model)
             before_critics = critic_digests(model)
             before_count = model.num_timesteps
-            before_steps = list(env.backend.valid_steps) if task == "combat" else None
+            before_steps = list(_raw_env(env).backend.valid_steps) if task == "combat" else None
+            throughput.synchronize_cuda(device)
+            collect_started = throughput.perf_counter_sequence()
             if not model.collect_rollouts(env, callback, model.rollout_buffer, smoke_cfg.n_steps):
                 raise RuntimeError("qualification smoke collection did not complete")
+            throughput.synchronize_cuda(device)
+            collected = throughput.perf_counter_sequence()
             game_ticks = _validate_rollout_progress(
                 env, smoke_cfg, task=task, before_steps=before_steps, before_count=before_count, model=model
             )
             model._update_current_progress_remaining(model.num_timesteps, model._total_timesteps)
             model.train()
+            throughput.synchronize_cuda(device)
+            updated = throughput.perf_counter_sequence()
+            collection_seconds = collected - collect_started
+            update_seconds = updated - collected
+            timings[f"{task}_collection_seconds"] = collection_seconds
+            timings[f"{task}_update_seconds"] = update_seconds
             diagnostics = throughput.validate_update_diagnostics(model.last_update_diagnostics, smoke_cfg)
             after_actor = actor_digest(model)
             after_critics = critic_digests(model)
@@ -479,11 +564,14 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
                 "rollout": index,
                 "task": task,
                 "game_ticks": game_ticks,
+                "collection_seconds": collection_seconds,
+                "update_seconds": update_seconds,
                 "actual_update": diagnostics,
                 "metrics": metrics,
             })
         callback.on_training_end()
-        saved_state = _roundtrip_state(model)
+        saved_state = _checkpoint_invariant_state(model)
+        save_load_started = throughput.perf_counter_sequence()
         checkpoint_receipt = save_checkpoint(output / "final.zip", model)
         continuation = {}
         exact = True
@@ -493,8 +581,11 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
                 env=environments[task],
                 expected_sha256=checkpoint_receipt["sha256"],
             )
-            continuation[task] = getattr(loaded, "task", None) == task and getattr(loaded.policy, "task", None) == task
+            continuation[task] = _ready_for_requested_task(loaded, task)
             exact = exact and _states_match(saved_state, loaded)
+        load_finished = throughput.perf_counter_sequence()
+        timings["save_load_seconds"] = load_finished - save_load_started
+        timings["total_seconds"] = load_finished - started
         result = {
             "status": "passed",
             "schedule": list(schedule),
@@ -506,6 +597,7 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
             "kl_early_stop": any(row["actual_update"]["kl_early_stop"] for row in rows),
             "save_load_exact": bool(exact),
             "next_task_continuation": continuation,
+            "timings": timings,
             "roundtrip_checkpoint": checkpoint_receipt,
             "rollouts": rows,
         }
@@ -640,7 +732,7 @@ def run_block(args):
             env = environments[task]
             model.set_task_environment(task, env, calibration=False)
             before_count = model.num_timesteps
-            before_steps = list(env.backend.valid_steps) if task == "combat" else None
+            before_steps = list(_raw_env(env).backend.valid_steps) if task == "combat" else None
             throughput.synchronize_cuda(device)
             begin = throughput.perf_counter_sequence()
             if not model.collect_rollouts(env, callback, model.rollout_buffer, cfg.n_steps):

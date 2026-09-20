@@ -15,6 +15,22 @@ class RetentionCudaQualificationTests(unittest.TestCase):
 
         return qualification
 
+    def checkpoint_args(self, root: Path, q):
+        checkpoint = root / "b40.zip"
+        checkpoint.write_bytes(b"checkpoint")
+        calibration = root / "contact-calibration.zip"
+        calibration.write_bytes(b"contact calibration checkpoint")
+        q.CONTACT_CALIBRATION_CHECKPOINT_SHA256 = q.sha256(calibration)
+        return (
+            checkpoint,
+            calibration,
+            [
+                "--checkpoint", str(checkpoint),
+                "--checkpoint-sha256", q.sha256(checkpoint),
+                "--contact-calibration-checkpoint", str(calibration),
+            ],
+        )
+
     def test_rejects_cpu_and_freezes_production_gate_geometry(self):
         q = self.subject()
         with tempfile.TemporaryDirectory() as directory:
@@ -22,9 +38,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             source = self.source_tree(root)
             config = root / "config.yaml"
             config.write_text("curriculum: {}\n")
-            checkpoint = root / "b40.zip"
-            checkpoint.write_bytes(b"checkpoint")
-            checkpoint_args = ["--checkpoint", str(checkpoint), "--checkpoint-sha256", q.sha256(checkpoint)]
+            _, _, checkpoint_args = self.checkpoint_args(root, q)
             with self.assertRaisesRegex(SystemExit, "2"):
                 q.main([
                     "--source", str(source),
@@ -70,9 +84,9 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             source = self.source_tree(root)
             config = root / "config.yaml"
             config.write_text("curriculum: {}\n")
-            checkpoint = root / "b40.zip"
-            checkpoint.write_bytes(b"checkpoint")
+            checkpoint, calibration, checkpoint_args = self.checkpoint_args(root, q)
             checkpoint_sha = q.sha256(checkpoint)
+            calibration_sha = q.sha256(calibration)
             output = root / "qualification"
             nav_calls: list[list[str]] = []
             commands: list[list[str]] = []
@@ -95,8 +109,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                 "--build-dir", str(root / "build"),
                 "--output-dir", str(output),
                 "--device", "cuda",
-                "--checkpoint", str(checkpoint),
-                "--checkpoint-sha256", checkpoint_sha,
+                *checkpoint_args,
                 "--lanes", "8",
                 "--n-steps", "4",
                 "--batch-size", "16",
@@ -123,6 +136,10 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             self.assertEqual(receipt["checkpoint_expected_sha256"], checkpoint_sha)
             self.assertEqual(receipt["checkpoint_sha256"], q.sha256(checkpoint))
             self.assertTrue(receipt["checkpoint_verified"])
+            self.assertEqual(receipt["contact_calibration_checkpoint"], str(calibration.resolve()))
+            self.assertEqual(receipt["contact_calibration_checkpoint_expected_sha256"], calibration_sha)
+            self.assertEqual(receipt["contact_calibration_checkpoint_sha256"], calibration_sha)
+            self.assertTrue(receipt["contact_calibration_checkpoint_verified"])
             self.assertEqual(receipt["gates"]["navigation_phase0b_parity"]["status"], "passed")
             self.assertEqual(receipt["gates"]["navigation_phase0b_parity"]["python_cases"], 2)
             self.assertEqual(receipt["gates"]["navigation_phase0b_parity"]["cuda_cases"], 4)
@@ -136,17 +153,33 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             self.assertIn("utilization_samples", receipt)
             self.assertTrue(receipt["utilization_samples"]["available"])
             self.assertGreater(receipt["utilization_samples"]["max_sm_util"], 0)
+            raw_utilization = output / "gpu-utilization-dmon.txt"
+            self.assertEqual(raw_utilization.read_text(), "# gpu sm mem enc dec\n0 7 10 0 0\n0 11 12 0 0\n")
+            self.assertEqual(receipt["utilization_samples"]["raw_artifact"]["path"], "gpu-utilization-dmon.txt")
+            self.assertEqual(receipt["utilization_samples"]["raw_artifact"]["bytes"], raw_utilization.stat().st_size)
+            self.assertEqual(receipt["utilization_samples"]["raw_artifact"]["sha256"], q.sha256(raw_utilization))
+            self.assertEqual(receipt["utilization_samples"]["sample_count"], 2)
+            self.assertEqual(receipt["utilization_samples"]["max_sm_util"], 11)
+            self.assertEqual(receipt["utilization_samples"]["mean_sm_util"], 9.0)
             self.assertIn("source_hashes", receipt)
+            self.assertEqual(receipt["artifact_hashes"]["gpu-utilization-dmon.txt"]["sha256"],
+                             q.sha256(raw_utilization))
             self.assertEqual(receipt["artifact_hashes"]["navigation-phase0b-parity.json"]["sha256"],
                              q.sha256(output / "navigation-phase0b-parity.json"))
             self.assertEqual(receipt["artifact_hashes"]["alternating-smoke/alternating-smoke.json"]["sha256"],
                              q.sha256(output / "alternating-smoke" / "alternating-smoke.json"))
             self.assertNotIn("qualification.json", receipt["artifact_hashes"])
             inventory = json.loads((output / "inventory.json").read_text())
+            self.assertEqual(inventory["schema_version"], "curriculum-inventory-v1")
+            self.assertEqual(inventory["block_id"], output.name)
+            self.assertNotIn("schema", inventory)
             inventory_hashes = {row["path"]: row["sha256"] for row in inventory["files"]}
             self.assertEqual(inventory_hashes["qualification.json"], q.sha256(output / "qualification.json"))
+            self.assertEqual(inventory_hashes["gpu-utilization-dmon.txt"], q.sha256(raw_utilization))
             self.assertEqual(inventory_hashes["navigation-phase0b-parity.json"],
                              q.sha256(output / "navigation-phase0b-parity.json"))
+            self.assertNotIn("inventory.json", inventory_hashes)
+            self.assertNotIn("preservation_ack.json", inventory_hashes)
             self.assertEqual(nav_calls[0][nav_calls[0].index("--phase") + 1], "0b")
             self.assertEqual(nav_calls[0][nav_calls[0].index("--device") + 1], "cuda")
             invoked_modules = [
@@ -164,7 +197,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             self.assertEqual(smoke_calls[0]["checkpoint"], checkpoint.resolve())
             command_env = commands[0][1]
             self.assertEqual(command_env["WANDB_MODE"], "offline")
-            self.assertEqual(command_env["AI2_CONTACT_CHECKPOINT"], str(checkpoint.resolve()))
+            self.assertEqual(command_env["AI2_CONTACT_CHECKPOINT"], str(calibration.resolve()))
             self.assertLess(events.index("dmon-start"), events.index("nav"))
             self.assertLess(events.index("smoke"), events.index("dmon-terminate"))
             with self.assertRaises(FileExistsError):
@@ -174,9 +207,44 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                     "--build-dir", str(root / "build2"),
                     "--output-dir", str(output),
                     "--device", "cuda",
-                    "--checkpoint", str(checkpoint),
-                    "--checkpoint-sha256", checkpoint_sha,
+                    *checkpoint_args,
                 ]), import_module=lambda name: modules[name], command_runner=self.command_runner(commands))
+
+    def test_write_inventory_uses_campaign_schema_excludes_self_ack_and_rejects_unsafe_artifacts(self):
+        q = self.subject()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "qualification-block"
+            output.mkdir()
+            (output / "qualification.json").write_text("{}\n")
+            (output / "manifest.json").write_text("{}\n")
+            (output / "preservation_ack.json").write_text("{}\n")
+            inventory = q.write_inventory(output, block_id=output.name)
+            self.assertEqual(inventory["schema_version"], "curriculum-inventory-v1")
+            self.assertEqual(inventory["block_id"], output.name)
+            self.assertNotIn("schema", inventory)
+            paths = [row["path"] for row in inventory["files"]]
+            self.assertEqual(paths, ["manifest.json", "qualification.json"])
+            hashes = {row["path"]: row for row in inventory["files"]}
+            self.assertEqual(hashes["qualification.json"]["bytes"], (output / "qualification.json").stat().st_size)
+            self.assertEqual(hashes["qualification.json"]["sha256"], q.sha256(output / "qualification.json"))
+            self.assertNotIn("inventory.json", paths)
+            self.assertNotIn("preservation_ack.json", paths)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "qualification-block"
+            output.mkdir()
+            (output / "qualification.json").write_text("{}\n")
+            (output / "unfinished.tmp").write_text("partial")
+            with self.assertRaisesRegex(ValueError, "unfinished artifact"):
+                q.write_inventory(output, block_id=output.name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "qualification-block"
+            output.mkdir()
+            (output / "qualification.json").write_text("{}\n")
+            os.symlink(output / "qualification.json", output / "qualification-link.json")
+            with self.assertRaisesRegex(ValueError, "symlinks"):
+                q.write_inventory(output, block_id=output.name)
 
     def test_checkpoint_is_required_and_expected_sha_must_match(self):
         q = self.subject()
@@ -193,8 +261,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                     "--output-dir", str(root / "out"),
                     "--device", "cuda",
                 ])
-            checkpoint = root / "b40.zip"
-            checkpoint.write_bytes(b"checkpoint")
+            checkpoint, _, checkpoint_args = self.checkpoint_args(root, q)
             output = root / "out2"
             modules = self.modules_for_success()
             code = q.main([
@@ -205,12 +272,59 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                 "--device", "cuda",
                 "--checkpoint", str(checkpoint),
                 "--checkpoint-sha256", "0" * 64,
+                *checkpoint_args[4:],
             ], import_module=lambda name: modules[name], command_runner=self.command_runner([]),
                 dmon_popen=self.dmon_popen([]))
             receipt = json.loads((output / "qualification.json").read_text())
             self.assertEqual(code, 1)
             self.assertIn("checkpoint sha256 mismatch", receipt["error"])
             self.assertFalse(receipt.get("checkpoint_verified", False))
+
+    def test_contact_calibration_checkpoint_is_required_and_exact_sha_must_match_before_child_gates(self):
+        q = self.subject()
+        self.assertEqual(
+            q.CANONICAL_CONTACT_CALIBRATION_CHECKPOINT_SHA256,
+            "301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.source_tree(root)
+            config = root / "config.yaml"
+            config.write_text("curriculum: {}\n")
+            checkpoint = root / "b40.zip"
+            checkpoint.write_bytes(b"checkpoint")
+            with self.assertRaises(SystemExit):
+                q.parse_args([
+                    "--source", str(source),
+                    "--config", str(config),
+                    "--build-dir", str(root / "build"),
+                    "--output-dir", str(root / "out"),
+                    "--device", "cuda",
+                    "--checkpoint", str(checkpoint),
+                    "--checkpoint-sha256", q.sha256(checkpoint),
+                ])
+
+            calibration = root / "contact-calibration.zip"
+            calibration.write_bytes(b"not the canonical calibration checkpoint")
+            output = root / "out2"
+            modules = self.modules_for_success()
+            commands: list[list[str]] = []
+            code = q.main([
+                "--source", str(source),
+                "--config", str(config),
+                "--build-dir", str(root / "build"),
+                "--output-dir", str(output),
+                "--device", "cuda",
+                "--checkpoint", str(checkpoint),
+                "--checkpoint-sha256", q.sha256(checkpoint),
+                "--contact-calibration-checkpoint", str(calibration),
+            ], import_module=lambda name: modules[name], command_runner=self.command_runner(commands),
+                dmon_popen=self.dmon_popen([]))
+            receipt = json.loads((output / "qualification.json").read_text())
+            self.assertEqual(code, 1)
+            self.assertIn("contact calibration checkpoint sha256 mismatch", receipt["error"])
+            self.assertFalse(receipt.get("contact_calibration_checkpoint_verified", False))
+            self.assertEqual(commands, [])
 
     def test_unittest_gate_rejects_skips_and_zero_test_runs(self):
         q = self.subject()
@@ -243,11 +357,41 @@ class RetentionCudaQualificationTests(unittest.TestCase):
         q.validate_utilization_samples({"available": False, "samples": [], "max_sm_util": None}, production_gate=False)
         with self.assertRaisesRegex(q.QualificationError, "utilization evidence"):
             q.validate_utilization_samples({"available": False, "samples": [], "max_sm_util": None}, production_gate=True)
+        with self.assertRaisesRegex(q.QualificationError, "raw dmon artifact"):
+            q.validate_utilization_samples({
+                "available": True,
+                "samples": ["0 7 10"],
+                "sample_count": 1,
+                "max_sm_util": 7,
+                "mean_sm_util": 7.0,
+                "raw_artifact": {"path": "gpu-utilization-dmon.txt", "bytes": 0, "sha256": "0" * 64},
+            }, production_gate=True)
+        with self.assertRaisesRegex(q.QualificationError, "valid dmon samples"):
+            q.validate_utilization_samples({
+                "available": True,
+                "samples": ["bad row"],
+                "sample_count": 0,
+                "max_sm_util": None,
+                "mean_sm_util": None,
+                "raw_artifact": {"path": "gpu-utilization-dmon.txt", "bytes": 9, "sha256": "0" * 64},
+            }, production_gate=True)
         with self.assertRaisesRegex(q.QualificationError, "non-zero SM"):
-            q.validate_utilization_samples({"available": True, "samples": ["0 0 10"], "max_sm_util": 0},
-                                           production_gate=True)
-        q.validate_utilization_samples({"available": True, "samples": ["0 7 10"], "max_sm_util": 7},
-                                       production_gate=True)
+            q.validate_utilization_samples({
+                "available": True,
+                "samples": ["0 0 10"],
+                "sample_count": 1,
+                "max_sm_util": 0,
+                "mean_sm_util": 0.0,
+                "raw_artifact": {"path": "gpu-utilization-dmon.txt", "bytes": 8, "sha256": "0" * 64},
+            }, production_gate=True)
+        q.validate_utilization_samples({
+            "available": True,
+            "samples": ["0 7 10"],
+            "sample_count": 1,
+            "max_sm_util": 7,
+            "mean_sm_util": 7.0,
+            "raw_artifact": {"path": "gpu-utilization-dmon.txt", "bytes": 8, "sha256": "0" * 64},
+        }, production_gate=True)
 
     def test_navigation_receipt_must_cover_exact_cases_ticks_and_no_skips(self):
         q = self.subject()
@@ -256,16 +400,14 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             source = self.source_tree(root)
             config = root / "config.yaml"
             config.write_text("curriculum: {}\n")
-            checkpoint = root / "b40.zip"
-            checkpoint.write_bytes(b"checkpoint")
+            _, _, checkpoint_args = self.checkpoint_args(root, q)
             args = q.parse_args([
                 "--source", str(source),
                 "--config", str(config),
                 "--build-dir", str(root / "build"),
                 "--output-dir", str(root / "out"),
                 "--device", "cuda",
-                "--checkpoint", str(checkpoint),
-                "--checkpoint-sha256", q.sha256(checkpoint),
+                *checkpoint_args,
             ])
             bad_module = self.nav_module([], python_cases=1, cuda_cases=4)
             with self.assertRaisesRegex(q.QualificationError, "2 Python"):
@@ -303,8 +445,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             config = root / "config.yaml"
             config.write_text("curriculum: {}\n")
             output = root / "qualification"
-            checkpoint = root / "b40.zip"
-            checkpoint.write_bytes(b"checkpoint")
+            _, _, checkpoint_args = self.checkpoint_args(root, q)
             nav_module = self.nav_module([])
             retention_module = self.retention_module([], smoke_result={"status": "failed", "error": "bad smoke"})
             modules = {
@@ -321,8 +462,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
                 "--build-dir", str(root / "build"),
                 "--output-dir", str(output),
                 "--device", "cuda",
-                "--checkpoint", str(checkpoint),
-                "--checkpoint-sha256", q.sha256(checkpoint),
+                *checkpoint_args,
             ], import_module=lambda name: modules[name], command_runner=self.command_runner([]))
             receipt = json.loads((output / "qualification.json").read_text())
             self.assertEqual(code, 1)
@@ -441,7 +581,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
         class FakeProcess:
             def __init__(self):
                 self.returncode = None
-                self.stdout_payload = "# gpu sm mem enc dec\n0 7 10 0 0\n"
+                self.stdout_payload = "# gpu sm mem enc dec\n0 7 10 0 0\n0 11 12 0 0\n"
                 self.stderr_payload = ""
 
             def terminate(self):
