@@ -32,6 +32,14 @@ class CausalRetentionCampaignTests(unittest.TestCase):
         self.assertEqual((repair.recipe, repair.seed, repair.rollouts, repair.resume_from), ("P1N", 510103, 1, p1c.name))
         self.assertEqual(repair.cumulative_added_transitions, 4_194_304)
 
+    def test_b40_parent_counter_is_the_completed_40m_stage_counter(self):
+        m = self.subject()
+
+        self.assertEqual(
+            m.B40_TIMESTEPS,
+            m.retention.contact.expected_counter_for_stage(40),
+        )
+
     def test_run_records_train_eval_after_each_probe_and_never_promotes(self):
         m = self.subject()
 
@@ -249,7 +257,7 @@ class CausalRetentionCampaignTests(unittest.TestCase):
             "task_transition_totals": {"combat": m.TRANSITIONS_PER_ROLLOUT if task == "combat" else 0, "navigation": m.TRANSITIONS_PER_ROLLOUT if task == "navigation" else 0},
             "parent_checkpoint_sha256": parent_sha,
             "final_model_counters": {
-                "num_timesteps": m.retention.contact.CANONICAL_PARENT_STEPS
+                "num_timesteps": m.B40_TIMESTEPS
                 + cumulative_rollouts * m.TRANSITIONS_PER_ROLLOUT
             },
         }
