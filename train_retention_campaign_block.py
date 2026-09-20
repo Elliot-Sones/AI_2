@@ -511,7 +511,12 @@ def run_qualification_smoke(*, schedule, cfg, source, config, build_dir, output_
         model.set_logger(throughput.configure_logger(output / "ppo"))
         logger = model.logger
         BaseCallback = receipt_callback_base()
-        callback = BaseCallback()
+
+        class SmokeCallback(BaseCallback):
+            def _on_step(self):
+                return True
+
+        callback = SmokeCallback()
         _, callback = model._setup_learn(
             len(schedule) * _transitions_per_rollout(smoke_cfg),
             callback=callback,

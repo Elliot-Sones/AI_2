@@ -3,6 +3,7 @@ import importlib.util
 import json
 import math
 import numpy as np
+from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -250,6 +251,12 @@ class RetentionCampaignBlockTests(unittest.TestCase):
 
     def test_qualification_smoke_validates_real_alternating_contract_from_runner_hooks(self):
         m = self.subject()
+
+        class AbstractCallback(ABC):
+            @abstractmethod
+            def _on_step(self):
+                raise NotImplementedError
+
         cfg_dict = {
             "lanes": 4,
             "n_steps": 2,
@@ -315,6 +322,7 @@ class RetentionCampaignBlockTests(unittest.TestCase):
                 return loaded
 
             with patch.object(m, "RetentionCampaignConfig", return_value=smoke_cfg), \
+                 patch.object(m, "receipt_callback_base", return_value=AbstractCallback), \
                  patch.object(m.base, "require_cuda", return_value="cuda:0"), \
                  patch.object(m.throughput, "build_contact_env", return_value=contact_env), \
                  patch.object(m, "build_navigation_curriculum_env", return_value=navigation_env), \
