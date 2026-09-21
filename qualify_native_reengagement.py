@@ -311,6 +311,14 @@ def valid_b2_episode_row() -> dict[str, Any]:
 def validate_b2_episode_rows(rows: list[dict[str, Any]]) -> None:
     if not rows:
         raise QualificationError("collector smoke produced no B2 episode rows")
+    required_diagnostic_fields = (
+        "achieved_first_hit",
+        "achieved_pursuit",
+        "achieved_second_hit",
+        "achieved_safe_resolution",
+        "first_hit_attack_id",
+        "second_hit_attack_id",
+    )
     for row in rows:
         if (
             row.get("curriculum_task") != "combat"
@@ -318,16 +326,25 @@ def validate_b2_episode_rows(rows: list[dict[str, Any]]) -> None:
             or row.get("curriculum_version") != CURRICULUM_VERSION
         ):
             raise QualificationError("Native episode records have a missing or wrong curriculum task/mask/version")
-        diagnostics = ((row.get("reengagement") or {}).get("diagnostics") or {})
-        if diagnostics.get("version") not in (None, CURRICULUM_VERSION):
+        diagnostics = (row.get("reengagement") or {}).get("diagnostics")
+        if not isinstance(diagnostics, dict) or not diagnostics:
+            raise QualificationError("Native episode diagnostics are required for B2 qualification")
+        if diagnostics.get("version") != CURRICULUM_VERSION:
             raise QualificationError("Native episode diagnostics have a missing or wrong B2 version")
         if diagnostics.get("trace_status") == "ambiguous" or diagnostics.get("ambiguous_trace"):
             raise QualificationError("collector smoke produced ambiguous trace evidence")
-        if diagnostics.get("success") or diagnostics.get("sequence_completed"):
-            first = int(diagnostics.get("first_hit_attack_id", 0) or 0)
-            second = int(diagnostics.get("second_hit_attack_id", 0) or 0)
-            if first == 0 or second == 0 or first == second:
-                raise QualificationError("successful B2 row is not reconstructable from two distinct attacks")
+        if diagnostics.get("trace_status") != "reconstructable":
+            raise QualificationError("Native episode diagnostics require trace_status=reconstructable")
+        missing_fields = [name for name in required_diagnostic_fields if name not in diagnostics]
+        if missing_fields:
+            raise QualificationError(f"Native episode missing required B2 diagnostic field(s): {missing_fields}")
+        for name in required_diagnostic_fields[:4]:
+            if not isinstance(diagnostics.get(name), bool):
+                raise QualificationError(f"Native episode B2 diagnostic field {name} must be boolean")
+        first = int(diagnostics.get("first_hit_attack_id", 0) or 0)
+        second = int(diagnostics.get("second_hit_attack_id", 0) or 0)
+        if first == 0 or second == 0 or first == second:
+            raise QualificationError("B2 row is not reconstructable from two distinct attacks")
 
 
 def validate_collector_smoke(result: CollectorSmokeResult) -> dict[str, Any]:
@@ -338,6 +355,8 @@ def validate_collector_smoke(result: CollectorSmokeResult) -> dict[str, Any]:
     parent = dict(result.parent_metadata or {})
     if parent.get("action_ab_arm") != "B_projected" or parent.get("action_head") != "bernoulli_10":
         raise QualificationError("collector smoke parent action arm/head metadata is not B_projected/bernoulli_10")
+    if parent.get("policy_action_head") != "bernoulli_10":
+        raise QualificationError("collector smoke policy action head is not bernoulli_10")
     if dict(parent.get("task_versions") or {}).get("combat") != CURRICULUM_VERSION:
         raise QualificationError("collector smoke parent task_versions are not B2-pure")
     metrics = dict(result.training_metrics or {})
@@ -383,9 +402,11 @@ def validate_junit(path: Path, stage: str, *, required_cuda: bool) -> dict[str, 
         raise QualificationError(f"{stage}: no test cases ran")
     skips: list[dict[str, str | None]] = []
     optional_skips: list[dict[str, str | None]] = []
+    executed_names: list[str | None] = []
     for case in cases:
         skipped = case.find("skipped")
         if skipped is None:
+            executed_names.append(case.get("name"))
             continue
         row = {"name": case.get("name"), "message": skipped.get("message")}
         skips.append(row)
@@ -394,7 +415,16 @@ def validate_junit(path: Path, stage: str, *, required_cuda: bool) -> dict[str, 
             continue
         if required_cuda:
             raise QualificationError(f"{stage}: skipped required CUDA test: {row['message']}")
-    return {"cases": len(cases), "skips": skips, "optional_skips": optional_skips}
+        raise QualificationError(f"{stage}: skipped required CPU test: {row['message']}")
+    if required_cuda and not executed_names:
+        raise QualificationError(f"{stage}: no required CUDA parity test executed")
+    return {
+        "cases": len(cases),
+        "executed": len(executed_names),
+        "executed_names": executed_names,
+        "skips": skips,
+        "optional_skips": optional_skips,
+    }
 
 
 def run_pytest_stage(

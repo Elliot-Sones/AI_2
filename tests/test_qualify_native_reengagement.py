@@ -16,11 +16,22 @@ class QualifyNativeReengagementTests(unittest.TestCase):
 
         return qualification
 
-    def write_junit(self, path: Path, *, cases: int = 1, skip_message: str | None = None) -> None:
+    def write_junit(
+        self,
+        path: Path,
+        *,
+        cases: int = 1,
+        skip_message: str | None = None,
+        case_names: list[str] | None = None,
+    ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         suite = ET.Element("testsuite")
         for index in range(cases):
-            case = ET.SubElement(suite, "testcase", name=f"case-{index}")
+            case = ET.SubElement(
+                suite,
+                "testcase",
+                name=case_names[index] if case_names is not None else f"case-{index}",
+            )
             if skip_message is not None and index == 0:
                 ET.SubElement(case, "skipped", message=skip_message)
         ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
@@ -204,6 +215,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     parent_metadata={
                         "action_ab_arm": "B_projected",
                         "action_head": "bernoulli_10",
+                        "policy_action_head": "bernoulli_10",
                         "task_versions": {"combat": q.CURRICULUM_VERSION},
                     },
                     ),
@@ -235,6 +247,22 @@ class QualifyNativeReengagementTests(unittest.TestCase):
         ambiguous["reengagement"]["diagnostics"]["trace_status"] = "ambiguous"
         with self.assertRaisesRegex(q.QualificationError, "ambiguous"):
             q.validate_b2_episode_rows([ambiguous])
+        missing_diagnostics = q.valid_b2_episode_row()
+        missing_diagnostics["reengagement"] = {}
+        with self.assertRaisesRegex(q.QualificationError, "diagnostics"):
+            q.validate_b2_episode_rows([missing_diagnostics])
+        missing_status = q.valid_b2_episode_row()
+        missing_status["reengagement"]["diagnostics"].pop("trace_status")
+        with self.assertRaisesRegex(q.QualificationError, "trace_status"):
+            q.validate_b2_episode_rows([missing_status])
+        missing_field = q.valid_b2_episode_row()
+        missing_field["reengagement"]["diagnostics"].pop("achieved_second_hit")
+        with self.assertRaisesRegex(q.QualificationError, "diagnostic field"):
+            q.validate_b2_episode_rows([missing_field])
+        missing_attack = q.valid_b2_episode_row()
+        missing_attack["reengagement"]["diagnostics"].pop("second_hit_attack_id")
+        with self.assertRaisesRegex(q.QualificationError, "diagnostic field"):
+            q.validate_b2_episode_rows([missing_attack])
         with self.assertRaisesRegex(q.QualificationError, "loss"):
             q.validate_collector_smoke(
                 q.CollectorSmokeResult(
@@ -250,6 +278,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     b1_regression={"status": "passed", "log_sha256": "a" * 64, "xml_sha256": "b" * 64},
                     checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
                     parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli_10",
                                      "task_versions": {"combat": q.CURRICULUM_VERSION}},
                 )
             )
@@ -268,6 +297,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     b1_regression={"status": "passed", "log_sha256": "a" * 64, "xml_sha256": "b" * 64},
                     checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
                     parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli_10",
                                      "task_versions": {"combat": q.CURRICULUM_VERSION}},
                 )
             )
@@ -286,6 +316,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     b1_regression={"status": "passed", "log_sha256": "a" * 64, "xml_sha256": "b" * 64},
                     checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
                     parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli_10",
                                      "task_versions": {"combat": q.CURRICULUM_VERSION}},
                 )
             )
@@ -304,6 +335,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     b1_regression={"status": "passed", "log_sha256": "a" * 64, "xml_sha256": "b" * 64},
                     checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
                     parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli_10",
                                      "task_versions": {"combat": q.CURRICULUM_VERSION}},
                 )
             )
@@ -322,6 +354,26 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     b1_regression={"status": "passed"},
                     checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
                     parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli_10",
+                                     "task_versions": {"combat": q.CURRICULUM_VERSION}},
+                )
+            )
+        with self.assertRaisesRegex(q.QualificationError, "policy action head"):
+            q.validate_collector_smoke(
+                q.CollectorSmokeResult(
+                    status="passed",
+                    reason="bad",
+                    training_metrics={"train/value_loss": 0.25, "train/entropy_loss": -0.5},
+                    attempted_epochs=1,
+                    optimizer_steps=1,
+                    train_invocations=1,
+                    update_counter_before=0,
+                    update_counter_after=1,
+                    b2_episode_rows=[q.valid_b2_episode_row()],
+                    b1_regression={"status": "passed", "log_sha256": "a" * 64, "xml_sha256": "b" * 64},
+                    checkpoint_sha256=q.EXPECTED_PARENT_SHA256,
+                    parent_metadata={"action_ab_arm": "B_projected", "action_head": "bernoulli_10",
+                                     "policy_action_head": "bernoulli",
                                      "task_versions": {"combat": q.CURRICULUM_VERSION}},
                 )
             )
@@ -331,12 +383,32 @@ class QualifyNativeReengagementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             xml = root / "cases.xml"
-            self.write_junit(xml, cases=2, skip_message="two CUDA devices required")
+            self.write_junit(
+                xml,
+                cases=2,
+                skip_message="two CUDA devices required",
+                case_names=["test_native_cuda_two_device_scale", "test_native_cpu_cuda_single_device_parity"],
+            )
             summary = q.validate_junit(xml, "native_cpu_cuda", required_cuda=True)
-            self.assertEqual(summary["optional_skips"], [{"name": "case-0", "message": "two CUDA devices required"}])
+            self.assertEqual(
+                summary["optional_skips"],
+                [{"name": "test_native_cuda_two_device_scale", "message": "two CUDA devices required"}],
+            )
+            self.assertEqual(summary["executed"], 1)
+            self.write_junit(
+                xml,
+                cases=1,
+                skip_message="two CUDA devices required",
+                case_names=["test_native_cuda_two_device_scale"],
+            )
+            with self.assertRaisesRegex(q.QualificationError, "no required CUDA parity test executed"):
+                q.validate_junit(xml, "native_cpu_cuda", required_cuda=True)
             self.write_junit(xml, cases=2, skip_message="CUDA unavailable")
             with self.assertRaisesRegex(q.QualificationError, "skipped required CUDA"):
                 q.validate_junit(xml, "native_cpu_cuda", required_cuda=True)
+            self.write_junit(xml, cases=1, skip_message="CPU fixture missing")
+            with self.assertRaisesRegex(q.QualificationError, "skipped required CPU"):
+                q.validate_junit(xml, "python_oracle_native_cpu", required_cuda=False)
 
     def test_missing_required_source_and_wrong_checkpoint_hash_fail(self):
         q = self.subject()
