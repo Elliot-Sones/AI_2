@@ -166,7 +166,7 @@ def development_gate(result: dict) -> GateVerdict:
     components = {}
     stop = False
     failed = []
-    if not isinstance(counter, int) or counter < 0:
+    if not isinstance(counter, int) or isinstance(counter, bool) or counter < 0:
         failed.append("checkpoint_counter")
         stop = True
     if not _sha_like(checkpoint_hash):
@@ -204,7 +204,7 @@ def development_gate(result: dict) -> GateVerdict:
         eligible=not failed,
         stop=stop,
         reason="eligible" if not failed else "failed: " + ", ".join(failed),
-        checkpoint_counter=counter if isinstance(counter, int) else None,
+        checkpoint_counter=counter if isinstance(counter, int) and not isinstance(counter, bool) else None,
         checkpoint_hash=checkpoint_hash if _sha_like(checkpoint_hash) else None,
         components=components,
         raw=raw,
@@ -417,7 +417,7 @@ def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str, base_dir:
     if not isinstance(checkpoint, dict) or checkpoint.get("sha256") != expected_checkpoint_hash:
         raise ValueError("preservation receipt checkpoint hash mismatch")
     wandb = payload.get("wandb")
-    if not isinstance(wandb, dict) or not wandb.get("receipt_sha256"):
+    if not isinstance(wandb, dict) or not _sha_like(wandb.get("receipt_sha256")):
         raise ValueError("preservation receipt requires W&B receipt")
     if not wandb.get("offline_dir") and not (wandb.get("url") or wandb.get("run_path")):
         raise ValueError("preservation receipt requires W&B online receipt or offline dir")
@@ -552,21 +552,45 @@ def _retention_mode(result: dict, domain: str, mode: str, episodes: int) -> dict
 def _retention_falls(row: dict, domain: str, mode: str, *, parent: bool = False) -> float:
     field = "self_losses" if domain == "contact" else "falls"
     prefix = "parent_" if parent else ""
-    return _finite_number(row.get(field, 0), f"{domain}.{mode}.{prefix}{field}")
+    if field not in row:
+        raise ValueError(f"{domain}.{mode}.{prefix}{field} is required")
+    return _finite_number(row[field], f"{domain}.{mode}.{prefix}{field}")
 
 
 def _validate_wandb_receipt(base_dir: Path, wandb: dict) -> None:
-    receipt_path = wandb.get("receipt_path")
-    receipt_sha256 = wandb.get("receipt_sha256")
-    _validate_artifact_rows(base_dir, [{"path": receipt_path, "sha256": receipt_sha256}])
     offline_dir = wandb.get("offline_dir")
     if offline_dir:
+        _validate_artifact_rows(
+            base_dir,
+            [{"path": wandb.get("receipt_path"), "sha256": wandb.get("receipt_sha256")}],
+        )
         relative = _safe_relative_path(offline_dir, "W&B offline directory")
         directory = base_dir / relative
         if not directory.is_dir() or directory.is_symlink():
             raise ValueError("preserved W&B offline directory is missing")
         if not any(path.is_file() and not path.is_symlink() for path in directory.rglob("*")):
             raise ValueError("preserved W&B offline directory is empty")
+        return
+    if wandb.get("receipt_path"):
+        _validate_artifact_rows(
+            base_dir,
+            [{"path": wandb["receipt_path"], "sha256": wandb.get("receipt_sha256")}],
+        )
+        return
+    expected = online_wandb_receipt_sha256(url=wandb.get("url"), run_path=wandb.get("run_path"))
+    if wandb.get("receipt_sha256") != expected:
+        raise ValueError("online W&B receipt hash mismatch")
+
+
+def online_wandb_receipt_sha256(*, url, run_path) -> str:
+    if not url and not run_path:
+        raise ValueError("online W&B receipt requires url or run_path")
+    canonical = json.dumps(
+        {"run_path": run_path or None, "url": url or None},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _safe_relative_path(value, label: str) -> Path:

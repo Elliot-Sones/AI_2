@@ -1,5 +1,4 @@
 import importlib.util
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -67,6 +66,80 @@ class RetentionEvaluationTests(unittest.TestCase):
         self.assertEqual(result["panels"]["contact"]["deterministic"]["successes"], 18)
         self.assertEqual(result["panels"]["wide"]["sampled"]["falls"], 2)
         self.assertEqual(result["raw_panels"]["wide"], summaries["wide"])
+
+    def test_normalizes_100_case_confirmation_retention_panels(self):
+        m = self.subject()
+        summaries = {
+            "combat": {
+                "modes": {
+                    mode: {
+                        "episodes": 100,
+                        "successes": 95,
+                        "self_losses": 2,
+                        "opponent_self_losses": 0,
+                        "timeouts": 3,
+                        "ambiguous": 0,
+                    }
+                    for mode in ("deterministic", "sampled")
+                }
+            },
+            "near": {
+                "modes": {
+                    mode: {"episodes": 100, "successes": 96, "falls": 4}
+                    for mode in ("deterministic", "sampled")
+                }
+            },
+            "wide": {
+                "modes": {
+                    mode: {"episodes": 100, "successes": 90, "falls": 5}
+                    for mode in ("deterministic", "sampled")
+                }
+            },
+        }
+
+        result = m.build_result(
+            summaries,
+            candidate={"checkpoint_sha256": "a" * 64},
+            qualification={"qualified": True},
+            qualification_sha256="b" * 64,
+            wall_seconds=2.5,
+            episodes_per_mode=100,
+        )
+
+        self.assertEqual(result["episodes_per_mode"], 100)
+        self.assertEqual(result["panels"]["contact"]["deterministic"]["episodes"], 100)
+        self.assertEqual(result["panels"]["nearby"]["sampled"]["falls"], 4)
+
+    def test_100_case_confirmation_rows_require_50_cases_per_player_slot(self):
+        m = self.subject()
+        rows = [
+            {
+                "mode": "deterministic",
+                "player_slot": slot,
+                "success": True,
+                "outcome": "success",
+            }
+            for slot in (0, 1)
+            for _ in range(50)
+        ]
+
+        breakdown = m._slot_breakdown(
+            {"episodes": rows},
+            "deterministic",
+            100,
+            domain="nearby",
+        )
+
+        self.assertEqual(breakdown["0"]["episodes"], 50)
+        self.assertEqual(breakdown["1"]["successes"], 50)
+        rows[50]["player_slot"] = 0
+        with self.assertRaisesRegex(ValueError, "exactly 50 slot0 and 50 slot1"):
+            m._slot_breakdown(
+                {"episodes": rows},
+                "deterministic",
+                100,
+                domain="nearby",
+            )
 
     def test_missing_contact_attribution_is_marked_ambiguous_not_clean(self):
         m = self.subject()
@@ -345,7 +418,7 @@ class RetentionEvaluationTests(unittest.TestCase):
                 frozen_root=root,
                 output=root / "eval",
                 deadline_unix=10**12,
-                episodes=20,
+                episodes=100,
             )
             calls = []
 
@@ -356,8 +429,8 @@ class RetentionEvaluationTests(unittest.TestCase):
                 domain = command[command.index("--task") + 1]
                 payload = {
                     "modes": {
-                        "deterministic": {"episodes": 20, "successes": 20 if domain != "wide" else 13, "falls": 0},
-                        "sampled": {"episodes": 20, "successes": 20 if domain != "wide" else 13, "falls": 0},
+                        "deterministic": {"episodes": args.episodes, "successes": args.episodes if domain != "wide" else 65, "falls": 0},
+                        "sampled": {"episodes": args.episodes, "successes": args.episodes if domain != "wide" else 65, "falls": 0},
                     }
                 }
                 if domain == "combat":

@@ -26,6 +26,7 @@ SCHEMA_VERSION = "ai2.retention_evaluation.v1"
 TASKS = ("combat", "near", "wide")
 TASK_TO_DOMAIN = {"combat": "contact", "near": "nearby", "wide": "wide"}
 MODES = ("deterministic", "sampled")
+SUPPORTED_EPISODES_PER_MODE = (20, 100)
 
 
 def require_preserved_checkpoint(checkpoint, ack_path):
@@ -135,8 +136,13 @@ def _slot_breakdown(task_summary, mode, episodes, *, domain):
     by_slot = {0: [], 1: []}
     for row in selected:
         by_slot[_episode_player_slot(row)].append(row)
-    if len(by_slot[0]) != 10 or len(by_slot[1]) != 10:
-        raise ValueError(f"{domain} {mode} panel must contain exactly 10 slot0 and 10 slot1 episodes")
+    if episodes % 2:
+        raise ValueError(f"{domain} {mode} panel cannot balance an odd episode count")
+    per_slot = episodes // 2
+    if len(by_slot[0]) != per_slot or len(by_slot[1]) != per_slot:
+        raise ValueError(
+            f"{domain} {mode} panel must contain exactly {per_slot} slot0 and {per_slot} slot1 episodes"
+        )
     breakdown = {}
     for slot, rows in by_slot.items():
         counts = {
@@ -202,7 +208,7 @@ def _derive_contact_attribution(task_summary, mode, episodes):
     return counts
 
 
-def _summary_counts(summary, *, domain, task_summary=None, mode=None):
+def _summary_counts(summary, *, domain, expected_episodes=20, task_summary=None, mode=None):
     data = summary.get("summary", summary)
     episodes = data.get("episodes")
     successes = data.get("successes", data.get("wins"))
@@ -239,15 +245,25 @@ def _summary_counts(summary, *, domain, task_summary=None, mode=None):
     for key, value in panel.items():
         if type(value) is not int:
             raise ValueError(f"{domain} panel summary field {key} must be an integer")
-    if panel["episodes"] != 20:
-        raise ValueError(f"{domain} panel must contain exactly 20 episodes")
+    if panel["episodes"] != expected_episodes:
+        raise ValueError(f"{domain} panel must contain exactly {expected_episodes} episodes")
     breakdown = _slot_breakdown(task_summary or {}, mode, panel["episodes"], domain=domain)
     if breakdown is not None:
         panel["by_player_slot"] = breakdown
     return panel
 
 
-def build_result(summaries, *, candidate, qualification, qualification_sha256, wall_seconds):
+def build_result(
+    summaries,
+    *,
+    candidate,
+    qualification,
+    qualification_sha256,
+    wall_seconds,
+    episodes_per_mode=20,
+):
+    if episodes_per_mode not in SUPPORTED_EPISODES_PER_MODE:
+        raise ValueError("retention evaluation supports only 20-case development or 100-case confirmation panels")
     panels = {}
     slot_breakdown = {}
     raw = {}
@@ -261,14 +277,20 @@ def build_result(summaries, *, candidate, qualification, qualification_sha256, w
         for mode in MODES:
             if mode not in modes:
                 raise ValueError(f"{task} summary missing {mode} mode")
-            panels.setdefault(domain, {})[mode] = _summary_counts(modes[mode], domain=domain, task_summary=task_summary, mode=mode)
+            panels.setdefault(domain, {})[mode] = _summary_counts(
+                modes[mode],
+                domain=domain,
+                expected_episodes=episodes_per_mode,
+                task_summary=task_summary,
+                mode=mode,
+            )
             if "by_player_slot" in panels[domain][mode]:
                 slot_breakdown.setdefault(domain, {})[mode] = panels[domain][mode]["by_player_slot"]
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "evaluated_not_promoted",
         "mastery_established": False,
-        "episodes_per_mode": 20,
+        "episodes_per_mode": episodes_per_mode,
         "candidate": candidate,
         "qualification": qualification,
         "qualification_sha256": qualification_sha256,
@@ -284,8 +306,8 @@ def evaluate(args):
     output = Path(args.output)
     if output.exists():
         raise FileExistsError("evaluation outputs must be new and immutable")
-    if args.episodes != 20:
-        raise ValueError("retention evaluation requires exact 20-episode development panels")
+    if args.episodes not in SUPPORTED_EPISODES_PER_MODE:
+        raise ValueError("retention evaluation supports only exact 20-case development or 100-case confirmation panels")
     validate_deadline(args.deadline_unix)
     qualification = require_qualification(args.qualification, args.reference_root, args.frozen_root)
     preserved = require_preserved_checkpoint(args.checkpoint, args.verified_ack)
@@ -306,7 +328,11 @@ def evaluate(args):
             "candidate": preserved,
             "qualification_sha256": sha256(args.qualification),
             "episodes_per_mode": args.episodes,
-            "player_slot_balance": {"required_when_episode_rows_present": True, "slot0": 10, "slot1": 10},
+            "player_slot_balance": {
+                "required_when_episode_rows_present": True,
+                "slot0": args.episodes // 2,
+                "slot1": args.episodes // 2,
+            },
             "panels": [{"task": job["task"], "domain": job["domain"], "output": str(job_output(args, job))} for job in jobs],
             "commands": [evaluation_command(args, job) for job in jobs],
             "started_unix": time.time(),
@@ -344,6 +370,7 @@ def evaluate(args):
             qualification=qualification,
             qualification_sha256=sha256(args.qualification),
             wall_seconds=time.perf_counter() - started,
+            episodes_per_mode=args.episodes,
         )
         atomic_json(output / "result.json", result)
         write_inventory(output, block_id=output.name)

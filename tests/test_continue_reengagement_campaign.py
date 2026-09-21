@@ -215,6 +215,9 @@ def test_development_mastery_requires_two_distinct_increasing_qualified_checkpoi
     bad_evidence = m.development_gate(development_result(counter=6, ambiguous=1))
     assert bad_evidence.stop
     assert "invalid_or_ambiguous" in bad_evidence.reason
+    boolean_counter = m.development_gate(development_result(counter=True, hash_value="6" * 64))
+    assert boolean_counter.stop
+    assert "checkpoint_counter" in boolean_counter.reason
 
 
 def test_development_gate_consumes_real_task7_evaluator_schema_without_invented_panels():
@@ -320,6 +323,15 @@ def test_retention_alarms_pause_on_matched_parent_regression_thresholds():
     with pytest.raises(ValueError, match="nearby/deterministic"):
         m.retention_alarm(incomplete, parent)
 
+    missing_fall_evidence = retention_result()
+    del missing_fall_evidence["panels"]["contact"]["deterministic"]["self_losses"]
+    with pytest.raises(ValueError, match="self_losses"):
+        m.retention_alarm(missing_fall_evidence, parent)
+    missing_fall_evidence = retention_result()
+    del missing_fall_evidence["panels"]["wide"]["sampled"]["falls"]
+    with pytest.raises(ValueError, match="falls"):
+        m.retention_alarm(missing_fall_evidence, parent)
+
 
 def test_confirmation_retention_allows_only_five_percentage_points_success_loss_and_five_percent_falls():
     m = subject()
@@ -376,9 +388,11 @@ def test_preservation_receipt_accepts_online_wandb_and_hashes_real_files():
         payload = write_preservation_payload(block)
         checkpoint_hash = payload["checkpoint"]["sha256"]
         payload["wandb"] = {
-            "receipt_path": "wandb-receipt.json",
-            "receipt_sha256": hashlib.sha256((block / "wandb-receipt.json").read_bytes()).hexdigest(),
             "url": "https://wandb.ai/entity/project/runs/run-id",
+            "receipt_sha256": m.online_wandb_receipt_sha256(
+                url="https://wandb.ai/entity/project/runs/run-id",
+                run_path=None,
+            ),
         }
         assert m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)["wandb"]["url"]
 
