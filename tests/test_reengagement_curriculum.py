@@ -23,7 +23,9 @@ def resolve_frozen_source_root() -> Path:
     return root
 
 
-FROZEN = resolve_frozen_source_root()
+@pytest.fixture(scope="module")
+def frozen_root() -> Path:
+    return resolve_frozen_source_root()
 
 
 def zero_action() -> np.ndarray:
@@ -43,8 +45,13 @@ def test_frozen_fixture_defaults_to_reviewed_worktree_when_no_override(monkeypat
 
 
 def test_frozen_fixture_uses_explicit_override_and_fails_clearly_for_missing_path(monkeypatch, tmp_path):
-    monkeypatch.setenv("AI2_FROZEN_SOURCE_ROOT", str(FROZEN))
-    assert resolve_frozen_source_root() == FROZEN
+    explicit = tmp_path / "oracle"
+    source = explicit / "UTMIST-AI2-main/environment/environment.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# fixture shape only; source hash is validated by real env construction\n")
+
+    monkeypatch.setenv("AI2_FROZEN_SOURCE_ROOT", str(explicit))
+    assert resolve_frozen_source_root() == explicit.resolve()
 
     missing = tmp_path / "missing-oracle"
     monkeypatch.setenv("AI2_FROZEN_SOURCE_ROOT", str(missing))
@@ -208,13 +215,13 @@ def test_choose_target_anchor_uses_floor_bounds_half_width_gap_and_tie_direction
 
 @pytest.mark.parametrize("slot", [0, 1])
 @pytest.mark.parametrize("direction", [-1, 1])
-def test_reset_is_deterministic_private_rng_and_safe_for_both_slots_directions(slot, direction):
+def test_reset_is_deterministic_private_rng_and_safe_for_both_slots_directions(frozen_root, slot, direction):
     random.seed(987)
     np.random.seed(654)
     py_before = random.getstate()
     np_before = np.random.get_state()
 
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=slot)
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=slot)
     try:
         first_obs, first_info = env.reset(
             seed=100 + slot,
@@ -245,8 +252,8 @@ def test_reset_is_deterministic_private_rng_and_safe_for_both_slots_directions(s
     assert first["opponent_action"] == [0.0] * 10
 
 
-def test_constructor_honors_player_slot_for_initial_episode():
-    env = rc.make_reengagement_env(FROZEN, seed=18, player_slot=1)
+def test_constructor_honors_player_slot_for_initial_episode(frozen_root):
+    env = rc.make_reengagement_env(frozen_root, seed=18, player_slot=1)
     try:
         assert env.player_slot == 1
         assert env.scenario["player_slot"] == 1
@@ -264,8 +271,8 @@ def test_constructor_honors_player_slot_for_initial_episode():
         {"player_slot": 0, "direction": 1, "gap": 3.2, "midpoint": float("nan")},
     ],
 )
-def test_invalid_scenarios_are_rejected_before_reset_mutates(scenario):
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+def test_invalid_scenarios_are_rejected_before_reset_mutates(frozen_root, scenario):
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         _, info = env.reset(seed=17, options={"scenario": {"player_slot": 0, "direction": 1}})
         before = info["trace"]["post_players"]
@@ -289,8 +296,8 @@ def test_invalid_scenarios_are_rejected_before_reset_mutates(scenario):
         (17, {"midpoint": "4.5"}),
     ],
 )
-def test_scenario_reset_rejects_raw_invalid_types_without_mutating_episode(seed_value, scenario_override):
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_scenario_reset_rejects_raw_invalid_types_without_mutating_episode(frozen_root, seed_value, scenario_override):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         _, info = env.reset(seed=17, options={"scenario": {"player_slot": 0, "direction": 1}})
         before = {
@@ -314,8 +321,8 @@ def test_scenario_reset_rejects_raw_invalid_types_without_mutating_episode(seed_
     assert after == before
 
 
-def test_relocation_recreates_only_target_and_preserves_required_state(monkeypatch):
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_relocation_recreates_only_target_and_preserves_required_state(frozen_root, monkeypatch):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         env.reset(seed=134040, options={"scenario": {"player_slot": 0, "direction": 1}})
         learner = env.raw_env.players[env.player_slot]
@@ -379,8 +386,8 @@ def test_relocation_recreates_only_target_and_preserves_required_state(monkeypat
         env.close()
 
 
-def test_relocation_pending_when_no_safe_anchor_does_not_recreate_target(monkeypatch):
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_relocation_pending_when_no_safe_anchor_does_not_recreate_target(frozen_root, monkeypatch):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         env.reset(seed=134041, options={"scenario": {"player_slot": 0, "direction": 1}})
         learner = env.raw_env.players[env.player_slot]
@@ -401,8 +408,8 @@ def test_relocation_pending_when_no_safe_anchor_does_not_recreate_target(monkeyp
 
 @pytest.mark.parametrize("slot", [0, 1])
 @pytest.mark.parametrize("direction", [-1, 1])
-def test_scripted_hit_resolve_pursue_hit_resolve_succeeds(slot, direction):
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=slot)
+def test_scripted_hit_resolve_pursue_hit_resolve_succeeds(frozen_root, slot, direction):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=slot)
     try:
         env.reset(seed=134000 + slot, options={"scenario": {"player_slot": slot, "direction": direction}})
         info = finish_episode(env, "scripted")
@@ -431,8 +438,8 @@ def test_scripted_hit_resolve_pursue_hit_resolve_succeeds(slot, direction):
         ("walkoff", "own_stock_loss"),
     ],
 )
-def test_shortcut_controllers_fail(controller, expected):
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+def test_shortcut_controllers_fail(frozen_root, controller, expected):
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         env.reset(seed=134010, options={"scenario": {"player_slot": 0, "direction": 1}})
         info = finish_episode(env, controller)
@@ -442,8 +449,8 @@ def test_shortcut_controllers_fail(controller, expected):
     assert info["episode_diagnostics"]["success"] is False
 
 
-def test_repeated_first_attack_id_and_opponent_self_loss_fail_without_success_transition():
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+def test_repeated_first_attack_id_and_opponent_self_loss_fail_without_success_transition(frozen_root):
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         env.reset(seed=134020, options={"scenario": {"player_slot": 0, "direction": 1}})
         while env.relocation_tick is None:
@@ -474,7 +481,7 @@ def test_repeated_first_attack_id_and_opponent_self_loss_fail_without_success_tr
     finally:
         env.close()
 
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         env.reset(seed=134021, options={"scenario": {"player_slot": 0, "direction": 1}})
         target = env.raw_env.players[1]
@@ -518,8 +525,8 @@ def test_simultaneous_stock_loss_prioritizes_own_loss_and_adds_hit_penalty_and_t
     assert info["trace"]["reward_terms"]["tick"] == pytest.approx(-0.001)
 
 
-def test_step_restores_global_rng_state_for_python_and_numpy():
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_step_restores_global_rng_state_for_python_and_numpy(frozen_root):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         env.reset(seed=134050, options={"scenario": {"player_slot": 0, "direction": 1}})
         random.seed(444)
@@ -676,8 +683,8 @@ def test_total_tick_300_processes_eligible_second_hit_success_before_total_deadl
         rc.ReengagementEnv._step(env, zero_action())
 
 
-def test_deadline_boundaries_process_tick_300_but_never_301_in_real_env():
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+def test_deadline_boundaries_process_tick_300_but_never_301_in_real_env(frozen_root):
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         env.reset(seed=134030, options={"scenario": {"player_slot": 0, "direction": 1}})
         while env.relocation_tick is None:
@@ -692,8 +699,8 @@ def test_deadline_boundaries_process_tick_300_but_never_301_in_real_env():
         env.close()
 
 
-def test_completed_diagnostics_include_reconstructable_relocation_damage_clearance_and_stock_fields():
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_completed_diagnostics_include_reconstructable_relocation_damage_clearance_and_stock_fields(frozen_root):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         env.reset(seed=134060, options={"scenario": {"player_slot": 0, "direction": 1}})
         info = finish_episode(env, "scripted")
@@ -737,8 +744,8 @@ def test_completed_diagnostics_include_reconstructable_relocation_damage_clearan
         ("walkoff", "own_stock_loss"),
     ],
 )
-def test_representative_failure_categories(controller, expected):
-    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+def test_representative_failure_categories(frozen_root, controller, expected):
+    env = rc.make_reengagement_env(frozen_root, seed=17, player_slot=0)
     try:
         env.reset(seed=134061, options={"scenario": {"player_slot": 0, "direction": 1}})
         info = finish_episode(env, controller)
@@ -778,7 +785,7 @@ def test_bad_support_category_is_reported_from_terminal_diagnostics():
     assert info["episode_diagnostics"]["failure_category"] == "unsafe_support"
 
 
-def test_opponent_stock_loss_and_deadline_categories_are_reported():
+def test_opponent_stock_loss_and_deadline_categories_are_reported(frozen_root):
     pre = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=3)]
     post = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=2)]
     env = state_machine_boundary_harness(pre=pre, post=post)
@@ -798,7 +805,7 @@ def test_opponent_stock_loss_and_deadline_categories_are_reported():
     assert info["episode_diagnostics"]["failure_category"] == "failed_renewed_pursuit"
     assert info["episode_diagnostics"]["terminal_reason"] == "response_deadline"
 
-    env = rc.make_reengagement_env(FROZEN, seed=17)
+    env = rc.make_reengagement_env(frozen_root, seed=17)
     try:
         env.reset(seed=134031, options={"scenario": {"player_slot": 0, "direction": 1}})
         while env.tick < 299:
