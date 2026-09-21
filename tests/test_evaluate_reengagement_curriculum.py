@@ -32,13 +32,23 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
             "distinct_hit_ids": ["attack-1", "attack-2"],
             "relocation_pre_target": {"x": 6.0, "state": "StandingState"},
             "relocation_post_target": {"x": 1.0, "state": "StandingState", "grounded": True, "fully_supported": True},
+            "relocation_boundary": {
+                "learner_unchanged": True,
+                "attack_resolved": True,
+                "stun_resolved": True,
+                "players": [
+                    {"player_slot": 0, "alive": True, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
+                    {"player_slot": 1, "alive": True, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
+                ],
+                "target_preserved": {"stocks": True, "damage": True, "damage_done": True, "damage_taken_total": True},
+            },
             "attributed_damage_events": [
                 {"tick": 20, "source_slot": slot, "target_slot": 1 - slot, "attack_id": "attack-1", "amount": 4.0},
                 {"tick": 80, "source_slot": slot, "target_slot": 1 - slot, "attack_id": "attack-2", "amount": 5.0},
             ],
             "post_players": [
-                {"player_slot": 0, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
-                {"player_slot": 1, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
+                {"player_slot": 0, "alive": True, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
+                {"player_slot": 1, "alive": True, "grounded": True, "fully_supported": True, "horizontal_floor_clearance": 0.4},
             ],
             "events": [
                 {"type": "hit_credit", "tick": 20, "ordinal": 1, "attack_id": "attack-1"},
@@ -75,12 +85,37 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
             self.assertEqual({case.case_id for case in pair}, {f"reengagement-deterministic-p{index % 2}-s{seed}", f"reengagement-sampled-p{index % 2}-s{seed}"})
         self.assertRegex(dev.bank_sha256, r"^[0-9a-f]{64}$")
         self.assertEqual(module.validate_bank_manifest(dev.to_manifest())["bank_sha256"], dev.bank_sha256)
+        for bad_panel, expected in (("development", 40), ("confirmation", 200)):
+            manifest = module.build_case_bank(bad_panel).to_manifest()
+            manifest["cases"] = manifest["cases"][:-1]
+            with self.assertRaisesRegex(ValueError, "exact"):
+                module.validate_bank_manifest(manifest)
+            manifest = module.build_case_bank(bad_panel).to_manifest()
+            manifest["cases"][0]["direction"] *= -1
+            manifest["bank_sha256"] = module._bank_sha(
+                [
+                    module.EvaluationCase(
+                        case_id=case["case_id"],
+                        seed=case["seed"],
+                        mode=case["mode"],
+                        player_slot=case["player_slot"],
+                        direction=case["direction"],
+                        scenario=case["scenario"],
+                    )
+                    for case in manifest["cases"]
+                ],
+                panel=bad_panel,
+                generator_version=manifest["generator_version"],
+            )
+            with self.assertRaisesRegex(ValueError, "direction"):
+                module.validate_bank_manifest(manifest)
+            self.assertEqual(expected, len(module.build_case_bank(bad_panel).cases))
 
     def test_bank_manifest_rejects_overlap_duplicates_or_wrong_version(self):
         module = self.subject()
         manifest = module.build_case_bank("development").to_manifest()
         duplicated = json.loads(json.dumps(manifest))
-        duplicated["cases"].append(dict(duplicated["cases"][0]))
+        duplicated["cases"][1] = dict(duplicated["cases"][0])
         with self.assertRaisesRegex(ValueError, "duplicate"):
             module.validate_bank_manifest(duplicated)
         wrong_version = json.loads(json.dumps(manifest))
@@ -115,6 +150,44 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
                 self.assertFalse(result["evidence_valid"])
                 self.assertNotEqual(result["failure_category"], "success")
 
+    def test_trace_reconstruction_requires_hit_events_relocation_boundary_and_both_safe_players(self):
+        module = self.subject()
+        cases = {
+            "missing hit ordinal": lambda trace: trace["events"].pop(0),
+            "wrong damage tick": lambda trace: trace["attributed_damage_events"][1].update(tick=81),
+            "unresolved relocation": lambda trace: trace["relocation_boundary"].update(attack_resolved=False),
+            "learner changed": lambda trace: trace["relocation_boundary"].update(learner_unchanged=False),
+            "target counters not preserved": lambda trace: trace["relocation_boundary"]["target_preserved"].update(damage=False),
+            "target unsafe at end": lambda trace: trace["post_players"][1].update(fully_supported=False),
+            "target stock changed": lambda trace: trace.update(stock_changes={str(trace["player_slot"]): 0, str(1 - trace["player_slot"]): 1}),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                trace = self.success_trace()
+                mutate(trace)
+                result = module.reconstruct_trace(trace)
+                self.assertFalse(result["success"])
+                self.assertFalse(result["evidence_valid"])
+
+    def test_failure_taxonomy_uses_exact_review_labels(self):
+        module = self.subject()
+        scenarios = {
+            "no_approach": {"outcome": "total_deadline", "movement_request_ticks": 3, "max_initial_approach_progress": 0.2},
+            "no_attack_request": {"outcome": "total_deadline", "movement_request_ticks": 0, "light_request_ticks": 0},
+            "requested_but_no_start": {"outcome": "total_deadline", "light_request_ticks": 2, "attack_start_count": 0},
+            "attack_started_missed": {"outcome": "total_deadline", "light_request_ticks": 2, "attack_start_count": 1},
+            "first_hit_only": {"outcome": "total_deadline", "first_hit_tick": 20, "relocation_tick": 40, "renewed_movement_request_ticks": 0},
+            "failed_pursuit": {"outcome": "response_deadline", "first_hit_tick": 20, "relocation_tick": 40, "renewed_movement_request_ticks": 2},
+            "pursued_but_missed_second": {"outcome": "second_hit_deadline", "first_hit_tick": 20, "relocation_tick": 40, "pursuit_tick": 70},
+            "unsafe_support": {"outcome": "unsafe_support"},
+            "stock_loss": {"outcome": "own_stock_loss"},
+            "deadline": {"outcome": "total_deadline", "first_hit_tick": 20, "relocation_tick": 40, "pursuit_tick": 70},
+        }
+        for expected, fields in scenarios.items():
+            with self.subTest(expected=expected):
+                trace = {"player_slot": 0, **fields}
+                self.assertEqual(module.reconstruct_trace(trace)["failure_category"], expected)
+
     def test_summary_splits_modes_slots_and_reports_b2_taxonomy(self):
         module = self.subject()
         rows = [
@@ -136,8 +209,8 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
         self.assertIn("damage", summary["modes"]["deterministic"])
         self.assertIn("timing", summary["modes"]["deterministic"])
         self.assertEqual(summary["failure_taxonomy"]["success"], 1)
-        self.assertEqual(summary["failure_taxonomy"]["own_stock_loss"], 1)
-        self.assertEqual(summary["failure_taxonomy"]["pursued_missed_second"], 1)
+        self.assertEqual(summary["failure_taxonomy"]["stock_loss"], 1)
+        self.assertEqual(summary["failure_taxonomy"]["pursued_but_missed_second"], 1)
 
     def test_cuda_policy_loader_refuses_silent_cpu_fallback(self):
         module = self.subject()
@@ -160,8 +233,13 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
 
         class Policy:
             source_path = None
+            expected_observation_width = 256
+
+            def __init__(self):
+                self.seen_shapes = []
 
             def predict(self, _obs, *, deterministic):
+                self.seen_shapes.append(tuple(_obs.shape))
                 return [0.0] * 10
 
         class Env:
@@ -186,28 +264,54 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             output = Path(tmp) / "eval"
+            policy = Policy()
             result = module.run_evaluation(
-                policy=Policy(),
-                bank=module.CaseBank("development", "b2-reengagement-bank-v1", "0" * 64, [module.EvaluationCase("reengagement-deterministic-p0-s134000", 134000, "deterministic", 0, -1, {})]),
+                policy=policy,
+                bank=module.build_case_bank("development"),
                 output_dir=output,
                 env_factory=lambda case, trace_dir: Env(case),
                 command=["evaluate", "--fake"],
                 checkpoint_path=None,
                 source_paths=[Path("evaluate_reengagement_curriculum.py")],
             )
+            self.assertEqual(policy.seen_shapes, [(256,)] * 40)
             self.assertTrue((output / "episodes" / "reengagement-deterministic-p0-s134000.json").is_file())
             self.assertTrue((output / "traces" / "reengagement-deterministic-p0-s134000.jsonl").is_file())
-            for name in ("bank-manifest.json", "summary.json", "result.json", "environment-inventory.json", "command-receipt.json", "source-hashes.json"):
+            for name in ("bank-manifest.json", "summary.json", "result.json", "environment-inventory.json", "command-receipt.json", "source-hashes.json", "artifact-inventory.json"):
                 self.assertTrue((output / name).is_file())
-            self.assertEqual(result["summary"]["episodes"], 1)
+            inventory = json.loads((output / "artifact-inventory.json").read_text())
+            inventoried = {row["path"] for row in inventory["files"]}
+            self.assertIn("traces/reengagement-deterministic-p0-s134000.jsonl", inventoried)
+            self.assertTrue(all(":" not in path.name for path in (output / "traces").iterdir()))
+            self.assertEqual(result["summary"]["episodes"], 40)
             with self.assertRaises(FileExistsError):
                 module.run_evaluation(
                     policy=Policy(),
-                    bank=module.CaseBank("development", "b2-reengagement-bank-v1", "0" * 64, [module.EvaluationCase("reengagement-deterministic-p0-s134000", 134000, "deterministic", 0, -1, {})]),
+                    bank=module.build_case_bank("development"),
                     output_dir=output,
                     env_factory=lambda case, trace_dir: Env(case),
                     command=["again"],
                 )
+
+    def test_preflight_rejects_bad_observation_space_before_episode_construction(self):
+        module = self.subject()
+
+        class BadPolicy:
+            expected_observation_width = 64
+
+            def predict(self, _obs, *, deterministic):
+                return [0.0] * 10
+
+        with TemporaryDirectory() as tmp:
+            env_factory = Mock()
+            with self.assertRaisesRegex(ValueError, "256"):
+                module.run_evaluation(
+                    policy=BadPolicy(),
+                    bank=module.build_case_bank("development"),
+                    output_dir=Path(tmp) / "eval",
+                    env_factory=env_factory,
+                )
+            env_factory.assert_not_called()
 
 
 if __name__ == "__main__":
