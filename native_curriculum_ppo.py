@@ -7,31 +7,43 @@ navigation uses time-limit truncations. It deliberately cannot train on CPU.
 """
 from __future__ import annotations
 
-from collections import deque
-from contextlib import contextmanager
 import copy
 import hashlib
 import numbers
-from pathlib import Path
 import random
+from collections import deque
+from contextlib import contextmanager
+from pathlib import Path
 
 import numpy as np
 import torch as th
 
 import curriculum_ppo
-from curriculum_ppo import (ACTION_EXPERIMENT_ARMS, ACTION_EXPERIMENT_INTERPRETATION, ACTION_HEADS, CurriculumPPO, CurriculumPolicy,
-    PPO_DEFAULTS, TASK_MASKS, _ProtectedAdam, _apply_action_initialization,
-    _copy_compatible_non_action_state, _resolve_action_arm, _set_neutral_action_head)
+from curriculum_ppo import (
+    ACTION_EXPERIMENT_INTERPRETATION,
+    ACTION_HEADS,
+    PPO_DEFAULTS,
+    TASK_MASKS,
+    CurriculumPolicy,
+    CurriculumPPO,
+    _apply_action_initialization,
+    _copy_compatible_non_action_state,
+    _ProtectedAdam,
+    _resolve_action_arm,
+    _set_neutral_action_head,
+)
 from ppo_update_optimizations import deferred_metrics_train, sb3_train_source_metadata
 from tensor_ppo import TensorPPO, TensorVecEnv
 from tensor_rollout_buffer import TensorRolloutBuffer
 
+NAVIGATION_VERSION = 'bridge_0b_navigation-v1'
 CONTACT_VERSION = 'bridge_b1_contact-v1'
 TASK_IDS = {'navigation': 0, 'combat': 1}
-TASK_VERSIONS = {
-    'navigation': 'bridge_0b_navigation-v1',
+DEFAULT_TASK_VERSIONS = {
+    'navigation': NAVIGATION_VERSION,
     'combat': CONTACT_VERSION,
 }
+TASK_VERSIONS = dict(DEFAULT_TASK_VERSIONS)
 COMBAT_MASK = TASK_MASKS['combat']
 CURRICULUM_SOURCE_SHA256 = '380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40'
 CALIBRATED_CHECKPOINT_SHA256 = '301ce3c72924f3e5c62f265f88292b8952e86e6d71d9a0552213cb8f3c6784b6'
@@ -59,11 +71,23 @@ def verify_checkpoint(path, expected_sha256):
 
 def _validate_contact_learning_rate(learning_rate):
     if isinstance(learning_rate, bool) or not isinstance(learning_rate, numbers.Real):
-        raise ValueError('Contact learning_rate must be 1e-4 or 3e-5')
+        raise ValueError('Contact learning_rate must be 1e-4 or 3e-5')  # noqa: TRY004
     learning_rate = float(learning_rate)
     if learning_rate not in CONTACT_LEARNING_RATES:
         raise ValueError('Contact learning_rate must be 1e-4 or 3e-5')
     return learning_rate
+
+
+def normalized_task_versions(expected_task_versions=None):
+    versions = dict(DEFAULT_TASK_VERSIONS)
+    if expected_task_versions:
+        for task, version in dict(expected_task_versions).items():
+            if task not in TASK_IDS:
+                raise ValueError(f'Unsupported native curriculum task: {task!r}')
+            if not isinstance(version, str) or not version:
+                raise ValueError('Expected curriculum version values must be non-empty strings')
+            versions[task] = version
+    return versions
 
 
 def _constant_schedule_value(value):
@@ -85,7 +109,7 @@ def _source_learning_rate(source):
     learning_rate = _validate_contact_learning_rate(getattr(source, 'learning_rate', None))
     schedule = getattr(source, 'lr_schedule', None)
     if not callable(schedule):
-        raise ValueError('Checkpoint lr_schedule must be callable and match learning_rate')
+        raise ValueError('Checkpoint lr_schedule must be callable and match learning_rate')  # noqa: TRY004
     for progress in (0.0, 0.5, 1.0):
         if schedule(progress) != learning_rate:
             raise ValueError('Checkpoint lr_schedule must be constant and match learning_rate')
@@ -133,11 +157,12 @@ def _mask_matches(actual, expected):
     return actual.dtype == np.dtype(bool) and np.array_equal(actual, expected)
 
 
-def validate_task_environment(env, task):
+def validate_task_environment(env, task, expected_task_versions=None):
+    task_versions = normalized_task_versions(expected_task_versions)
     expected_mask = _canonical_task_mask(task)
     if getattr(env, 'curriculum_task', None) != task:
         raise ValueError(f'Environment must explicitly identify the {task} curriculum task')
-    if getattr(env, 'curriculum_version', None) != TASK_VERSIONS[task]:
+    if getattr(env, 'curriculum_version', None) != task_versions[task]:
         raise ValueError(f'Environment must explicitly identify the qualified {task} curriculum version')
     if not _mask_matches(getattr(env, 'allowed_control_mask', None), expected_mask):
         raise ValueError(f'Environment allowed-control mask differs from the {task} curriculum')
@@ -146,7 +171,7 @@ def validate_task_environment(env, task):
         raise ValueError(f'{task} environment must declare its timeout behavior')
     timeout_value = has_timeouts()
     if not isinstance(timeout_value, (bool, np.bool_)):
-        raise ValueError(f'{task} environment timeout declaration must be bool')
+        raise ValueError(f'{task} environment timeout declaration must be bool')  # noqa: TRY004
     if task == 'combat' and bool(timeout_value) is not False:
         raise ValueError('Contact environment must declare no time-limit truncations')
     if task == 'navigation' and bool(timeout_value) is not True:
@@ -157,12 +182,23 @@ def validate_contact_environment(env):
     validate_task_environment(env, 'combat')
 
 
-def _require_cuda(env, task='combat'):
+def validate_episode_infos(infos, task, task_mask, expected_task_versions=None):
+    task_versions = normalized_task_versions(expected_task_versions)
+    for info in infos:
+        if (
+            info.get('curriculum_task') != task
+            or info.get('curriculum_version') != task_versions[task]
+            or not _mask_matches(info.get('allowed_control_mask'), task_mask)
+        ):
+            raise ValueError('Native episode records have a missing or wrong curriculum task/mask/version')
+
+
+def _require_cuda(env, task='combat', expected_task_versions=None):
     if not th.cuda.is_available():
         raise ValueError('Native curriculum training requires CUDA; no CPU fallback')
     if not isinstance(env, TensorVecEnv) or env.device.type != 'cuda':
         raise ValueError('Native curriculum requires a CUDA TensorVecEnv')
-    validate_task_environment(env.env, task)
+    validate_task_environment(env.env, task, expected_task_versions)
     if tuple(env.observation_space.shape) != (256,):
         raise ValueError('Native curriculum requires a four-frame 256-value observation')
 
@@ -206,10 +242,12 @@ class TaskTensorRolloutBuffer(TensorRolloutBuffer):
         }
         self.task, self.consumed = None, False
         self.action_head = 'gaussian'
+        self.drained_episode_infos = []
 
     def reset(self):
         super().reset()
         self.task, self.consumed = None, False
+        self.drained_episode_infos = []
 
     def add(self, *args, task, mask, executed_actions):
         expected_mask = _canonical_task_mask(task)
@@ -260,10 +298,11 @@ class NativeCurriculumPPO(TensorPPO):
     def __init__(self, policy=CurriculumPolicy, env=None, *, batch_size=8192,
                  update_mode='deferred_metrics', calibration=False, arm='E1',
                  action_head='gaussian', action_init_strategy=None, action_ab_arm=None,
-                 learning_rate=1e-4, task='combat', **kwargs):
+                 learning_rate=1e-4, task='combat', expected_task_versions=None, **kwargs):
         if task not in TASK_IDS:
             raise ValueError(f'Unsupported native curriculum task: {task!r}')
-        _require_cuda(env, task)
+        self.task_versions = normalized_task_versions(expected_task_versions)
+        _require_cuda(env, task, self.task_versions)
         _require_sources()
         settings = contact_settings(batch_size=batch_size, update_mode=update_mode,
                                     learning_rate=learning_rate)
@@ -325,7 +364,10 @@ class NativeCurriculumPPO(TensorPPO):
     @classmethod
     def from_curriculum(cls, source, env, *, batch_size=None, update_mode='deferred_metrics',
                         joint=False, action_head=None, action_init_strategy=None, action_ab_arm=None,
-                        task=None):
+                        task=None, expected_task_versions=None):
+        task_versions = normalized_task_versions(
+            expected_task_versions if expected_task_versions is not None else getattr(source, 'task_versions', None)
+        )
         source_task = getattr(source, 'task', None)
         if source_task not in TASK_IDS:
             raise ValueError('Expected an E1 native curriculum checkpoint')
@@ -334,7 +376,7 @@ class NativeCurriculumPPO(TensorPPO):
             requested_task = getattr(getattr(env, 'env', None), 'curriculum_task', None)
         if requested_task not in TASK_IDS:
             raise ValueError('A supported native curriculum task is required for the next block')
-        _require_cuda(env, requested_task)
+        _require_cuda(env, requested_task, task_versions)
         _require_sources()
         if not isinstance(source, CurriculumPPO) or type(source.policy) is not CurriculumPolicy:
             raise ValueError('Expected the original CurriculumPPO checkpoint and specialized policy')
@@ -380,6 +422,7 @@ class NativeCurriculumPPO(TensorPPO):
                         action_ab_arm=constructor_action_arm,
                         learning_rate=source_learning_rate,
                         task=requested_task,
+                        expected_task_versions=task_versions,
                         # The immutable scenario schedule belongs to the caller.
                         # SB3 seeds its env in __init__ when seed is not None.
                         policy_kwargs=policy_kwargs, seed=None,
@@ -456,8 +499,10 @@ class NativeCurriculumPPO(TensorPPO):
     @classmethod
     def load_contact_checkpoint(cls, path, env=None, *, expected_sha256=CALIBRATED_CHECKPOINT_SHA256,
                                 batch_size=8192, update_mode='deferred_metrics', joint=True,
-                                action_head=None, action_init_strategy=None, action_ab_arm=None):
-        _require_cuda(env)
+                                action_head=None, action_init_strategy=None, action_ab_arm=None,
+                                expected_task_versions=None):
+        task_versions = normalized_task_versions(expected_task_versions)
+        _require_cuda(env, 'combat', task_versions)
         _require_sources()
         digest = verify_checkpoint(path, expected_sha256)
         with _preserve_rng():
@@ -465,13 +510,15 @@ class NativeCurriculumPPO(TensorPPO):
             model = cls.from_curriculum(source, env, batch_size=batch_size, update_mode=update_mode,
                                         joint=joint, action_head=action_head,
                                         action_init_strategy=action_init_strategy,
-                                        action_ab_arm=action_ab_arm)
+                                        action_ab_arm=action_ab_arm,
+                                        expected_task_versions=task_versions)
         model.starting_checkpoint_sha256 = digest
         return model
 
     @classmethod
-    def load(cls, path, env=None, device='auto', *, expected_sha256, update_mode=None, **kwargs):
-        _require_cuda(env, getattr(getattr(env, 'env', None), 'curriculum_task', 'combat'))
+    def load(cls, path, env=None, device='auto', *, expected_sha256, update_mode=None,
+             expected_task_versions=None, **kwargs):
+        task = getattr(getattr(env, 'env', None), 'curriculum_task', 'combat')
         _require_sources()
         action_head = kwargs.pop('action_head', None)
         action_init_strategy = kwargs.pop('action_init_strategy', None)
@@ -481,10 +528,15 @@ class NativeCurriculumPPO(TensorPPO):
         verify_checkpoint(path, expected_sha256)
         with _preserve_rng():
             source = CurriculumPPO.load(path, device=env.device)
+            task_versions = normalized_task_versions(
+                expected_task_versions if expected_task_versions is not None else getattr(source, 'task_versions', None)
+            )
+            _require_cuda(env, task, task_versions)
             model = cls.from_curriculum(source, env,
                 update_mode=update_mode or getattr(source, 'update_mode', 'deferred_metrics'),
                 action_head=action_head, action_init_strategy=action_init_strategy,
-                action_ab_arm=action_ab_arm)
+                action_ab_arm=action_ab_arm,
+                expected_task_versions=task_versions)
         model.starting_checkpoint_sha256 = getattr(source, 'starting_checkpoint_sha256', expected_sha256)
         model.last_update_diagnostics = copy.deepcopy(getattr(source, 'last_update_diagnostics', {}))
         return model
@@ -516,11 +568,11 @@ class NativeCurriculumPPO(TensorPPO):
         self.policy.set_task(task, calibration)
         self.task, self.calibration = task, bool(calibration)
         self.ent_coef = .001
-        self.task_history.append(dict(task=task, calibration=calibration, num_timesteps=self.num_timesteps))
+        self.task_history.append({'task': task, 'calibration': calibration, 'num_timesteps': self.num_timesteps})
 
     def _same_tensor_abi(self, tensor_env):
         if not isinstance(tensor_env, TensorVecEnv):
-            raise ValueError('Task environment must be a CUDA TensorVecEnv')
+            raise ValueError('Task environment must be a CUDA TensorVecEnv')  # noqa: TRY004
         if tensor_env.device != self.device:
             raise ValueError('Task environment CUDA device must match the learner device')
         if tensor_env.num_envs != self.n_envs:
@@ -533,9 +585,12 @@ class NativeCurriculumPPO(TensorPPO):
             if np.dtype(current.dtype) != np.dtype(candidate.dtype):
                 raise ValueError(f'Task environment {name} dtype must match the learner')
             for bound in ('low', 'high'):
-                if hasattr(current, bound) and hasattr(candidate, bound):
-                    if not np.array_equal(getattr(current, bound), getattr(candidate, bound)):
-                        raise ValueError(f'Task environment {name} {bound} bound must match the learner')
+                if (
+                    hasattr(current, bound)
+                    and hasattr(candidate, bound)
+                    and not np.array_equal(getattr(current, bound), getattr(candidate, bound))
+                ):
+                    raise ValueError(f'Task environment {name} {bound} bound must match the learner')
 
     def _save_live_task_state(self):
         if not hasattr(self, '_task_live_state'):
@@ -592,7 +647,7 @@ class NativeCurriculumPPO(TensorPPO):
             raise ValueError('Cannot switch task environment during collection')
         if (buffer.pos or buffer.full) and not buffer.consumed:
             raise ValueError('Cannot switch task environment before the current rollout is consumed')
-        _require_cuda(tensor_env, task)
+        _require_cuda(tensor_env, task, self.task_versions)
         self._same_tensor_abi(tensor_env)
         self._save_live_task_state()
         self.tensor_vec_env = tensor_env
@@ -600,7 +655,7 @@ class NativeCurriculumPPO(TensorPPO):
         self.policy.set_task(task, calibration)
         self.task, self.calibration = task, bool(calibration)
         self._restore_or_reset_task_state(task)
-        self.task_history.append(dict(task=task, calibration=calibration, num_timesteps=self.num_timesteps))
+        self.task_history.append({'task': task, 'calibration': calibration, 'num_timesteps': self.num_timesteps})
 
     def collect_rollouts(self, env, callback, rollout_buffer, n_rollout_steps):
         del env
@@ -611,10 +666,9 @@ class NativeCurriculumPPO(TensorPPO):
         if (rollout_buffer.pos or rollout_buffer.full) and not rollout_buffer.consumed:
             raise ValueError('Previous rollout has not been consumed')
         self._policy_contract()
-        validate_task_environment(self.tensor_vec_env.env, self.task)
+        validate_task_environment(self.tensor_vec_env.env, self.task, self.task_versions)
         task, calibration = self.task, self.calibration
         task_mask = _canonical_task_mask(task)
-        task_version = TASK_VERSIONS[task]
         mask_version = self.policy.allowed_control_mask._version
         action_distribution = self.policy.action_dist
         self.policy.set_training_mode(False)
@@ -627,7 +681,7 @@ class NativeCurriculumPPO(TensorPPO):
                         or self.calibration != calibration or self.policy.allowed_control_mask._version != mask_version
                         or self.policy.action_dist is not action_distribution):
                     raise ValueError('Task/mask changed during rollout')
-                validate_task_environment(self.tensor_vec_env.env, task)
+                validate_task_environment(self.tensor_vec_env.env, task, self.task_versions)
                 observations = self._last_obs.clone()
                 with th.no_grad():
                     actions, values, log_probs = self.policy(observations)
@@ -668,10 +722,8 @@ class NativeCurriculumPPO(TensorPPO):
             rollout_buffer.compute_returns_and_advantage(last_values, dones.to(dtype=th.float32))
             # The native backend validates lane errors and overflow in this drain.
             infos = self.tensor_vec_env.drain_episode_infos()
-            for info in infos:
-                if (info.get('curriculum_task') != task or info.get('curriculum_version') != task_version
-                        or not _mask_matches(info.get('allowed_control_mask'), task_mask)):
-                    raise ValueError('Native episode records have a missing or wrong curriculum task/mask/version')
+            validate_episode_infos(infos, task, task_mask, self.task_versions)
+            rollout_buffer.drained_episode_infos = copy.deepcopy(infos)
             if infos:
                 self._ensure_info_buffers()
                 self._update_info_buffer(infos, np.ones(len(infos), dtype=bool))
@@ -685,6 +737,12 @@ class NativeCurriculumPPO(TensorPPO):
         self._policy_contract()
         task_mask = _canonical_task_mask(self.task)
         self.rollout_buffer.validate(self.task, task_mask)
+        validate_episode_infos(
+            getattr(self.rollout_buffer, 'drained_episode_infos', []),
+            self.task,
+            task_mask,
+            self.task_versions,
+        )
         updates_before = self._n_updates
         optimizer_steps = 0
         optimizer = self.policy.optimizer

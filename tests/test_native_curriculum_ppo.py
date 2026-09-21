@@ -7,11 +7,11 @@ import importlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import random
 import tempfile
-from types import MethodType, SimpleNamespace
 import unittest
+from pathlib import Path
+from types import MethodType, SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -230,12 +230,153 @@ class NativeCurriculumContractTests(unittest.TestCase):
                 module.validate_contact_environment(env)
             setattr(env, name, original)
 
+    def test_task_version_map_defaults_to_b1_and_can_accept_b2_combat(self):
+        module = self.module()
+        self.assertEqual(module.DEFAULT_TASK_VERSIONS['combat'], module.CONTACT_VERSION)
+        self.assertEqual(module.TASK_VERSIONS['combat'], module.CONTACT_VERSION)
+        self.assertIsNot(module.TASK_VERSIONS, module.DEFAULT_TASK_VERSIONS)
+        versions = module.normalized_task_versions()
+        self.assertIsNot(versions, module.DEFAULT_TASK_VERSIONS)
+        for invalid in ({'combat': ''}, {'combat': None}, {'full_combat': module.CONTACT_VERSION}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                module.normalized_task_versions(invalid)
+        env_b1 = SimpleNamespace(curriculum_task='combat', curriculum_version=module.CONTACT_VERSION,
+                                 allowed_control_mask=module.COMBAT_MASK,
+                                 host_has_timeouts=lambda: False)
+        env_b2 = SimpleNamespace(curriculum_task='combat', curriculum_version='bridge_b2_reengagement-v1',
+                                 allowed_control_mask=module.COMBAT_MASK,
+                                 host_has_timeouts=lambda: False)
+        module.validate_task_environment(env_b1, 'combat')
+        with self.assertRaisesRegex(ValueError, 'curriculum version'):
+            module.validate_task_environment(env_b2, 'combat')
+        b2_versions = module.normalized_task_versions({'combat': 'bridge_b2_reengagement-v1'})
+        module.validate_task_environment(env_b2, 'combat', b2_versions)
+        with self.assertRaisesRegex(ValueError, 'curriculum version'):
+            module.validate_task_environment(env_b1, 'combat', b2_versions)
+        self.assertEqual(module.DEFAULT_TASK_VERSIONS['combat'], module.CONTACT_VERSION)
+
+    def test_model_owned_task_versions_survive_copy_and_task_switch_checks(self):
+        module = self.module()
+        expected = {'combat': 'bridge_b2_reengagement-v1'}
+        model = object.__new__(module.NativeCurriculumPPO)
+        model.task_versions = module.normalized_task_versions(expected)
+        model.task = 'combat'
+        copied = module.normalized_task_versions(model.task_versions)
+        self.assertEqual(copied['combat'], 'bridge_b2_reengagement-v1')
+        copied['combat'] = module.CONTACT_VERSION
+        self.assertEqual(model.task_versions['combat'], 'bridge_b2_reengagement-v1')
+        env_b2 = SimpleNamespace(curriculum_task='combat', curriculum_version='bridge_b2_reengagement-v1',
+                                 allowed_control_mask=module.COMBAT_MASK,
+                                 host_has_timeouts=lambda: False)
+        module.validate_task_environment(env_b2, 'combat', model.task_versions)
+        tensor_env = SimpleNamespace(env=env_b2)
+        with patch.object(module, '_require_cuda', wraps=module._require_cuda) as require_cuda, \
+             patch.object(module.NativeCurriculumPPO, '_same_tensor_abi'), \
+             patch.object(module.NativeCurriculumPPO, '_save_live_task_state'), \
+             patch.object(module.NativeCurriculumPPO, '_restore_or_reset_task_state'):
+            model.rollout_buffer = SimpleNamespace(pos=0, full=False, consumed=True)
+            model._collecting = False
+            model.tensor_vec_env = SimpleNamespace(as_sb3_vec_env=lambda: object())
+            model.policy = SimpleNamespace(set_task=lambda *_args: None)
+            model.num_timesteps = 0
+            model.task_history = []
+            tensor_env.device = SimpleNamespace(type='cuda')
+            tensor_env.observation_space = SimpleNamespace(shape=(256,), dtype=np.float32)
+            tensor_env.action_space = SimpleNamespace(shape=(10,), dtype=np.float32)
+            tensor_env.num_envs = 1
+            tensor_env.as_sb3_vec_env = lambda: object()
+            with patch.object(module.th.cuda, 'is_available', return_value=True), \
+                 patch.object(module, 'TensorVecEnv', (SimpleNamespace,)):
+                model.set_task_environment('combat', tensor_env)
+            require_cuda.assert_called_once_with(tensor_env, 'combat', model.task_versions)
+
+    def test_drain_records_validate_against_model_owned_task_versions(self):
+        module = self.module()
+        versions = module.normalized_task_versions({'combat': 'bridge_b2_reengagement-v1'})
+        good = [{
+            'curriculum_task': 'combat',
+            'curriculum_version': 'bridge_b2_reengagement-v1',
+            'allowed_control_mask': module.COMBAT_MASK,
+        }]
+        module.validate_episode_infos(good, 'combat', module.COMBAT_MASK, versions)
+        bad = [dict(good[0], curriculum_version=module.CONTACT_VERSION)]
+        with self.assertRaisesRegex(ValueError, 'curriculum task/mask/version'):
+            module.validate_episode_infos(bad, 'combat', module.COMBAT_MASK, versions)
+
+    def test_wrong_drained_version_fails_before_optimizer_update(self):
+        module = self.module()
+        model = object.__new__(module.NativeCurriculumPPO)
+        model.task = 'combat'
+        model.task_versions = module.normalized_task_versions({'combat': 'bridge_b2_reengagement-v1'})
+        model._policy_contract = lambda: None
+        model.rollout_buffer = SimpleNamespace(
+            validate=lambda *args: None,
+            consumed=False,
+            drained_episode_infos=[{
+                'curriculum_task': 'combat',
+                'curriculum_version': module.CONTACT_VERSION,
+                'allowed_control_mask': module.COMBAT_MASK,
+            }],
+        )
+        model.policy = SimpleNamespace(optimizer=SimpleNamespace(step=lambda: None))
+        model.update_mode = 'deferred_metrics'
+        with self.assertRaisesRegex(ValueError, 'curriculum task/mask/version'), \
+             patch.object(module, 'deferred_metrics_train', side_effect=AssertionError('optimizer update reached')), \
+             patch.object(module.TensorPPO, 'train', side_effect=AssertionError('optimizer update reached')):
+            model.train()
+        self.assertFalse(model.rollout_buffer.consumed)
+
+    def test_load_reads_b2_task_versions_before_environment_validation_and_legacy_defaults_b1(self):
+        module = self.module()
+        b2_versions = module.normalized_task_versions({'combat': 'bridge_b2_reengagement-v1'})
+        with patch.object(module.TensorPPO, '_excluded_save_params', return_value=[]):
+            model = object.__new__(module.NativeCurriculumPPO)
+            model.task_versions = b2_versions
+            self.assertNotIn('task_versions', model._excluded_save_params())
+        env = SimpleNamespace(
+            device='cuda',
+            env=SimpleNamespace(curriculum_task='combat', curriculum_version='bridge_b2_reengagement-v1',
+                                allowed_control_mask=module.COMBAT_MASK,
+                                host_has_timeouts=lambda: False),
+        )
+        source = SimpleNamespace(task_versions=b2_versions, update_mode='deferred_metrics')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)/'checkpoint.zip'
+            path.touch()
+            digest = hashlib.sha256(b'').hexdigest()
+            with patch.object(module, '_require_sources'), \
+                 patch.object(module, '_require_cuda') as require_cuda, \
+                 patch.object(module.CurriculumPPO, 'load', return_value=source), \
+                 patch.object(module.NativeCurriculumPPO, 'from_curriculum',
+                              return_value=SimpleNamespace()) as from_curriculum, \
+                 patch.object(module.th.cuda, 'get_rng_state_all', return_value=[]), \
+                 patch.object(module.th.cuda, 'set_rng_state_all'):
+                module.NativeCurriculumPPO.load(path, env=env, expected_sha256=digest)
+        require_cuda.assert_called_once_with(env, 'combat', b2_versions)
+        self.assertEqual(from_curriculum.call_args.kwargs['expected_task_versions'], b2_versions)
+
+        legacy_source = SimpleNamespace(update_mode='deferred_metrics')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)/'legacy.zip'
+            path.touch()
+            with patch.object(module, '_require_sources'), \
+                 patch.object(module, '_require_cuda') as require_cuda, \
+                 patch.object(module.CurriculumPPO, 'load', return_value=legacy_source), \
+                 patch.object(module.NativeCurriculumPPO, 'from_curriculum',
+                              return_value=SimpleNamespace()) as from_curriculum, \
+                 patch.object(module.th.cuda, 'get_rng_state_all', return_value=[]), \
+                 patch.object(module.th.cuda, 'set_rng_state_all'):
+                module.NativeCurriculumPPO.load(path, env=env, expected_sha256=digest)
+        require_cuda.assert_called_once_with(env, 'combat', module.DEFAULT_TASK_VERSIONS)
+        self.assertEqual(from_curriculum.call_args.kwargs['expected_task_versions'],
+                         module.DEFAULT_TASK_VERSIONS)
+
     def test_cpu_load_fails_before_checkpoint_read_or_policy_construction(self):
         module = self.module()
-        with patch.object(module.th.cuda, 'is_available', return_value=False):
-            with patch.object(module.CurriculumPPO, 'load', side_effect=AssertionError('must not load')):
-                with self.assertRaisesRegex(ValueError, 'CUDA'):
-                    module.NativeCurriculumPPO.load_contact_checkpoint('missing.zip', env=None)
+        with self.assertRaisesRegex(ValueError, 'CUDA'), \
+             patch.object(module.th.cuda, 'is_available', return_value=False), \
+             patch.object(module.CurriculumPPO, 'load', side_effect=AssertionError('must not load')):
+            module.NativeCurriculumPPO.load_contact_checkpoint('missing.zip', env=None)
 
     def test_checkpoint_hash_gate_checks_bytes(self):
         module = self.module()
@@ -278,6 +419,7 @@ class NativeCurriculumContractTests(unittest.TestCase):
                 path = Path(temporary)/'empty.zip'
                 path.touch()
                 with patch.object(module, '_require_cuda'), \
+                     patch.object(module, '_require_sources'), \
                      patch.object(torch.cuda, 'get_rng_state_all', return_value=[]), \
                      patch.object(torch.cuda, 'set_rng_state_all'), \
                      patch.object(module.CurriculumPPO, 'load', side_effect=simulated_checkpoint_load), \
@@ -327,7 +469,7 @@ class NativeCurriculumContractTests(unittest.TestCase):
                     owner, reference = TensorOwner(), TensorOwner()
                     if preexisting_step:
                         bound_step = owner.optimizer.step
-                        def existing_step(*args, **kwargs):
+                        def existing_step(*args, bound_step=bound_step, **kwargs):
                             return bound_step(*args, **kwargs)
                         owner.optimizer.step = existing_step
                     model = object.__new__(module.NativeCurriculumPPO)
@@ -338,13 +480,22 @@ class NativeCurriculumContractTests(unittest.TestCase):
                         returns=np.arange(4, dtype=np.float32).reshape(2, 2))
                     metrics = {'train/value_loss': .25, 'train/entropy_loss': -.5}
                     model._logger = SimpleNamespace(name_to_value=metrics,
-                                                    record=lambda key, value: metrics.__setitem__(key, value))
+                                                    record=lambda key, value, metrics=metrics: metrics.__setitem__(key, value))
                     model.task, model.update_mode, model._n_updates = 'combat', mode, 0
+                    model.task_versions = module.normalized_task_versions()
                     model.n_epochs, model.n_steps, model.n_envs, model.batch_size = 4, 512, 64, 8192
                     model.ent_coef = .001
                     calls = []
-                    hook = owner.optimizer.register_step_post_hook(lambda *args: calls.append(1))
-                    def update(*args):
+                    hook = owner.optimizer.register_step_post_hook(lambda *args, calls=calls: calls.append(1))
+                    def update(
+                        *args,
+                        completed=completed,
+                        owner=owner,
+                        fail=fail,
+                        preexisting_step=preexisting_step,
+                        model=model,
+                        epochs=epochs,
+                    ):
                         for _ in range(completed):
                             step(owner)
                         if fail:
@@ -422,6 +573,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
     def environment(self, task='combat'):
         """Tensor fixture tests collector contracts, not native game fidelity."""
         from gymnasium import spaces
+
         from tensor_ppo import TensorStep, TensorVecEnv
         torch, module = self.torch, self.module
         mask = module.TASK_MASKS[task]
@@ -486,8 +638,6 @@ class NativeCurriculumCudaTests(unittest.TestCase):
                 return True
         _, callback = model._setup_learn(8192*4, callback=Callback(), reset_num_timesteps=False)
         callback.locals.clear()
-        combat_obs = model._last_obs.clone()
-        combat_starts = model._last_episode_starts.clone()
         model.rollout_buffer.full = True
         model.rollout_buffer.consumed = True
 
@@ -573,7 +723,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
                         return True
                 _, callback = model._setup_learn(8192*4, callback=Callback(), reset_num_timesteps=False)
 
-                def bad_forward(policy, observations, deterministic=False):
+                def bad_forward(policy, observations, deterministic=False, field=field):
                     batch = observations.shape[0]
                     actions = self.torch.zeros((batch, 10), device=observations.device)
                     values = self.torch.zeros((batch, 1), device=observations.device)
@@ -750,8 +900,9 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assert_tree_equal(source.policy.state_dict(), model.policy.state_dict())
 
     def test_original_curriculum_update_matches_native_from_the_same_saved_rollout(self):
-        from curriculum_ppo import CurriculumPPO
         from stable_baselines3.common.logger import configure
+
+        from curriculum_ppo import CurriculumPPO
         candidate = self.model('deferred_metrics')
         reference = CurriculumPPO(env=self.environment().as_sb3_vec_env(), device='cuda',
             calibration=False, policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=741)
@@ -828,9 +979,10 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         checkpoint = os.environ.get('AI2_CONTACT_CHECKPOINT')
         if not checkpoint:
             self.skipTest('Set AI2_CONTACT_CHECKPOINT to qualify the real canonical contact policy')
+        from stable_baselines3.common.logger import configure
+
         from curriculum_ppo import CurriculumPPO, TaskRolloutBuffer
         from native_contact_lane_vec_env import build_contact_env
-        from stable_baselines3.common.logger import configure
         from tensor_ppo import TensorVecEnv
 
         module, torch = self.module, self.torch
