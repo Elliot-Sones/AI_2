@@ -5,15 +5,16 @@ from __future__ import annotations
 import ctypes as C
 import hashlib
 import os
-from pathlib import Path
 import platform
 import subprocess
 import tempfile
+from pathlib import Path
 
 import numpy as np
 
 import native_navigation_episode as nav
-from native_game_episode import GameReference, State as GameState, PlatformTable, ROOT
+from native_game_episode import ROOT, GameReference, PlatformTable
+from native_game_episode import State as GameState
 
 D, INT32, U = C.c_double, C.c_int32, C.c_uint64
 VERSION = "bridge_b2_reengagement-v1"
@@ -253,43 +254,23 @@ class StepResult(C.Structure):
     )
 
 
+ABI_LAYOUTS = (
+    ("scenario", Scenario),
+    ("player", PlayerSnapshot),
+    ("event", PlayerEvent),
+    ("diagnostics", Diagnostics),
+    ("state", State),
+    ("result", StepResult),
+)
 ABI_OFFSETS = {
-    Scenario: {
-        "seed": "ai2b2_offset_scenario_seed",
-        "player_slot": "ai2b2_offset_scenario_player_slot",
-        "direction": "ai2b2_offset_scenario_direction",
-        "gap": "ai2b2_offset_scenario_gap",
-        "midpoint": "ai2b2_offset_scenario_midpoint",
-    },
-    PlayerSnapshot: {
-        "x": "ai2b2_offset_player_x",
-        "y": "ai2b2_offset_player_y",
-        "attack_id": "ai2b2_offset_player_attack_id",
-    },
-    Diagnostics: {
-        "seed": "ai2b2_offset_diagnostics_seed",
-        "scenario_id_hash": "ai2b2_offset_diagnostics_scenario_id_hash",
-        "first_hit_attack_id": "ai2b2_offset_diagnostics_first_hit_attack_id",
-        "second_hit_attack_id": "ai2b2_offset_diagnostics_second_hit_attack_id",
-        "terminal_reason": "ai2b2_offset_diagnostics_terminal_reason",
-        "achieved_safe_resolution": "ai2b2_offset_diagnostics_achieved_safe_resolution",
-        "attributed_damage_attack_ids": "ai2b2_offset_diagnostics_attributed_damage_attack_ids",
-        "players": "ai2b2_offset_diagnostics_players",
-    },
-    State: {
-        "game": "ai2b2_offset_state_game",
-        "scenario": "ai2b2_offset_state_scenario",
-        "diagnostics": "ai2b2_offset_state_diagnostics",
-        "first_attack_id": "ai2b2_offset_state_first_attack_id",
-        "second_attack_id": "ai2b2_offset_state_second_attack_id",
-        "last_second_duplicate_id": "ai2b2_offset_state_last_second_duplicate_id",
-    },
-    StepResult: {
-        "obs": "ai2b2_offset_result_obs",
-        "reward": "ai2b2_offset_result_reward",
-        "reward_terms": "ai2b2_offset_result_reward_terms",
-        "diagnostics": "ai2b2_offset_result_diagnostics",
-    },
+    cls: {
+        field_name: (
+            f"ai2b2_{prefix}_field_offset",
+            index,
+        )
+        for index, (field_name, *_rest) in enumerate(cls._fields_)
+    }
+    for prefix, cls in ABI_LAYOUTS
 }
 
 
@@ -470,9 +451,14 @@ class ReengagementReference:
             fn.restype = C.c_size_t
             if fn() != C.sizeof(cls):
                 raise RuntimeError(f"reengagement ABI size mismatch: {name}")
-        for fields in ABI_OFFSETS.values():
-            for export_name in fields.values():
-                getattr(self.lib, export_name).restype = C.c_size_t
+        for prefix, cls in ABI_LAYOUTS:
+            count = getattr(self.lib, f"ai2b2_{prefix}_field_count")
+            count.restype = C.c_size_t
+            offset = getattr(self.lib, f"ai2b2_{prefix}_field_offset")
+            offset.argtypes = [C.c_size_t]
+            offset.restype = C.c_size_t
+            if count() != len(cls._fields_):
+                raise RuntimeError(f"reengagement ABI field-count mismatch: {prefix}")
         self.lib.ai2b2_player_event_size.restype = C.c_size_t
         self.lib.ai2b2_reset_export.argtypes = [
             C.POINTER(State),
@@ -491,6 +477,24 @@ class ReengagementReference:
             C.POINTER(StepResult),
         ]
         self.lib.ai2b2_step_export.restype = INT32
+        self.lib.ai2b2_step_injected_event_export.argtypes = [
+            C.POINTER(State),
+            C.POINTER(D),
+            C.POINTER(nav.Rng),
+            C.POINTER(PlatformTable),
+            INT32,
+            C.POINTER(PlayerEvent),
+            C.POINTER(StepResult),
+        ]
+        self.lib.ai2b2_step_injected_event_export.restype = INT32
+        self.lib.ai2b2_debug_prepare_boundary_export.argtypes = [
+            C.POINTER(State),
+            C.POINTER(PlatformTable),
+            INT32,
+            INT32,
+            INT32,
+        ]
+        self.lib.ai2b2_debug_prepare_boundary_export.restype = INT32
         self.lib.ai2b2_validate_event_export.argtypes = [
             C.POINTER(State),
             C.POINTER(PlayerEvent),
@@ -525,7 +529,7 @@ class ReengagementReference:
         return self._reset(scenario, self.rng)
 
     def reset_replay(self, scenario, draws):
-        rng, keep = self.nav.replay_rng(draws)
+        rng, _keep = self.nav.replay_rng(draws)
         result = self._reset(scenario, rng)
         if rng.cursor != len(draws) or rng.error:
             raise RuntimeError("reengagement reset did not consume the exact random tape")
@@ -552,7 +556,7 @@ class ReengagementReference:
         return self._step(action, self.rng)
 
     def step_replay(self, action, draws):
-        rng, keep = self.nav.replay_rng(draws)
+        rng, _keep = self.nav.replay_rng(draws)
         result = self._step(action, rng)
         if rng.cursor != len(draws) or rng.error:
             raise RuntimeError("reengagement step did not consume the exact random tape")

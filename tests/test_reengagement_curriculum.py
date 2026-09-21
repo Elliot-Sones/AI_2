@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import random
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -179,6 +180,7 @@ def test_identity_schema_is_frozen():
     assert rc.CURRICULUM_VERSION == "bridge_b2_reengagement-v1"
     assert rc.BANK_VERSION == "b2-reengagement-bank-v1"
     assert rc.TRACE_VERSION == "b2-reengagement-trace-v1"
+    assert rc.REQUIRED_PYMUNK_VERSION == "6.2.1"
     assert rc.REWARD_NAMES == (
         "first_hit",
         "pursuit",
@@ -199,6 +201,40 @@ def test_identity_schema_is_frozen():
         "second_hit_deadline",
         "total_deadline",
     )
+    assert rc.OBSERVATION_RESIDUAL_VELOCITY_EPSILON == 1e-15
+    assert rc.OBSERVATION_VELOCITY_INDICES == (2, 3, 34, 35)
+
+
+def test_public_observation_canonicalizes_only_sub_epsilon_velocity_residue():
+    eps = rc.OBSERVATION_RESIDUAL_VELOCITY_EPSILON
+    obs = np.arange(64, dtype=np.float64)
+    below = np.nextafter(eps, 0.0)
+    above = np.nextafter(eps, np.inf)
+    obs[2] = below
+    obs[3] = -below
+    obs[34] = eps
+    obs[35] = above
+    obs[4] = below
+
+    got = rc.canonicalize_public_observation(obs)
+
+    assert got.dtype == np.float32
+    assert got[2].view(np.uint32) == np.float32(0.0).view(np.uint32)
+    assert got[3].view(np.uint32) == np.float32(0.0).view(np.uint32)
+    assert got[34].view(np.uint32) == np.float32(obs[34]).view(np.uint32)
+    assert got[35].view(np.uint32) == np.float32(obs[35]).view(np.uint32)
+    assert got[4].view(np.uint32) == np.float32(obs[4]).view(np.uint32)
+
+
+def test_original_game_load_fails_closed_without_pinned_pymunk(monkeypatch, tmp_path):
+    source = tmp_path / "UTMIST-AI2-main/environment/environment.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("raise AssertionError('environment import should not execute')\n")
+    monkeypatch.setattr(rc, "ORIGINAL_GAME_SHA256", __import__("hashlib").sha256(source.read_bytes()).hexdigest())
+    monkeypatch.setitem(__import__("sys").modules, "pymunk", SimpleNamespace(version="6.9.0"))
+
+    with pytest.raises(RuntimeError, match="requires pymunk==6.2.1, got '6.9.0'"):
+        rc.load_original_game(tmp_path)
 
 
 def test_choose_target_anchor_uses_floor_bounds_half_width_gap_and_tie_direction():

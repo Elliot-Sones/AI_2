@@ -5,11 +5,11 @@ from __future__ import annotations
 import ctypes as C
 import importlib.util
 import os
-from pathlib import Path
 import subprocess
 import sys
 import textwrap
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -25,7 +25,16 @@ FROZEN = Path(
 class NativeReengagementTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import pymunk
+
         from native_reengagement_episode import compile_reference
+
+        pymunk_version = getattr(pymunk, "version", None) or getattr(pymunk, "__version__", None)
+        if pymunk_version != "6.2.1":
+            raise AssertionError(
+                f"B2 oracle parity requires pymunk==6.2.1, got {pymunk_version!r}; "
+                "run the suite with --with pymunk==6.2.1"
+            )
 
         cls.native_library = compile_reference()
         spec = importlib.util.spec_from_file_location(
@@ -43,6 +52,24 @@ class NativeReengagementTests(unittest.TestCase):
         from native_reengagement_episode import ReengagementReference
 
         return ReengagementReference(self.native_library)
+
+    def injected_step(self, native, stream, event, action=None):
+        from native_reengagement_episode import StepResult
+
+        if action is None:
+            action = np.zeros(10, dtype=np.float64)
+        action = np.ascontiguousarray(np.asarray(action, dtype=np.float64))
+        result = StepResult()
+        code = native.lib.ai2b2_step_injected_event_export(
+            C.byref(native.state),
+            action.ctypes.data_as(C.POINTER(C.c_double)),
+            C.byref(native.rng),
+            C.byref(native.table),
+            stream,
+            C.byref(event),
+            C.byref(result),
+        )
+        return code, result
 
     def reset_pair(self, native, seed, slot=None, direction=None):
         from navigation_episode_capture import DrawRecorder
@@ -165,12 +192,13 @@ class NativeReengagementTests(unittest.TestCase):
 
     def test_constants_abi_sizes_reward_order_and_scenario_generation(self):
         from native_reengagement_episode import (
+            ABI_LAYOUTS,
             ABI_OFFSETS,
             REWARD_NAMES,
-            Scenario,
+            Diagnostics,
             PlayerEvent,
             PlayerSnapshot,
-            Diagnostics,
+            Scenario,
             State,
             StepResult,
             diagnostics_projection,
@@ -199,11 +227,14 @@ class NativeReengagementTests(unittest.TestCase):
             ("player", PlayerSnapshot),
         ):
             self.assertEqual(getattr(native.lib, f"ai2b2_{name}_size")(), C.sizeof(cls))
+        prefixes = {cls: prefix for prefix, cls in ABI_LAYOUTS}
         for cls, fields in ABI_OFFSETS.items():
-            for field_name, export_name in fields.items():
+            count_fn = getattr(native.lib, f"ai2b2_{prefixes[cls]}_field_count")
+            self.assertEqual(count_fn(), len(cls._fields_))
+            for field_name, (export_name, index) in fields.items():
                 with self.subTest(cls=cls.__name__, field=field_name):
                     fn = getattr(native.lib, export_name)
-                    self.assertEqual(fn(), getattr(cls, field_name).offset)
+                    self.assertEqual(fn(index), getattr(cls, field_name).offset)
         self.assertEqual(C.sizeof(PlayerEvent), native.lib.ai2b2_player_event_size())
         first = scenario_from_seed(134000)
         second = scenario_from_seed(134000)
@@ -310,44 +341,74 @@ class NativeReengagementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "403"):
             native.step_generated(np.zeros(10))
         self.assertEqual(bytes(native.state), before)
-        native.reset_generated(native.scenario(134000))
-        for mutate in (
-            lambda s: setattr(s.diagnostics, "tick", -1),
-            lambda s: setattr(s, "second_stage", 2),
-            lambda s: setattr(s, "relocated", 2),
-            lambda s: setattr(s, "first_attack_id", 99),
-            lambda s: setattr(s.diagnostics, "first_hit_attack_id", 99),
-            lambda s: setattr(s.diagnostics, "first_hit_tick", 1),
-            lambda s: setattr(s, "second_attack_id", 99),
-            lambda s: setattr(s.diagnostics, "second_hit_attack_id", 99),
-            lambda s: setattr(s.diagnostics, "second_hit_tick", 1),
-            lambda s: setattr(s, "last_second_duplicate_id", 99),
-            lambda s: setattr(s.diagnostics, "relocation_tick", 1),
-            lambda s: setattr(s.diagnostics, "pursuit_tick", 1),
-            lambda s: setattr(s.diagnostics, "pursuit_direction", 1),
-            lambda s: setattr(s.diagnostics, "outcome", 1),
-            lambda s: setattr(s.diagnostics, "achieved_first_hit", 1),
-        ):
-            native.reset_generated(native.scenario(134000))
-            mutate(native.state)
-            self.assert_invalid_state(native)
+        def fresh_reset_state():
+            candidate = self.native()
+            candidate.reset_generated(candidate.scenario(134000))
+            return candidate
 
-        native, result = self.episode("scripted", seed=134000, slot=0, direction=-1)
-        for mutate in (
-            lambda s: setattr(s, "first_attack_id", s.first_attack_id + 1),
-            lambda s: setattr(s, "second_attack_id", s.second_attack_id + 1),
-            lambda s: setattr(s, "last_second_duplicate_id", s.second_attack_id + 1),
-            lambda s: setattr(s.diagnostics, "first_hit_tick", -1),
-            lambda s: setattr(s.diagnostics, "second_hit_tick", -1),
-            lambda s: setattr(s.diagnostics, "relocation_tick", -1),
-            lambda s: setattr(s.diagnostics, "pursuit_tick", -1),
-            lambda s: setattr(s.diagnostics, "achieved_safe_resolution", 0),
-            lambda s: setattr(s.diagnostics, "success", 0),
-            lambda s: setattr(s.diagnostics, "sequence_completed", 0),
-        ):
-            native.state.diagnostics.outcome = 0
-            mutate(native.state)
-            self.assert_invalid_state(native)
+        def relocated_state():
+            candidate = self.native()
+            candidate.reset_generated(candidate.scenario(134000))
+            code = candidate.lib.ai2b2_debug_prepare_boundary_export(
+                C.byref(candidate.state), C.byref(candidate.table), 1, 30, 80
+            )
+            self.assertEqual(code, 0)
+            return candidate
+
+        def pursuit_state():
+            candidate = self.native()
+            candidate.reset_generated(candidate.scenario(134000))
+            code = candidate.lib.ai2b2_debug_prepare_boundary_export(
+                C.byref(candidate.state), C.byref(candidate.table), 2, 30, 80
+            )
+            self.assertEqual(code, 0)
+            return candidate
+
+        def completed_state():
+            candidate, _result = self.episode("scripted", seed=134000, slot=0, direction=-1)
+            return candidate
+
+        cases = (
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "tick", -1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s, "second_stage", 2)),
+            ("reset", fresh_reset_state, lambda s: setattr(s, "relocated", 2)),
+            ("reset", fresh_reset_state, lambda s: setattr(s, "first_attack_id", 99)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "first_hit_attack_id", 99)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "first_hit_tick", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s, "second_attack_id", 99)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "second_hit_attack_id", 99)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "second_hit_tick", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s, "last_second_duplicate_id", 99)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "relocation_tick", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "pursuit_tick", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "pursuit_direction", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "outcome", 1)),
+            ("reset", fresh_reset_state, lambda s: setattr(s.diagnostics, "achieved_first_hit", 1)),
+            ("relocated", relocated_state, lambda s: setattr(s, "first_attack_id", s.first_attack_id + 1)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "first_hit_attack_id", s.diagnostics.first_hit_attack_id + 1)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "first_hit_tick", -1)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "relocation_tick", -1)),
+            ("relocated", relocated_state, lambda s: setattr(s, "second_stage", 0)),
+            ("relocated", relocated_state, lambda s: setattr(s, "relocated", 0)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "achieved_relocation", 0)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "pursuit_direction", 0)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "success", 1)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "sequence_completed", 1)),
+            ("relocated", relocated_state, lambda s: setattr(s.diagnostics, "achieved_safe_resolution", 1)),
+            ("pursuit", pursuit_state, lambda s: setattr(s.diagnostics, "pursuit_tick", -1)),
+            ("pursuit", pursuit_state, lambda s: setattr(s.diagnostics, "achieved_pursuit", 0)),
+            ("complete", completed_state, lambda s: setattr(s, "second_attack_id", s.second_attack_id + 1)),
+            ("complete", completed_state, lambda s: setattr(s, "last_second_duplicate_id", s.second_attack_id + 1)),
+            ("complete", completed_state, lambda s: setattr(s.diagnostics, "second_hit_tick", -1)),
+            ("complete", completed_state, lambda s: setattr(s.diagnostics, "achieved_safe_resolution", 0)),
+            ("complete", completed_state, lambda s: setattr(s.diagnostics, "success", 0)),
+            ("complete", completed_state, lambda s: setattr(s.diagnostics, "sequence_completed", 0)),
+        )
+        for index, (stage, factory, mutate) in enumerate(cases):
+            with self.subTest(index=index, stage=stage):
+                candidate = factory()
+                mutate(candidate.state)
+                self.assert_invalid_state(candidate)
 
     def assert_invalid_state(self, native):
         from native_reengagement_episode import StepResult
@@ -373,6 +434,64 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertIsNotNone(projection["relocation_tick"])
         self.assertEqual(projection["tick"] - projection["relocation_tick"], 60)
         self.assertEqual(result.reward_terms[6], -1.0)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            native.step_generated(np.zeros(10))
+
+        from native_reengagement_episode import PlayerEvent
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+        self.assertEqual(
+            native.lib.ai2b2_debug_prepare_boundary_export(
+                C.byref(native.state), C.byref(native.table), 1, 60, 120
+            ),
+            0,
+        )
+        result = native.step_generated(np.zeros(10))
+        projection = native.diagnostics(result)
+        self.assertEqual(projection["outcome"], None)
+        self.assertEqual(projection["pursuit_tick"] - projection["relocation_tick"], 60)
+        self.assertEqual(result.reward_terms[1], 0.5)
+        self.assertEqual(result.reward_terms[6], 0.0)
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+        self.assertEqual(
+            native.lib.ai2b2_debug_prepare_boundary_export(
+                C.byref(native.state), C.byref(native.table), 2, 90, 180
+            ),
+            0,
+        )
+        second = PlayerEvent(kind=4, source=0, target=1, move=0, power=0, cast=0,
+                             hitbox=0, phase_player=0, event_sequence=0,
+                             attack_id=222, amount=1.0)
+        code, result = self.injected_step(native, 0, second)
+        self.assertEqual(code, 0)
+        projection = native.diagnostics(result)
+        self.assertEqual(projection["outcome"], "success")
+        self.assertEqual(projection["second_hit_tick"] - projection["relocation_tick"], 90)
+        self.assertEqual(result.reward_terms[2], 1.0)
+        self.assertEqual(result.reward_terms[3], 2.0)
+        self.assertEqual(result.reward_terms[6], 0.0)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            native.step_generated(np.zeros(10))
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+        self.assertEqual(
+            native.lib.ai2b2_debug_prepare_boundary_export(
+                C.byref(native.state), C.byref(native.table), 2, 89, 300
+            ),
+            0,
+        )
+        code, result = self.injected_step(native, 0, second)
+        self.assertEqual(code, 0)
+        projection = native.diagnostics(result)
+        self.assertEqual(projection["outcome"], "success")
+        self.assertEqual(projection["tick"], 300)
+        self.assertEqual(result.reward_terms[2], 1.0)
+        self.assertEqual(result.reward_terms[3], 2.0)
+        self.assertEqual(result.reward_terms[6], 0.0)
         with self.assertRaisesRegex(RuntimeError, "403"):
             native.step_generated(np.zeros(10))
 
@@ -462,6 +581,7 @@ class NativeReengagementTests(unittest.TestCase):
             [sys.executable, "-c", script, str(self.native_library)],
             cwd=ROOT,
             capture_output=True,
+            check=False,
             text=True,
             timeout=60,
         )
@@ -508,6 +628,17 @@ class NativeReengagementTests(unittest.TestCase):
         ):
             with self.subTest(event=bytes(event)):
                 self.assertEqual(validate(event), 406)
+
+        bad_target_stream_event = PlayerEvent(
+            kind=4, source=1, target=0, move=0, power=0, cast=0,
+            hitbox=0, phase_player=0, event_sequence=0, attack_id=12, amount=1.0
+        )
+        native.reset_generated(native.scenario(134000, 0, -1))
+        before = bytes(native.state)
+        code, result = self.injected_step(native, 1, bad_target_stream_event)
+        self.assertEqual(code, 406)
+        self.assertEqual(result.error, 406)
+        self.assertEqual(bytes(native.state), before)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@
 #define AI2B2_REWARD_TERMS 8
 #define AI2B2_TIME_LIMIT 300
 #define AI2B2_ATTRIBUTED_EVENT_CAPACITY 2
+#define AI2B2_OBS_RESIDUAL_VELOCITY_EPSILON 1e-15
 
 enum {
     AI2B2_ONGOING = 0, AI2B2_SUCCESS = 1, AI2B2_OWN_STOCK_LOSS = 2,
@@ -322,29 +323,24 @@ AI2N_HD static inline int ai2b2_fail(AI2B2State *s, AI2B2StepResult *out, int rc
     return rc;
 }
 
+AI2N_HD static inline int ai2b2_fail_restore(AI2B2State *s, AI2NRng *rng,
+                                             const AI2B2State *state_before,
+                                             const AI2NRng *rng_before,
+                                             AI2B2StepResult *out, int rc) {
+    if (s && state_before) *s = *state_before;
+    if (rng && rng_before) *rng = *rng_before;
+    if (out) out->error = rc;
+    return rc;
+}
+
 AI2N_HD static inline void ai2b2_fill_obs(AI2B2State *s, int learner, AI2B2StepResult *out) {
     double obs[2][64];
     int i;
     if (!ai2g_observe(&s->game, obs)) {
         for (i = 0; i < 64; ++i) {
-            float value = (float)obs[learner][i];
-            /* Pymunk exposes a sub-attoscale resting-contact x velocity for the
-             * opponent one tick after spawn that lands a few float32 ULPs below
-             * the C99 collision port. Canonicalize this denormal-scale B2-only
-             * observation so the public float32 ABI is exact without relaxing
-             * comparisons for real-valued observations. */
-            if (i == 2 || i == 34) {
-                union { float f; uint32_t u; } bits;
-                int nudge = 0;
-                bits.f = value;
-                if (bits.u == 2710410112u) nudge = 1;
-                else if (bits.u == 2719073819u) nudge = 1;
-                else if (bits.u == 2679935168u) nudge = 4;
-                else if (bits.u == 565416290u) nudge = 1;
-                int k;
-                for (k = 0; k < nudge; ++k)
-                    value = nextafterf(value, value < 0.0f ? -INFINITY : INFINITY);
-            }
+            const int velocity_slot = i == 2 || i == 3 || i == 34 || i == 35;
+            float value = velocity_slot && fabs(obs[learner][i]) < AI2B2_OBS_RESIDUAL_VELOCITY_EPSILON
+                ? 0.0f : (float)obs[learner][i];
             out->obs[i] = (double)value;
         }
     }
@@ -436,13 +432,84 @@ AI2N_HD static inline int ai2b2_relocate(AI2B2State *s) {
     return 1;
 }
 
-AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2NRng *rng,
-                                    const AI2GPlatformTable *table, AI2B2StepResult *out) {
+AI2N_HD static inline int ai2b2_debug_prepare_boundary(AI2B2State *s,
+                                                       const AI2GPlatformTable *table,
+                                                       int mode,
+                                                       int elapsed_after_step,
+                                                       int tick_after_step) {
+    AI2B2Diagnostics *d;
+    int learner, target, dir, before_tick;
+    double current_gap;
+    if (!s || !ai2b2_state_valid(s)) return AI2B2_ERR_STATE;
+    if (mode < 1 || mode > 2 || elapsed_after_step < 1 ||
+        tick_after_step <= elapsed_after_step || tick_after_step > AI2B2_TIME_LIMIT)
+        return AI2B2_ERR_STATE;
+    d = &s->diagnostics;
+    learner = s->scenario.player_slot;
+    target = 1 - learner;
+    before_tick = tick_after_step - 1;
+    ai2b2_snapshot(&s->game, learner, &d->players[learner]);
+    ai2b2_snapshot(&s->game, target, &d->players[target]);
+    dir = d->players[target].x >= d->players[learner].x ? 1 : -1;
+    current_gap = fabs(d->players[target].x - d->players[learner].x);
+    s->game.scene.steps = before_tick;
+    if (table && table->count > before_tick) {
+        AI2CBody *platform = &s->game.scene.world.bodies[s->game.scene.platform_body];
+        platform->p = ai2c_v(table->px[before_tick], table->py[before_tick]);
+        platform->v = ai2c_v(table->vx[before_tick], table->vy[before_tick]);
+        ai2c_body_set_transform(platform, platform->p, platform->a);
+        s->game.scene.moving_to_w2 = table->dir_after[before_tick] ? 1 : 0;
+    }
+    d->tick = before_tick;
+    s->first_attack_id = 111;
+    s->second_attack_id = 0;
+    s->last_second_duplicate_id = 0;
+    s->second_stage = 1;
+    s->relocated = 1;
+    d->outcome = AI2B2_ONGOING;
+    d->first_hit_attack_id = 111;
+    d->second_hit_attack_id = 0;
+    d->hit_attack_id = 0;
+    d->first_hit_tick = tick_after_step - elapsed_after_step - 1;
+    if (d->first_hit_tick < 1) d->first_hit_tick = 1;
+    d->second_hit_tick = -1;
+    d->relocation_tick = tick_after_step - elapsed_after_step;
+    d->pursuit_direction = dir;
+    d->relocation_learner_x = d->players[learner].x - dir * 1.2;
+    d->relocation_target_x = d->players[target].x;
+    d->relocation_gap = current_gap + 1.2;
+    d->gap_closed = mode == 2 ? 1.2 : 0.0;
+    d->learner_progress = mode == 2 ? 1.2 : 0.0;
+    d->pursuit_tick = mode == 2 ? d->relocation_tick + 1 : -1;
+    d->attributed_damage_event_count = 1;
+    d->attributed_damage_attack_ids[0] = 111;
+    d->attributed_damage_ticks[0] = d->first_hit_tick;
+    d->attributed_damage_sources[0] = learner;
+    d->attributed_damage_targets[0] = target;
+    d->attributed_damage_moves[0] = 0;
+    d->attributed_damage_amounts[0] = 1.0;
+    d->attributed_damage_attack_ids[1] = 0;
+    d->attributed_damage_ticks[1] = 0;
+    d->attributed_damage_sources[1] = 0;
+    d->attributed_damage_targets[1] = 0;
+    d->attributed_damage_moves[1] = 0;
+    d->attributed_damage_amounts[1] = 0.0;
+    d->relocation_pre_target = d->players[target];
+    d->relocation_post_target = d->players[target];
+    ai2b2_sync_diagnostic_flags(s);
+    return ai2b2_state_valid(s) ? 0 : AI2B2_ERR_STATE;
+}
+
+AI2N_HD static inline int ai2b2_step_core(AI2B2State *s, const double action[10], AI2NRng *rng,
+                                          const AI2GPlatformTable *table, AI2B2StepResult *out,
+                                          int inject_stream, const AI2GPlayerEvent *inject_event) {
     double executed[2][10];
     AI2GStepResult raw;
+    AI2B2State state_before;
+    AI2NRng rng_before;
     AI2B2Diagnostics *d;
-    AI2GCombatPlayer *combat;
-    int i, j, rc, learner, target, requested, resolved = 1;
+    AI2GCombatPlayer *combat, *stream_combat;
+    int i, j, stream, rc, learner, target, requested, resolved = 1;
     if (!s || !action || !rng || !out) return AI2N_ERR_NULL;
     ai2n_zero(out, sizeof(*out));
     if (!s->initialized) { out->error = AI2G_ERR_UNINITIALIZED; return out->error; }
@@ -450,6 +517,9 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
     if (!ai2b2_scenario_valid(&s->scenario)) { out->error = AI2B2_ERR_SCENARIO; return out->error; }
     if (!ai2b2_state_valid(s)) { out->error = AI2B2_ERR_STATE; return out->error; }
     if (s->diagnostics.outcome) { out->error = AI2B2_ERR_TERMINAL; return out->error; }
+    if ((inject_stream < -1 || inject_stream > 1) || (inject_stream >= 0 && !inject_event)) {
+        out->error = AI2B2_ERR_EVIDENCE; return out->error;
+    }
     ai2n_zero(executed, sizeof(executed));
     learner = s->scenario.player_slot; target = 1 - learner; d = &s->diagnostics;
     for (i = 0; i < 10; ++i) {
@@ -461,8 +531,19 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
     }
     for (i = 0; i < 2; ++i) ai2b2_snapshot(&s->game, i, &out->pre_players[i]);
     requested = executed[learner][7] > 0.5;
+    state_before = *s;
+    rng_before = *rng;
     rc = ai2g_step(&s->game, (const double (*)[10])executed, rng, table, &raw);
     if (rc) return ai2b2_fail(s, out, rc);
+    if (inject_stream >= 0) {
+        stream_combat = &s->game.combat[inject_stream];
+        if (stream_combat->event_count < 0 ||
+            stream_combat->event_count >= AI2G_PLAYER_EVENT_CAPACITY)
+            return ai2b2_fail_restore(s, rng, &state_before, &rng_before, out, AI2B2_ERR_EVIDENCE);
+        stream_combat->events[stream_combat->event_count++] = *inject_event;
+        if (s->game.combat[0].total_tick_events < INT32_MAX)
+            s->game.combat[0].total_tick_events++;
+    }
     ++d->tick;
     d->light_request_ticks += requested;
     d->light_press_count += requested && !s->previous_light;
@@ -494,24 +575,31 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
         if (bounded > d->max_initial_approach_progress) d->max_initial_approach_progress = bounded;
     }
     out->reward_terms[7] = -0.001;
-    for (i = 0; i < combat->event_count; ++i) {
-        const AI2GPlayerEvent *e = &combat->events[i];
-        rc = ai2b2_event_validity(s, e);
-        if (rc == AI2B2_ERR_EVIDENCE) return ai2b2_fail(s, out, rc);
-        if (rc != 1) continue;
-        if (!s->second_stage && !s->first_attack_id) {
-            s->first_attack_id = e->attack_id; d->first_hit_attack_id = e->attack_id;
-            d->hit_attack_id = e->attack_id; d->first_hit_tick = d->tick;
-            ai2b2_record_attributed_damage(d, e);
-            out->reward_terms[0] = 0.5;
-        } else if (s->second_stage) {
-            if (s->second_attack_id && e->attack_id == s->second_attack_id) {
-                s->last_second_duplicate_id = e->attack_id;
-            } else if (!s->second_attack_id) {
-                s->second_attack_id = e->attack_id; d->second_hit_attack_id = e->attack_id;
-                d->hit_attack_id = e->attack_id; d->second_hit_tick = d->tick;
+    for (stream = 0; stream < 2; ++stream) {
+        stream_combat = &s->game.combat[stream];
+        for (i = 0; i < stream_combat->event_count; ++i) {
+            const AI2GPlayerEvent *e = &stream_combat->events[i];
+            if (e->kind == AI2G_EVENT_DAMAGE && e->amount > 0.0 && e->source != stream)
+                return ai2b2_fail_restore(s, rng, &state_before, &rng_before, out,
+                                          AI2B2_ERR_EVIDENCE);
+            rc = ai2b2_event_validity(s, e);
+            if (rc == AI2B2_ERR_EVIDENCE)
+                return ai2b2_fail_restore(s, rng, &state_before, &rng_before, out, rc);
+            if (rc != 1) continue;
+            if (!s->second_stage && !s->first_attack_id) {
+                s->first_attack_id = e->attack_id; d->first_hit_attack_id = e->attack_id;
+                d->hit_attack_id = e->attack_id; d->first_hit_tick = d->tick;
                 ai2b2_record_attributed_damage(d, e);
-                out->reward_terms[2] = 1.0;
+                out->reward_terms[0] = 0.5;
+            } else if (s->second_stage) {
+                if (s->second_attack_id && e->attack_id == s->second_attack_id) {
+                    s->last_second_duplicate_id = e->attack_id;
+                } else if (!s->second_attack_id) {
+                    s->second_attack_id = e->attack_id; d->second_hit_attack_id = e->attack_id;
+                    d->hit_attack_id = e->attack_id; d->second_hit_tick = d->tick;
+                    ai2b2_record_attributed_damage(d, e);
+                    out->reward_terms[2] = 1.0;
+                }
             }
         }
     }
@@ -560,6 +648,11 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
     ai2b2_sync_diagnostic_flags(s);
     out->diagnostics = *d;
     return 0;
+}
+
+AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2NRng *rng,
+                                    const AI2GPlatformTable *table, AI2B2StepResult *out) {
+    return ai2b2_step_core(s, action, rng, table, out, -1, (const AI2GPlayerEvent *)0);
 }
 
 #endif

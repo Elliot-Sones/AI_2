@@ -7,8 +7,6 @@ state machine required by ``bridge_b2_reengagement-v1``.
 
 from __future__ import annotations
 
-from contextlib import contextmanager, redirect_stdout
-from pathlib import Path
 import hashlib
 import importlib
 import io
@@ -18,13 +16,18 @@ import os
 import random
 import sys
 import uuid
+from contextlib import contextmanager, redirect_stdout
+from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
-
 
 CURRICULUM_VERSION = "bridge_b2_reengagement-v1"
 BANK_VERSION = "b2-reengagement-bank-v1"
 TRACE_VERSION = "b2-reengagement-trace-v1"
+REQUIRED_PYMUNK_VERSION = "6.2.1"
+OBSERVATION_RESIDUAL_VELOCITY_EPSILON = 1e-15
+OBSERVATION_VELOCITY_INDICES = (2, 3, 34, 35)
 REWARD_NAMES = (
     "first_hit",
     "pursuit",
@@ -46,6 +49,23 @@ OUTCOMES = (
     "total_deadline",
 )
 
+
+def canonicalize_public_observation(observation):
+    """Return the public float32 observation with contact residual velocities zeroed.
+
+    The frozen observation schema stores controlled-player vx/vy in slots 2/3 and
+    opponent vx/vy in slots 34/35. Values with magnitude strictly below
+    OBSERVATION_RESIDUAL_VELOCITY_EPSILON are platform contact-solver residue,
+    many orders below meaningful game motion, and are exposed as exact +0.0.
+    """
+
+    raw = np.asarray(observation)
+    result = raw.astype(np.float32, copy=True)
+    for index in OBSERVATION_VELOCITY_INDICES:
+        if abs(float(raw[index])) < OBSERVATION_RESIDUAL_VELOCITY_EPSILON:
+            result[index] = np.float32(0.0)
+    return result
+
 ACTIVE_INDICES = (0, 1, 2, 3, 4, 6, 7)
 ALLOWED_MASK = np.array([i in ACTIVE_INDICES for i in range(10)], dtype=bool)
 ORIGINAL_GAME_SHA256 = "c0116fc7b4a46d45c37367d9aa4d7f44041296ad96ba01e8b1f3f1f158e24230"
@@ -66,6 +86,17 @@ def _asset_directory(module):
 
 
 def load_original_game(frozen_root):
+    try:
+        import pymunk
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            f"B2 re-engagement oracle requires pymunk=={REQUIRED_PYMUNK_VERSION}"
+        ) from exc
+    if getattr(pymunk, "version", None) != REQUIRED_PYMUNK_VERSION:
+        raise RuntimeError(
+            f"B2 re-engagement oracle requires pymunk=={REQUIRED_PYMUNK_VERSION}, "
+            f"got {getattr(pymunk, 'version', None)!r}"
+        )
     root = Path(frozen_root).resolve()
     source = root / "UTMIST-AI2-main/environment/environment.py"
     if hashlib.sha256(source.read_bytes()).hexdigest() != ORIGINAL_GAME_SHA256:
@@ -182,7 +213,7 @@ def scenario_from_seed(seed, player_slot=None, direction=None):
 
 
 class ReengagementEnv:
-    metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
+    metadata: ClassVar[dict[str, object]] = {"render_modes": ["rgb_array"], "render_fps": 30}
 
     def __init__(self, frozen_root, *, seed=0, player_slot=0, trace_dir=None):
         self.game = load_original_game(frozen_root)
@@ -341,7 +372,7 @@ class ReengagementEnv:
         self.events.append({"type": kind, "tick": self.tick, "encounter": self.encounter, **fields})
 
     def _observation(self):
-        return np.asarray(self.raw_env.observe(self.player_slot), dtype=np.float32)
+        return canonicalize_public_observation(self.raw_env.observe(self.player_slot))
 
     def _target_half_width(self, target):
         bb = target.shape.cache_bb()
