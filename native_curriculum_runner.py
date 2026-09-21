@@ -315,12 +315,28 @@ def _default_train_block(*, phase: Mapping[str, Any], checkpoint_path: Path, out
     if "deadline_unix" not in configured:
         raise ValueError(f"{block_type} block args require deadline_unix for the real runner")
     argv = ["--checkpoint", str(checkpoint_path), "--output", str(output_dir)]
+    boolean_flags: list[str] = []
+    if block_type == "native_reengagement":
+        raw_cycle_index = configured.pop("cycle_index", 1)
+        if type(raw_cycle_index) is not int:
+            raise ValueError("native_reengagement cycle_index must be an integer")
+        configured.pop("checkpoint_sha256", None)
+        configured.pop("resume", None)
+        configured.pop("resume_parent_result", None)
+        if raw_cycle_index == 1:
+            configured["checkpoint_sha256"] = train_module.PARENT_CHECKPOINT_SHA256
+        else:
+            configured["checkpoint_sha256"] = sha256_file(checkpoint_path)
+            configured["cycle_index"] = raw_cycle_index
+            configured["resume_parent_result"] = checkpoint_path.parent / "result.json"
+            boolean_flags.append("--resume")
     for key, value in configured.items():
         if isinstance(value, (dict, list, tuple, bool)):
             raise ValueError(f"{block_type} block arg {key!r} must be a scalar")
         if value is None:
             continue
         argv.extend(("--" + key.replace("_", "-"), str(value)))
+    argv.extend(boolean_flags)
     try:
         namespace = train_module.parse_args(argv)
     except SystemExit as exc:

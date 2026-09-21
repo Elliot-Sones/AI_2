@@ -477,6 +477,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     parser.add_argument("--checkpoint", type=Path, required=True)
                     parser.add_argument("--output", type=Path, required=True)
                     parser.add_argument("--deadline-unix", type=float, required=True)
+                    parser.add_argument("--checkpoint-sha256")
                     return parser.parse_args(argv)
 
                 def run_block(args):
@@ -485,7 +486,11 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     (args.output / "final.zip").write_bytes(label.encode("utf8"))
                     return {"status": "trained_not_evaluated"}
 
-                return types.SimpleNamespace(parse_args=parse_args, run_block=run_block)
+                return types.SimpleNamespace(
+                    parse_args=parse_args,
+                    run_block=run_block,
+                    PARENT_CHECKPOINT_SHA256="a" * 64,
+                )
 
             fake_modules = {
                 "benchmark_native_contact_training": module("contact"),
@@ -511,6 +516,79 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     ("reengagement", checkpoint, root / "reengagement"),
                 ],
             )
+
+    def test_default_reengagement_adapter_synthesizes_fresh_and_resume_cycle_arguments(self):
+        import native_curriculum_runner as runner
+        import train_reengagement_campaign_block as reengagement
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "parent.zip"
+            parent.write_bytes(b"canonical parent stand-in")
+            checkpoint_ack = root / "ack.json"
+            checkpoint_ack.write_text("{}", encoding="utf8")
+            common_args = {
+                "checkpoint_ack": checkpoint_ack,
+                "frozen_root": root / "frozen",
+                "reference_root": root / "reference",
+                "qualification": root / "qualification.json",
+                "deadline_unix": 9999999999.0,
+                "schedule": "R4E1N",
+                "checkpoint_sha256": "0" * 64,
+                "resume_parent_result": root / "stale-result.json",
+            }
+            observed = []
+
+            def fake_run_block(args):
+                observed.append(vars(args).copy())
+                args.output.mkdir()
+                (args.output / "final.zip").write_bytes(f"cycle-{args.cycle_index}".encode("utf8"))
+                (args.output / "result.json").write_text(json.dumps({
+                    "schema_version": reengagement.SCHEMA_VERSION,
+                    "cycle_index": args.cycle_index,
+                    "checkpoint_sha256": runner.sha256_file(args.output / "final.zip"),
+                    "schedule_id": "R4E1N",
+                    "schedule": list(reengagement.SCHEDULES["R4E1N"]),
+                    "expected_task_versions": reengagement.EXPECTED_TASK_VERSIONS,
+                    "root_parent_checkpoint_sha256": reengagement.PARENT_CHECKPOINT_SHA256,
+                    "final_model_counters": {"num_timesteps": 60_391_424 + args.cycle_index * 10_485_760},
+                }), encoding="utf8")
+                return {"status": "trained_not_evaluated"}
+
+            phase_1 = {"block": {"type": "native_reengagement", "args": dict(common_args)}}
+            cycle_1_dir = root / "cycle-001"
+            with mock.patch.object(reengagement, "run_block", side_effect=fake_run_block):
+                first = runner._default_train_block(
+                    phase=phase_1,
+                    checkpoint_path=parent,
+                    output_dir=cycle_1_dir,
+                )
+
+                phase_2 = {"block": {"type": "native_reengagement", "args": {
+                    **common_args,
+                    "cycle_index": 2,
+                }}}
+                cycle_2_dir = root / "cycle-002"
+                second = runner._default_train_block(
+                    phase=phase_2,
+                    checkpoint_path=first["checkpoint"],
+                    output_dir=cycle_2_dir,
+                )
+
+            self.assertEqual(first["checkpoint"], cycle_1_dir / "final.zip")
+            self.assertEqual(second["checkpoint"], cycle_2_dir / "final.zip")
+            self.assertEqual(observed[0]["checkpoint"], parent)
+            self.assertEqual(observed[0]["output"], cycle_1_dir)
+            self.assertFalse(observed[0]["resume"])
+            self.assertEqual(observed[0]["cycle_index"], 1)
+            self.assertEqual(observed[0]["checkpoint_sha256"], reengagement.PARENT_CHECKPOINT_SHA256)
+            self.assertIsNone(observed[0]["resume_parent_result"])
+            self.assertEqual(observed[1]["checkpoint"], cycle_1_dir / "final.zip")
+            self.assertEqual(observed[1]["output"], cycle_2_dir)
+            self.assertTrue(observed[1]["resume"])
+            self.assertEqual(observed[1]["cycle_index"], 2)
+            self.assertEqual(observed[1]["checkpoint_sha256"], runner.sha256_file(cycle_1_dir / "final.zip"))
+            self.assertEqual(observed[1]["resume_parent_result"], cycle_1_dir / "result.json")
 
     def test_both_block_types_reject_phase_owned_checkpoint_and_output(self):
         import native_curriculum_runner as runner
