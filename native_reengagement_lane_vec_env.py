@@ -74,6 +74,25 @@ class EpisodeRecord(C.Structure):
     ] + [("ret", D), ("diagnostics", reengagement.Diagnostics)]
 
 
+ABI_LAYOUTS = (("lane", Lane), ("record", EpisodeRecord))
+
+
+def _copied_scenario_rows(rows):
+    copied = []
+    for row in rows:
+        copied.append(
+            {
+                "lane": row["lane"],
+                "episode": row["episode"],
+                "curriculum_task": row["curriculum_task"],
+                "curriculum_version": row["curriculum_version"],
+                "generator": row["generator"],
+                "scenario": dict(row["scenario"]),
+            }
+        )
+    return copied
+
+
 def _positive_int(value, name):
     if (
         isinstance(value, bool)
@@ -355,10 +374,19 @@ class ReengagementLaneBackend:
             functions["drain"],
         )
         self.get_fn, self.set_fn = functions["lane_get"], functions["lane_set"]
-        for name, cls in (("lane", Lane), ("record", EpisodeRecord)):
+        for name, cls in ABI_LAYOUTS:
             fn = getattr(self.lib, prefix + name + "_size")
             fn.restype = C.c_size_t
             if fn() != C.sizeof(cls):
+                raise RuntimeError(f"reengagement {name} native/Python ABI mismatch")
+            count_fn = getattr(self.lib, prefix + name + "_field_count")
+            offset_fn = getattr(self.lib, prefix + name + "_field_offset")
+            count_fn.restype = offset_fn.restype = C.c_size_t
+            offset_fn.argtypes = [C.c_size_t]
+            if count_fn() != len(cls._fields_) or any(
+                offset_fn(index) != getattr(cls, field_name).offset
+                for index, (field_name, *_rest) in enumerate(cls._fields_)
+            ):
                 raise RuntimeError(f"reengagement {name} native/Python ABI mismatch")
         self.records = (EpisodeRecord * self.record_capacity)()
         self.errors = np.zeros(self.lanes, dtype=np.int32)
@@ -384,7 +412,11 @@ class ReengagementLaneBackend:
         return {
             **self._scenario_metadata,
             "shape": list(self._scenario_metadata["shape"]),
-            "scenarios": [dict(row) for row in self._scenario_metadata["scenarios"]],
+            "allowed_control_mask": tuple(self._scenario_metadata["allowed_control_mask"]),
+            "excluded_seed_ranges": [
+                list(pair) for pair in self._scenario_metadata["excluded_seed_ranges"]
+            ],
+            "scenarios": _copied_scenario_rows(self._scenario_metadata["scenarios"]),
         }
 
     def write_scenarios_json(self, path):

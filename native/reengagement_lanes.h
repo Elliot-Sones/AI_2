@@ -35,6 +35,22 @@ typedef struct {
     AI2B2Diagnostics diagnostics;
 } AI2B2EpisodeRecord;
 
+#define AI2B2_COMPILE_ASSERT(name, expr) typedef char ai2b2_compile_assert_##name[(expr) ? 1 : -1]
+AI2B2_COMPILE_ASSERT(lane_episode_first, offsetof(AI2B2Lane, episode) == 0);
+AI2B2_COMPILE_ASSERT(lane_rng_after_episode, offsetof(AI2B2Lane, rng) > offsetof(AI2B2Lane, episode));
+AI2B2_COMPILE_ASSERT(lane_ret_after_rng, offsetof(AI2B2Lane, ret) > offsetof(AI2B2Lane, rng));
+AI2B2_COMPILE_ASSERT(lane_last_obs_after_ret, offsetof(AI2B2Lane, last_obs) > offsetof(AI2B2Lane, ret));
+AI2B2_COMPILE_ASSERT(lane_valid_steps_after_last_obs, offsetof(AI2B2Lane, valid_steps) > offsetof(AI2B2Lane, last_obs));
+AI2B2_COMPILE_ASSERT(lane_scenario_index_in_bounds,
+    offsetof(AI2B2Lane, scenario_index) + sizeof(((AI2B2Lane*)0)->scenario_index) <= sizeof(AI2B2Lane));
+AI2B2_COMPILE_ASSERT(record_lane_first, offsetof(AI2B2EpisodeRecord, lane) == 0);
+AI2B2_COMPILE_ASSERT(record_ret_after_scenario_index,
+    offsetof(AI2B2EpisodeRecord, ret) > offsetof(AI2B2EpisodeRecord, scenario_index));
+AI2B2_COMPILE_ASSERT(record_diagnostics_after_ret,
+    offsetof(AI2B2EpisodeRecord, diagnostics) > offsetof(AI2B2EpisodeRecord, ret));
+AI2B2_COMPILE_ASSERT(record_diagnostics_in_bounds,
+    offsetof(AI2B2EpisodeRecord, diagnostics) + sizeof(((AI2B2EpisodeRecord*)0)->diagnostics) <= sizeof(AI2B2EpisodeRecord));
+
 AI2N_HD static inline void ai2b2_lane_obs(const AI2B2Lane *lane, float *obs) {
     int i;
     for (i = 0; i < 64; ++i) obs[i] = lane->last_obs[i];
@@ -194,6 +210,10 @@ extern "C" {
  */
 size_t ai2b2_lanes_cpu_lane_size(void);
 size_t ai2b2_lanes_cpu_record_size(void);
+size_t ai2b2_lanes_cpu_lane_field_count(void);
+size_t ai2b2_lanes_cpu_lane_field_offset(size_t);
+size_t ai2b2_lanes_cpu_record_field_count(void);
+size_t ai2b2_lanes_cpu_record_field_offset(size_t);
 void *ai2b2_lanes_cpu_create(const AI2NConfig*, const AI2GPlatformTable*, int, int, double, const AI2B2Scenario*, int, int*);
 int ai2b2_lanes_cpu_destroy(void*);
 int ai2b2_lanes_cpu_reset(void*, const uint8_t*, float*);
@@ -203,6 +223,10 @@ int ai2b2_lanes_cpu_lane_get(void*, int, AI2B2Lane*);
 int ai2b2_lanes_cpu_lane_set(void*, int, const AI2B2Lane*);
 size_t ai2b2_lanes_cuda_lane_size(void);
 size_t ai2b2_lanes_cuda_record_size(void);
+size_t ai2b2_lanes_cuda_lane_field_count(void);
+size_t ai2b2_lanes_cuda_lane_field_offset(size_t);
+size_t ai2b2_lanes_cuda_record_field_count(void);
+size_t ai2b2_lanes_cuda_record_field_offset(size_t);
 void *ai2b2_lanes_cuda_create(const AI2NConfig*, const AI2GPlatformTable*, int, int, double, const AI2B2Scenario*, int, int*);
 int ai2b2_lanes_cuda_destroy(void*);
 int ai2b2_lanes_cuda_reset(void*, const uint8_t*, float*, void*);

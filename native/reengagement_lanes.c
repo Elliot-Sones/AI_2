@@ -15,6 +15,40 @@ typedef struct {
 size_t ai2b2_lanes_cpu_lane_size(void) { return sizeof(AI2B2Lane); }
 size_t ai2b2_lanes_cpu_record_size(void) { return sizeof(AI2B2EpisodeRecord); }
 
+#define AI2B2_FIELD_TABLE(prefix, type) \
+    size_t ai2b2_lanes_cpu_##prefix##_field_count(void) { \
+        return sizeof(ai2b2_lanes_##prefix##_offsets) / sizeof(ai2b2_lanes_##prefix##_offsets[0]); \
+    } \
+    size_t ai2b2_lanes_cpu_##prefix##_field_offset(size_t index) { \
+        return index < ai2b2_lanes_cpu_##prefix##_field_count() ? ai2b2_lanes_##prefix##_offsets[index] : (size_t)-1; \
+    }
+
+static const size_t ai2b2_lanes_lane_offsets[] = {
+    offsetof(AI2B2Lane, episode),
+    offsetof(AI2B2Lane, rng),
+    offsetof(AI2B2Lane, ret),
+    offsetof(AI2B2Lane, last_obs),
+    offsetof(AI2B2Lane, valid_steps),
+    offsetof(AI2B2Lane, length),
+    offsetof(AI2B2Lane, episodes),
+    offsetof(AI2B2Lane, error),
+    offsetof(AI2B2Lane, active),
+    offsetof(AI2B2Lane, scenario_index)
+};
+AI2B2_FIELD_TABLE(lane, AI2B2Lane)
+
+static const size_t ai2b2_lanes_record_offsets[] = {
+    offsetof(AI2B2EpisodeRecord, lane),
+    offsetof(AI2B2EpisodeRecord, length),
+    offsetof(AI2B2EpisodeRecord, terminated),
+    offsetof(AI2B2EpisodeRecord, truncated),
+    offsetof(AI2B2EpisodeRecord, episode_index),
+    offsetof(AI2B2EpisodeRecord, scenario_index),
+    offsetof(AI2B2EpisodeRecord, ret),
+    offsetof(AI2B2EpisodeRecord, diagnostics)
+};
+AI2B2_FIELD_TABLE(record, AI2B2EpisodeRecord)
+
 int ai2b2_lanes_cpu_destroy(void *handle) {
     AI2B2LanesCpu *h = (AI2B2LanesCpu*)handle;
     if (!h) return AI2N_ERR_NULL;

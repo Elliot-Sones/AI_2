@@ -95,6 +95,42 @@ class ReengagementLaneTests(unittest.TestCase):
         self.assertEqual(written["sha256"], meta["sha256"])
         self.assertEqual(written["scenarios"], rows)
 
+    def test_scenario_metadata_returns_deep_snapshots(self):
+        env = self.make_env(lanes=1)
+        meta = env.backend.scenario_metadata
+        meta["shape"].append(999)
+        meta["excluded_seed_ranges"][0][0] = -1
+        meta["scenarios"][0]["lane"] = 123
+        meta["scenarios"][0]["scenario"]["seed"] = 999
+        fresh = env.backend.scenario_metadata
+        self.assertEqual(fresh["shape"], [1, 4])
+        self.assertEqual(fresh["excluded_seed_ranges"], [[134000, 134019], [144000, 144099]])
+        self.assertEqual(fresh["scenarios"][0]["lane"], 0)
+        self.assertEqual(fresh["scenarios"][0]["scenario"]["seed"], 7)
+        with tempfile.TemporaryDirectory() as directory:
+            path = env.backend.write_scenarios_json(Path(directory) / "scenarios.json")
+            written = json.loads(path.read_text())
+        self.assertEqual(written["scenarios"][0]["lane"], 0)
+        self.assertEqual(written["scenarios"][0]["scenario"]["seed"], 7)
+
+    def test_lane_and_episode_record_abi_exports_all_field_offsets(self):
+        env = self.make_env(lanes=1)
+        lib = env.backend.lib
+        prefix = f"ai2b2_lanes_{env.backend.kind}_"
+        for name, cls in self.transport.ABI_LAYOUTS:
+            with self.subTest(struct=name):
+                self.assertEqual(getattr(lib, prefix + name + "_size")(), C.sizeof(cls))
+                count_fn = getattr(lib, prefix + name + "_field_count")
+                offset_fn = getattr(lib, prefix + name + "_field_offset")
+                offset_fn.argtypes = [C.c_size_t]
+                self.assertEqual(count_fn(), len(cls._fields_))
+                for index, (field_name, *_rest) in enumerate(cls._fields_):
+                    with self.subTest(struct=name, field=field_name):
+                        self.assertEqual(
+                            offset_fn(index), getattr(cls, field_name).offset
+                        )
+                self.assertEqual(offset_fn(len(cls._fields_)), C.c_size_t(-1).value)
+
     def test_one_learner_per_game_and_zero_padded_four_frame_stack(self):
         env = self.make_env()
         initial = env.reset_tensor().clone()
@@ -425,6 +461,102 @@ class ReengagementLaneTests(unittest.TestCase):
 )
 class ReengagementCudaTests(ReengagementLaneTests):
     device = "cuda"
+
+    def _named_action_stream(self, name, tick, lanes):
+        actions = torch.zeros((lanes, 10), dtype=torch.float32)
+        if name == "scripted":
+            actions[:, 3] = tick % 23 < 13
+            actions[:, 0] = tick % 31 == 0
+            actions[:, 7] = tick % 17 == 0
+            actions[1::2, 1] = tick % 29 < 7
+        elif name == "adversarial":
+            actions[:, :] = -1.0
+            actions[:, tick % 10] = 1.0
+            actions[:, (tick * 3 + 1) % 10] = 1.0
+            actions[::2, 3] = 1.0
+            actions[1::2, 1] = 1.0
+            actions[:, 7] = 1.0 if tick % 2 == 0 else -1.0
+        elif name == "seeded-random":
+            rng = np.random.default_rng(910_000 + tick)
+            actions = torch.from_numpy(
+                rng.uniform(-1.0, 1.0, size=(lanes, 10)).astype(np.float32)
+            )
+            actions[:, 7] = rng.integers(0, 2, size=lanes).astype(np.float32)
+        else:
+            raise AssertionError(name)
+        return actions
+
+    def test_named_cuda_cpu_parity_streams(self):
+        stream_specs = (
+            ("scripted", 71, 340),
+            ("adversarial", 72, 340),
+            ("seeded-random", 73, 340),
+        )
+        for name, seed, ticks in stream_specs:
+            with self.subTest(action_stream=name):
+                lanes = 3
+                gpu = self.transport.build_reengagement_env(
+                    lanes, device="cuda", seed=seed, episodes_per_lane=5
+                )
+                host = self.transport.build_reengagement_env(
+                    lanes, device="cpu", seed=seed, episodes_per_lane=5
+                )
+                self.addCleanup(gpu.close)
+                self.addCleanup(host.close)
+                stream = torch.cuda.Stream()
+                with torch.cuda.stream(stream):
+                    actual_initial = gpu.reset_tensor().clone()
+                stream.synchronize()
+                torch.testing.assert_close(
+                    actual_initial.cpu(), host.reset_tensor(), rtol=0, atol=0
+                )
+                queued = []
+                for tick in range(ticks):
+                    actions = self._named_action_stream(name, tick, lanes)
+                    with torch.cuda.stream(stream):
+                        actual = gpu.step_tensor(actions.to("cuda"))
+                        actual_snapshots = [
+                            getattr(actual, field).clone()
+                            for field in (
+                                "observations",
+                                "rewards",
+                                "terminated",
+                                "truncated",
+                                "terminal_observations",
+                            )
+                        ]
+                    expected = host.step_tensor(actions)
+                    expected_snapshots = [
+                        getattr(expected, field).clone()
+                        for field in (
+                            "observations",
+                            "rewards",
+                            "terminated",
+                            "truncated",
+                            "terminal_observations",
+                        )
+                    ]
+                    queued.append((actual_snapshots, expected_snapshots))
+                stream.synchronize()
+                for actual_snapshots, expected_snapshots in queued:
+                    for actual, expected in zip(actual_snapshots, expected_snapshots):
+                        torch.testing.assert_close(actual.cpu(), expected, rtol=0, atol=0)
+                records, overflow = gpu.backend.drain()
+                host_records, host_overflow = host.backend.drain()
+                self.assertEqual((overflow, host_overflow), (0, 0))
+
+                def key(record):
+                    return record.lane, record.episode_index
+
+                self.assertEqual(
+                    [bytes(row) for row in sorted(records, key=key)],
+                    [bytes(row) for row in sorted(host_records, key=key)],
+                )
+                for lane in range(lanes):
+                    self.assertEqual(
+                        bytes(gpu.backend.lane_state(lane)),
+                        bytes(host.backend.lane_state(lane)),
+                    )
 
     def test_nondefault_stream_cpu_parity_and_cross_stream_order(self):
         gpu = self.make_env()
