@@ -454,7 +454,7 @@ def _verify_block_inventory(block_dir: Path, checkpoint: Path) -> Path:
         raise ValueError("trained checkpoint is outside the block inventory") from None
     if checkpoint_relative not in expected:
         raise ValueError("trained checkpoint is absent from the block inventory")
-    checkpoint_path = _regular_file_under(block_dir, checkpoint_relative, "trained checkpoint")
+    _regular_file_under(block_dir, checkpoint_relative, "trained checkpoint")
     return inventory_path
 
 
