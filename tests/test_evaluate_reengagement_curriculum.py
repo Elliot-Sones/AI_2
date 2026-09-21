@@ -279,6 +279,7 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
         class Policy:
             source_path = None
             expected_observation_width = 256
+            num_timesteps = 70_877_184
 
             def __init__(self):
                 self.seen_shapes = []
@@ -309,6 +310,8 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             output = Path(tmp) / "eval"
+            checkpoint = Path(tmp) / "final.zip"
+            checkpoint.write_bytes(b"candidate checkpoint")
             policy = Policy()
             result = module.run_evaluation(
                 policy=policy,
@@ -316,7 +319,7 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
                 output_dir=output,
                 env_factory=lambda case, trace_dir: Env(case),
                 command=["evaluate", "--fake"],
-                checkpoint_path=None,
+                checkpoint_path=checkpoint,
                 source_paths=[Path("evaluate_reengagement_curriculum.py")],
             )
             self.assertEqual(policy.seen_shapes, [(256,)] * 40)
@@ -329,6 +332,9 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
             self.assertIn("traces/reengagement-deterministic-p0-s134000.jsonl", inventoried)
             self.assertTrue(all(":" not in path.name for path in (output / "traces").iterdir()))
             self.assertEqual(result["summary"]["episodes"], 40)
+            self.assertEqual(result["checkpoint_counter"], policy.num_timesteps)
+            self.assertEqual(result["checkpoint"]["path"], str(checkpoint))
+            self.assertEqual(result["checkpoint"]["sha256"], module._sha256(checkpoint))
             with self.assertRaises(FileExistsError):
                 module.run_evaluation(
                     policy=Policy(),
@@ -355,6 +361,29 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
                     bank=module.build_case_bank("development"),
                     output_dir=Path(tmp) / "eval",
                     env_factory=env_factory,
+                )
+            env_factory.assert_not_called()
+
+    def test_checkpointed_evaluation_rejects_missing_policy_counter_before_episode_construction(self):
+        module = self.subject()
+
+        class CounterlessPolicy:
+            expected_observation_width = 256
+
+            def predict(self, _obs, *, deterministic):
+                return [0.0] * 10
+
+        with TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "final.zip"
+            checkpoint.write_bytes(b"candidate checkpoint")
+            env_factory = Mock()
+            with self.assertRaisesRegex(ValueError, "num_timesteps"):
+                module.run_evaluation(
+                    policy=CounterlessPolicy(),
+                    bank=module.build_case_bank("development"),
+                    output_dir=Path(tmp) / "eval",
+                    env_factory=env_factory,
+                    checkpoint_path=checkpoint,
                 )
             env_factory.assert_not_called()
 

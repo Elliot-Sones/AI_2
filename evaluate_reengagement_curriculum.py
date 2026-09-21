@@ -236,6 +236,7 @@ def run_evaluation(
     source_paths: Sequence[Path] = (),
 ) -> dict[str, Any]:
     _preflight_policy(policy)
+    checkpoint_counter = _policy_checkpoint_counter(policy, checkpoint_path)
     exact_bank_required = bank.bank_sha256 != "0" * 64
     if bank.bank_sha256 == "0" * 64:
         bank = CaseBank(
@@ -282,6 +283,7 @@ def run_evaluation(
             "curriculum_version": CURRICULUM_VERSION,
             "bank_sha256": bank.bank_sha256,
             "checkpoint": checkpoint,
+            "checkpoint_counter": checkpoint_counter,
             "summary": summary,
             "episodes": len(episodes),
         }
@@ -861,9 +863,24 @@ def _bank_sha(cases: Sequence[EvaluationCase], *, panel: str, generator_version:
 
 def _checkpoint_record(path: str | Path | None) -> dict[str, Any]:
     if path is None:
-        return {"checkpoint_path": None, "checkpoint_sha256": None}
+        return {"path": None, "sha256": None, "checkpoint_path": None, "checkpoint_sha256": None}
     value = Path(path)
-    return {"checkpoint_path": str(value), "checkpoint_sha256": _sha256(value)}
+    digest = _sha256(value)
+    return {
+        "path": str(value),
+        "sha256": digest,
+        "checkpoint_path": str(value),
+        "checkpoint_sha256": digest,
+    }
+
+
+def _policy_checkpoint_counter(policy: Any, checkpoint_path: str | Path | None) -> int | None:
+    if checkpoint_path is None:
+        return None
+    counter = getattr(policy, "num_timesteps", None)
+    if type(counter) is not int or counter < 0:
+        raise ValueError("checkpointed B2 evaluation requires a non-negative integer policy num_timesteps")
+    return counter
 
 
 def _source_hashes(paths: Sequence[Path]) -> dict[str, Any]:
