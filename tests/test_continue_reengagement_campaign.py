@@ -38,13 +38,88 @@ def development_result(det=18, sampled=18, falls=1, *, counter=1, hash_value=Non
     }
 
 
-def confirmation_result(det=90, sampled=90, *, falls=5, slots=(40, 50), episodes=100):
+def confirmation_result(
+    det=90,
+    sampled=90,
+    *,
+    falls=5,
+    slots=(40, 50),
+    slot_episodes=(50, 50),
+    episodes=100,
+    counter=9,
+    hash_value="9" * 64,
+    invalid=0,
+):
     return {
+        "checkpoint_counter": counter,
+        "checkpoint_hash": hash_value,
         "panels": {
-            "deterministic": panel(det, falls, episodes=episodes, learner_slots={"slot0": slots[0], "slot1": slots[1]}),
-            "sampled": panel(sampled, falls, episodes=episodes, learner_slots={"slot0": slots[0], "slot1": slots[1]}),
+            "deterministic": panel(
+                det,
+                falls,
+                episodes=episodes,
+                invalid=invalid,
+                learner_slots={
+                    "slot0": {"episodes": slot_episodes[0], "successes": slots[0]},
+                    "slot1": {"episodes": slot_episodes[1], "successes": slots[1]},
+                },
+            ),
+            "sampled": panel(
+                sampled,
+                falls,
+                episodes=episodes,
+                invalid=invalid,
+                learner_slots={
+                    "slot0": {"episodes": slot_episodes[0], "successes": slots[0]},
+                    "slot1": {"episodes": slot_episodes[1], "successes": slots[1]},
+                },
+            ),
         }
     }
+
+
+def retention_result(
+    *,
+    episodes=20,
+    successes=20,
+    contact_successes=None,
+    nearby_successes=None,
+    wide_successes=None,
+    contact_falls=0,
+    nearby_falls=0,
+    wide_falls=0,
+):
+    domain_successes = {
+        "contact": successes if contact_successes is None else contact_successes,
+        "nearby": successes if nearby_successes is None else nearby_successes,
+        "wide": successes if wide_successes is None else wide_successes,
+    }
+    domain_falls = {
+        "contact": contact_falls,
+        "nearby": nearby_falls,
+        "wide": wide_falls,
+    }
+    panels = {}
+    for domain in ("contact", "nearby", "wide"):
+        panels[domain] = {}
+        for mode in ("deterministic", "sampled"):
+            row = {
+                "episodes": episodes,
+                "successes": domain_successes[domain],
+            }
+            if domain == "contact":
+                row.update(
+                    {
+                        "self_losses": domain_falls[domain],
+                        "opponent_self_losses": 0,
+                        "timeouts": 0,
+                        "ambiguous": 0,
+                    }
+                )
+            else:
+                row["falls"] = domain_falls[domain]
+            panels[domain][mode] = row
+    return {"panels": panels}
 
 
 def preservation_payload(checkpoint_hash="a" * 64):
@@ -63,20 +138,38 @@ def preservation_payload(checkpoint_hash="a" * 64):
 def write_preservation_payload(block_dir, checkpoint_hash="a" * 64):
     block_dir.mkdir(parents=True, exist_ok=True)
     files = {
+        "final.zip": b"checkpoint",
         "inventory.json": b"inventory",
         "ack.json": b"ack",
         "eval.json": b"eval",
+        "wandb-receipt.json": b"wandb",
         "run.log": b"log",
         "monitor.jsonl": b"monitor",
         "command.json": b"command",
     }
     for name, data in files.items():
         (block_dir / name).write_bytes(data)
-    digest = lambda name: hashlib.sha256((block_dir / name).read_bytes()).hexdigest()
+    def digest(name):
+        return hashlib.sha256((block_dir / name).read_bytes()).hexdigest()
+
+    checkpoint_hash = digest("final.zip")
     payload = preservation_payload(checkpoint_hash)
-    payload["inventory"] = {"path": "inventory.json", "sha256": digest("inventory.json"), "files": [{"path": "final.zip", "sha256": checkpoint_hash}]}
+    payload["checkpoint"] = {"path": "final.zip", "sha256": checkpoint_hash}
+    payload["inventory"] = {
+        "path": "inventory.json",
+        "sha256": digest("inventory.json"),
+        "files": [{"path": "final.zip", "sha256": checkpoint_hash}],
+    }
     payload["local_acknowledgement"] = {"path": "ack.json", "sha256": digest("ack.json")}
     payload["evaluation_receipt"] = {"path": "eval.json", "sha256": digest("eval.json")}
+    offline = block_dir / "wandb" / "offline-run"
+    offline.mkdir(parents=True, exist_ok=True)
+    (offline / "run.wandb").write_bytes(b"offline-wandb")
+    payload["wandb"] = {
+        "receipt_path": "wandb-receipt.json",
+        "receipt_sha256": digest("wandb-receipt.json"),
+        "offline_dir": "wandb/offline-run",
+    }
     payload["logs"] = [{"path": "run.log", "sha256": digest("run.log")}]
     payload["monitor"] = {"path": "monitor.jsonl", "sha256": digest("monitor.jsonl")}
     payload["commands"] = [{"path": "command.json", "sha256": digest("command.json")}]
@@ -85,10 +178,14 @@ def write_preservation_payload(block_dir, checkpoint_hash="a" * 64):
 
 def test_build_next_cycle_requires_matched_parent_development_rerun_and_exactly_one_cycle():
     m = subject()
-    parent = m.CheckpointRef(name="parent", checkpoint_hash="a" * 64, counter=10)
-    current = m.CheckpointRef(name="current", checkpoint_hash="b" * 64, counter=11)
-    parent_rerun = m.MatchedDevelopmentRerun(parent=parent, result=development_result(counter=10, hash_value=parent.checkpoint_hash))
+    parent = m.CheckpointRef(name="parent", checkpoint_hash="a" * 64, counter=60_391_424, cycle_index=0)
+    current = m.CheckpointRef(name="current", checkpoint_hash="b" * 64, counter=70_877_184, cycle_index=1)
+    parent_rerun = m.MatchedDevelopmentRerun(
+        parent=parent,
+        result=development_result(det=2, sampled=4, counter=parent.counter, hash_value=parent.checkpoint_hash),
+    )
     current_result = development_result(counter=11, hash_value=current.checkpoint_hash)
+    current_result["checkpoint_counter"] = current.counter
 
     step = m.build_next_cycle(current=current, matched_parent_rerun=parent_rerun, current_result=current_result, cycle_index=2)
 
@@ -164,31 +261,72 @@ def test_development_gate_consumes_real_task7_evaluator_schema_without_invented_
 def test_confirmation_gate_requires_100_case_modes_falls_and_per_slot_successes():
     m = subject()
     assert m.confirmation_gate(confirmation_result()).eligible
-    assert not m.confirmation_gate(confirmation_result(det=89)).eligible
+    weak = m.confirmation_gate(confirmation_result(det=89))
+    assert not weak.eligible
+    assert not weak.stop
     assert not m.confirmation_gate(confirmation_result(falls=6)).eligible
     assert not m.confirmation_gate(confirmation_result(slots=(39, 50))).eligible
+    assert m.confirmation_gate(confirmation_result(invalid=1)).stop
     with pytest.raises(ValueError, match="100 episodes"):
         m.confirmation_gate(confirmation_result(episodes=99))
+    with pytest.raises(ValueError, match="exactly 50 episodes"):
+        m.confirmation_gate(confirmation_result(slot_episodes=(49, 51)))
+
+
+def test_confirmation_gate_consumes_real_evaluator_slot_schema_and_binds_checkpoint():
+    m = subject()
+    result = {
+        "checkpoint_counter": 70_877_184,
+        "checkpoint_hash_receipt": {"checkpoint_sha256": "a" * 64},
+        "summary": {
+            "modes": {
+                mode: {
+                    "episodes": 100,
+                    "full_sequence_successes": 92,
+                    "falls": 3,
+                    "invalid_or_ambiguous": 0,
+                    "timing": {"average_ticks": 21},
+                    "slots": {
+                        "0": {"episodes": 50, "full_sequence_successes": 46},
+                        "1": {"episodes": 50, "full_sequence_successes": 46},
+                    },
+                }
+                for mode in ("deterministic", "sampled")
+            }
+        },
+    }
+
+    verdict = m.confirmation_gate(result)
+
+    assert verdict.eligible
+    assert verdict.checkpoint_counter == 70_877_184
+    assert verdict.checkpoint_hash == "a" * 64
+    assert verdict.components["sampled"]["learner_slots"]["slot1"]["successes"] == 46
 
 
 def test_retention_alarms_pause_on_matched_parent_regression_thresholds():
     m = subject()
-    parent = development_result(det=20, sampled=20, falls=0)
-    assert not m.retention_alarm(development_result(det=18, sampled=18, falls=2), parent).pause
-    lost = m.retention_alarm(development_result(det=17, sampled=20, falls=0), parent)
+    parent = retention_result()
+    assert not m.retention_alarm(retention_result(successes=18, nearby_falls=2, wide_falls=2, contact_falls=2), parent).pause
+    lost = m.retention_alarm(retention_result(wide_successes=17), parent)
     assert lost.pause
-    assert "lost_successes" in lost.reason
-    falls = m.retention_alarm(development_result(det=20, sampled=20, falls=3), parent)
+    assert "wide.deterministic.lost_successes" in lost.reason
+    falls = m.retention_alarm(retention_result(contact_falls=3), parent)
     assert falls.pause
-    assert "added_falls" in falls.reason
+    assert "contact.deterministic.added_falls" in falls.reason
+
+    incomplete = retention_result()
+    del incomplete["panels"]["nearby"]
+    with pytest.raises(ValueError, match="nearby/deterministic"):
+        m.retention_alarm(incomplete, parent)
 
 
 def test_confirmation_retention_allows_only_five_percentage_points_success_loss_and_five_percent_falls():
     m = subject()
-    parent = confirmation_result(det=95, sampled=96, falls=0)
-    assert not m.confirmation_retention_alarm(confirmation_result(det=90, sampled=91, falls=5), parent).pause
-    assert m.confirmation_retention_alarm(confirmation_result(det=89, sampled=91, falls=5), parent).pause
-    assert m.confirmation_retention_alarm(confirmation_result(det=90, sampled=91, falls=6), parent).pause
+    parent = retention_result(episodes=100, successes=95)
+    assert not m.confirmation_retention_alarm(retention_result(episodes=100, successes=90, wide_falls=5), parent).pause
+    assert m.confirmation_retention_alarm(retention_result(episodes=100, nearby_successes=89), parent).pause
+    assert m.confirmation_retention_alarm(retention_result(episodes=100, contact_successes=90, contact_falls=6), parent).pause
 
 
 def test_stop_conditions_include_no_improvement_budget_deadline_and_numerical_failure():
@@ -212,15 +350,17 @@ def test_stop_conditions_include_no_improvement_budget_deadline_and_numerical_fa
 
 def test_preservation_receipt_is_required_before_reuse_and_written_atomically_without_overwrite():
     m = subject()
-    checkpoint_hash = "a" * 64
     with TemporaryDirectory() as directory:
         root = Path(directory)
         block = root / "block"
-        receipt = m.preserve_receipt(block, write_preservation_payload(block, checkpoint_hash), expected_checkpoint_hash=checkpoint_hash)
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
+        receipt = m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
         assert receipt["checkpoint"]["sha256"] == checkpoint_hash
         assert (block / "preservation_receipt.json").is_file()
         with pytest.raises(FileExistsError):
-            m.preserve_receipt(block, write_preservation_payload(block, "b" * 64), expected_checkpoint_hash="b" * 64)
+            replacement = write_preservation_payload(block)
+            m.preserve_receipt(block, replacement, expected_checkpoint_hash=replacement["checkpoint"]["sha256"])
         assert m.verify_reuse_receipt(block, expected_checkpoint_hash=checkpoint_hash)["checkpoint"]["sha256"] == checkpoint_hash
 
         missing = root / "missing"
@@ -231,28 +371,48 @@ def test_preservation_receipt_is_required_before_reuse_and_written_atomically_wi
 
 def test_preservation_receipt_accepts_online_wandb_and_hashes_real_files():
     m = subject()
-    checkpoint_hash = "a" * 64
     with TemporaryDirectory() as directory:
         block = Path(directory) / "block"
-        payload = write_preservation_payload(block, checkpoint_hash)
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
         payload["wandb"] = {
-            "receipt_sha256": "e" * 64,
+            "receipt_path": "wandb-receipt.json",
+            "receipt_sha256": hashlib.sha256((block / "wandb-receipt.json").read_bytes()).hexdigest(),
             "url": "https://wandb.ai/entity/project/runs/run-id",
         }
         assert m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)["wandb"]["url"]
 
     with TemporaryDirectory() as directory:
         block = Path(directory) / "block"
-        payload = write_preservation_payload(block, checkpoint_hash)
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
         payload["inventory"] = {"sha256": "b" * 64, "files": [{"path": "final.zip", "sha256": checkpoint_hash}]}
         with pytest.raises(ValueError, match="inventory object"):
             m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
 
     with TemporaryDirectory() as directory:
         block = Path(directory) / "block"
-        payload = write_preservation_payload(block, checkpoint_hash)
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
         payload["logs"][0]["sha256"] = "0" * 64
         with pytest.raises(ValueError, match="hash mismatch"):
+            m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
+
+    with TemporaryDirectory() as directory:
+        block = Path(directory) / "block"
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
+        (block / "final.zip").write_bytes(b"corrupt")
+        with pytest.raises(ValueError, match="final.zip"):
+            m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
+
+    with TemporaryDirectory() as directory:
+        block = Path(directory) / "block"
+        payload = write_preservation_payload(block)
+        checkpoint_hash = payload["checkpoint"]["sha256"]
+        for child in (block / payload["wandb"]["offline_dir"]).iterdir():
+            child.unlink()
+        with pytest.raises(ValueError, match="offline directory"):
             m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
 
 

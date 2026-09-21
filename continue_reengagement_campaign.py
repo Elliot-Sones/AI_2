@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import tempfile
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = "ai2.reengagement_continuation.v1"
-B50_SHA256 = "8f243570167e617739b4be3a96f5ac3f9a91bb8ed21273ef2f7fb3d3d53f61ba"
 SCHEDULE = "R4E1N"
 LANES = 4096
 N_STEPS = 512
@@ -48,6 +48,7 @@ class CheckpointRef:
     name: str
     checkpoint_hash: str
     counter: int
+    cycle_index: int
 
 
 @dataclass(frozen=True)
@@ -146,12 +147,12 @@ def build_next_cycle(
 ) -> CycleStep:
     if matched_parent_rerun is None:
         raise ValueError("matched parent development-bank rerun is required before update")
-    if cycle_index != current.counter - matched_parent_rerun.parent.counter + 1:
+    if not isinstance(cycle_index, int) or isinstance(cycle_index, bool) or cycle_index != current.cycle_index + 1:
         raise ValueError("advance exactly one cycle at a time")
     _assert_result_matches_checkpoint(matched_parent_rerun.result, matched_parent_rerun.parent, "matched parent")
     _assert_result_matches_checkpoint(current_result, current, "current checkpoint")
-    if not development_gate(matched_parent_rerun.result).eligible:
-        raise ValueError("matched parent development rerun is not qualified")
+    if development_gate(matched_parent_rerun.result).stop:
+        raise ValueError("matched parent development rerun evidence is invalid")
     if development_gate(current_result).stop:
         raise ValueError("current checkpoint evidence is invalid")
     return CycleStep(parent_checkpoint=current, cycle_index=cycle_index)
@@ -229,30 +230,67 @@ def confirmation_allowed(development_verdicts) -> ConfirmationPermission:
 
 def confirmation_gate(result: dict) -> GateVerdict:
     panels = _panels(result)
+    counter = result.get("checkpoint_counter")
+    checkpoint_hash = _checkpoint_hash(result)
     components = {}
     failed = []
+    stop = False
+    if not isinstance(counter, int) or isinstance(counter, bool) or counter < 0:
+        failed.append("checkpoint_counter")
+        stop = True
+    if not _sha_like(checkpoint_hash):
+        failed.append("checkpoint_hash")
+        stop = True
     for mode in ("deterministic", "sampled"):
         row = _mode_row(panels, mode, CONFIRMATION_EPISODES)
-        successes = _finite_number(row.get("successes"), f"{mode}.successes")
-        falls = _finite_number(row.get("falls", 0), f"{mode}.falls")
+        try:
+            successes = _finite_number(row.get("successes"), f"{mode}.successes")
+            falls = _finite_number(row.get("falls", 0), f"{mode}.falls")
+            invalid = _finite_number(row.get("invalid", 0), f"{mode}.invalid")
+            ambiguous = _finite_number(row.get("ambiguous", 0), f"{mode}.ambiguous")
+        except ValueError:
+            failed.append(f"{mode}.numerical_failure")
+            stop = True
+            components[mode] = {"numerical_failure": True}
+            continue
         slots = row.get("learner_slots")
         if not isinstance(slots, dict):
             raise TypeError(f"{mode} learner slots are required")
-        slot_values = {name: _finite_number(value, f"{mode}.{name}") for name, value in slots.items()}
-        components[mode] = {"successes": successes, "falls": falls, "learner_slots": slot_values}
+        if set(slots) != {"slot0", "slot1"}:
+            raise ValueError(f"{mode} learner slots must be exactly slot0 and slot1")
+        slot_values = {}
+        for name, slot in slots.items():
+            if not isinstance(slot, dict):
+                raise TypeError(f"{mode}.{name} must be an object")
+            if slot.get("episodes") != 50:
+                raise ValueError(f"{mode}.{name} must contain exactly 50 episodes")
+            slot_values[name] = {
+                "episodes": 50,
+                "successes": _finite_number(slot.get("successes"), f"{mode}.{name}.successes"),
+            }
+        components[mode] = {
+            "successes": successes,
+            "falls": falls,
+            "invalid": invalid,
+            "ambiguous": ambiguous,
+            "learner_slots": slot_values,
+        }
+        if invalid or ambiguous:
+            failed.append(f"{mode}.invalid_or_ambiguous")
+            stop = True
         if successes < CONFIRMATION_MIN_SUCCESSES:
             failed.append(f"{mode}.successes")
         if falls > CONFIRMATION_MAX_FALLS:
             failed.append(f"{mode}.falls")
-        low_slots = [name for name, value in slot_values.items() if value < CONFIRMATION_MIN_SLOT_SUCCESSES]
+        low_slots = [name for name, value in slot_values.items() if value["successes"] < CONFIRMATION_MIN_SLOT_SUCCESSES]
         if low_slots:
             failed.append(f"{mode}.learner_slots")
     return GateVerdict(
         eligible=not failed,
-        stop=bool(failed),
+        stop=stop,
         reason="eligible" if not failed else "failed: " + ", ".join(failed),
-        checkpoint_counter=None,
-        checkpoint_hash=None,
+        checkpoint_counter=counter if isinstance(counter, int) and not isinstance(counter, bool) else None,
+        checkpoint_hash=checkpoint_hash if _sha_like(checkpoint_hash) else None,
         components=components,
         raw=dict(result),
     )
@@ -261,38 +299,43 @@ def confirmation_gate(result: dict) -> GateVerdict:
 def retention_alarm(candidate: dict, matched_parent: dict) -> AlarmVerdict:
     components = {}
     reasons = []
-    for mode in ("deterministic", "sampled"):
-        current = _mode_row(_panels(candidate), mode, DEVELOPMENT_EPISODES)
-        parent = _mode_row(_panels(matched_parent), mode, DEVELOPMENT_EPISODES)
-        lost_successes = _finite_number(parent.get("successes"), f"{mode}.parent_successes") - _finite_number(
-            current.get("successes"), f"{mode}.successes"
-        )
-        added_falls = _finite_number(current.get("falls", 0), f"{mode}.falls") - _finite_number(
-            parent.get("falls", 0), f"{mode}.parent_falls"
-        )
-        components[mode] = {"lost_successes": lost_successes, "added_falls": added_falls}
-        if lost_successes > 2:
-            reasons.append(f"{mode}.lost_successes")
-        if added_falls > 2:
-            reasons.append(f"{mode}.added_falls")
+    for domain in ("contact", "nearby", "wide"):
+        components[domain] = {}
+        for mode in ("deterministic", "sampled"):
+            current = _retention_mode(candidate, domain, mode, DEVELOPMENT_EPISODES)
+            parent = _retention_mode(matched_parent, domain, mode, DEVELOPMENT_EPISODES)
+            lost_successes = _finite_number(parent.get("successes"), f"{domain}.{mode}.parent_successes") - _finite_number(
+                current.get("successes"), f"{domain}.{mode}.successes"
+            )
+            added_falls = _retention_falls(current, domain, mode) - _retention_falls(parent, domain, mode, parent=True)
+            components[domain][mode] = {"lost_successes": lost_successes, "added_falls": added_falls}
+            if lost_successes > 2:
+                reasons.append(f"{domain}.{mode}.lost_successes")
+            if added_falls > 2:
+                reasons.append(f"{domain}.{mode}.added_falls")
     return AlarmVerdict(bool(reasons), "ok" if not reasons else "pause: " + ", ".join(reasons), components)
 
 
 def confirmation_retention_alarm(candidate: dict, matched_parent: dict) -> AlarmVerdict:
     components = {}
     reasons = []
-    for mode in ("deterministic", "sampled"):
-        current = _mode_row(_panels(candidate), mode, CONFIRMATION_EPISODES)
-        parent = _mode_row(_panels(matched_parent), mode, CONFIRMATION_EPISODES)
-        success_loss_points = _finite_number(parent.get("successes"), f"{mode}.parent_successes") - _finite_number(
-            current.get("successes"), f"{mode}.successes"
-        )
-        fall_rate = _finite_number(current.get("falls", 0), f"{mode}.falls") / CONFIRMATION_EPISODES
-        components[mode] = {"success_loss_points": success_loss_points, "fall_rate": fall_rate}
-        if success_loss_points > 5:
-            reasons.append(f"{mode}.success_loss")
-        if fall_rate > 0.05:
-            reasons.append(f"{mode}.fall_rate")
+    for domain in ("contact", "nearby", "wide"):
+        components[domain] = {}
+        for mode in ("deterministic", "sampled"):
+            current = _retention_mode(candidate, domain, mode, CONFIRMATION_EPISODES)
+            parent = _retention_mode(matched_parent, domain, mode, CONFIRMATION_EPISODES)
+            success_loss_points = _finite_number(
+                parent.get("successes"), f"{domain}.{mode}.parent_successes"
+            ) - _finite_number(current.get("successes"), f"{domain}.{mode}.successes")
+            fall_rate = _retention_falls(current, domain, mode) / CONFIRMATION_EPISODES
+            components[domain][mode] = {
+                "success_loss_points": success_loss_points,
+                "fall_rate": fall_rate,
+            }
+            if success_loss_points > 5:
+                reasons.append(f"{domain}.{mode}.success_loss")
+            if fall_rate > 0.05:
+                reasons.append(f"{domain}.{mode}.fall_rate")
     return AlarmVerdict(bool(reasons), "ok" if not reasons else "pause: " + ", ".join(reasons), components)
 
 
@@ -350,11 +393,16 @@ def atomic_output(path: Path, payload: dict) -> None:
         tmp = Path(handle.name)
         handle.write(data)
         handle.flush()
+        os.fsync(handle.fileno())
     try:
-        tmp.replace(path)
-    except Exception:
+        os.link(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
 
 
 def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str, base_dir: Path | None = None) -> dict:
@@ -378,10 +426,20 @@ def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str, base_dir:
     if not isinstance(payload.get("commands"), list) or not payload["commands"]:
         raise ValueError("preservation receipt requires commands")
     if base_dir is not None:
+        _validate_artifact_object(base_dir, checkpoint, "checkpoint")
         for section in ("logs", "commands"):
             _validate_artifact_rows(base_dir, payload[section])
         for section in ("inventory", "local_acknowledgement", "evaluation_receipt", "monitor"):
             _validate_artifact_object(base_dir, payload[section], section)
+        inventory_files = payload["inventory"].get("files")
+        if not isinstance(inventory_files, list) or not any(
+            isinstance(row, dict)
+            and row.get("path") == checkpoint.get("path")
+            and row.get("sha256") == expected_checkpoint_hash
+            for row in inventory_files
+        ):
+            raise ValueError("preservation inventory does not bind the checkpoint")
+        _validate_wandb_receipt(base_dir, wandb)
     return dict(payload)
 
 
@@ -408,7 +466,7 @@ def _validate_artifact_rows(base_dir: Path, rows: list[dict]) -> None:
 def _assert_result_matches_checkpoint(result: dict, checkpoint: CheckpointRef, label: str) -> None:
     if result.get("checkpoint_counter") != checkpoint.counter:
         raise ValueError(f"{label} result counter mismatch")
-    if result.get("checkpoint_hash") != checkpoint.checkpoint_hash:
+    if _checkpoint_hash(result) != checkpoint.checkpoint_hash:
         raise ValueError(f"{label} result hash mismatch")
 
 
@@ -469,11 +527,55 @@ def _panel_from_evaluator_mode(row: dict) -> dict:
         "ambiguous": 0,
         "time_to_reengagement": time_to_reengagement,
         "learner_slots": {
-            f"slot{slot}": slot_row.get("full_sequence_successes")
+            f"slot{slot}": {
+                "episodes": slot_row.get("episodes"),
+                "successes": slot_row.get("full_sequence_successes"),
+            }
             for slot, slot_row in slots.items()
             if isinstance(slot_row, dict)
         },
     }
+
+
+def _retention_mode(result: dict, domain: str, mode: str, episodes: int) -> dict:
+    try:
+        row = result["panels"][domain][mode]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"result must include {domain}/{mode} retention panel") from exc
+    if not isinstance(row, dict):
+        raise TypeError(f"{domain}/{mode} retention panel must be an object")
+    if row.get("episodes") != episodes:
+        raise ValueError(f"{domain}/{mode} retention panel must contain exactly {episodes} episodes")
+    return row
+
+
+def _retention_falls(row: dict, domain: str, mode: str, *, parent: bool = False) -> float:
+    field = "self_losses" if domain == "contact" else "falls"
+    prefix = "parent_" if parent else ""
+    return _finite_number(row.get(field, 0), f"{domain}.{mode}.{prefix}{field}")
+
+
+def _validate_wandb_receipt(base_dir: Path, wandb: dict) -> None:
+    receipt_path = wandb.get("receipt_path")
+    receipt_sha256 = wandb.get("receipt_sha256")
+    _validate_artifact_rows(base_dir, [{"path": receipt_path, "sha256": receipt_sha256}])
+    offline_dir = wandb.get("offline_dir")
+    if offline_dir:
+        relative = _safe_relative_path(offline_dir, "W&B offline directory")
+        directory = base_dir / relative
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError("preserved W&B offline directory is missing")
+        if not any(path.is_file() and not path.is_symlink() for path in directory.rglob("*")):
+            raise ValueError("preserved W&B offline directory is empty")
+
+
+def _safe_relative_path(value, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} path is required")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"{label} must be receipt-relative")
+    return relative
 
 
 def _checkpoint_hash(result: dict):
