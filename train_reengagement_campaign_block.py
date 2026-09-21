@@ -26,6 +26,7 @@ from native_reengagement_lane_vec_env import CURRICULUM_VERSION as REENGAGEMENT_
 from native_reengagement_lane_vec_env import build_reengagement_env
 
 SCHEMA_VERSION = "ai2.reengagement_campaign_block.v1"
+QUALIFICATION_SCHEMA_VERSION = "ai2.native_reengagement_qualification.v1"
 PARENT_CHECKPOINT_SHA256 = "d6e487c22f73913cd88a428683c7ca721e23b1f9cb5a3a561ad24d1f5bf410db"
 PARENT_LIFETIME_TRANSITIONS = 60_391_424
 SCHEDULES = {
@@ -46,6 +47,47 @@ EXPECTED_TASK_VERSIONS = {
 SUPPORTED_ARMS = ("B_projected",)
 SUPPORTED_LEARNING_RATES = (0.00003,)
 ROOT = Path(__file__).resolve().parent
+DIRECT_SOURCE_FILES = (
+    "train_reengagement_campaign_block.py",
+    "native_reengagement_lane_vec_env.py",
+    "native_reengagement_episode.py",
+    "native_navigation_curriculum_env.py",
+    "native_curriculum_ppo.py",
+    "benchmark_curriculum_throughput.py",
+    "benchmark_native_contact_training.py",
+    "train_contact_campaign_block.py",
+)
+QUALIFICATION_SOURCE_FILES = (
+    "train_reengagement_campaign_block.py",
+    "reengagement_curriculum.py",
+    "native_reengagement_episode.py",
+    "native_reengagement_lane_vec_env.py",
+    "native_navigation_curriculum_env.py",
+    "native_curriculum_ppo.py",
+    "curriculum_ppo.py",
+    "tensor_ppo.py",
+    "tensor_rollout_buffer.py",
+    "ppo_update_optimizations.py",
+    "benchmark_curriculum_throughput.py",
+    "benchmark_native_contact_training.py",
+    "train_contact_campaign_block.py",
+    "native_game_episode.py",
+    "native_navigation_episode.py",
+    "native_navigation_contact.py",
+    "native_lane_vec_env.py",
+    "native/reengagement_episode.h",
+    "native/reengagement_episode.c",
+    "native/reengagement_lanes.h",
+    "native/reengagement_lanes.c",
+    "native/reengagement_lanes.cu",
+    "native/navigation_episode.h",
+    "native/navigation_episode.c",
+    "native/navigation_lanes.h",
+    "native/navigation_lanes.c",
+    "native/navigation_lanes.cu",
+    "native/game_episode.h",
+    "native/game_episode.c",
+)
 
 
 class NativeCurriculumPPO:
@@ -171,14 +213,89 @@ def verify_input_checkpoint(args):
 
 def source_hashes(reference_root, frozen_root):
     hashes = dict(throughput.source_hashes(reference_root, frozen_root))
-    for path in (
-        Path(__file__),
-        ROOT / "native_reengagement_lane_vec_env.py",
-        ROOT / "native_reengagement_episode.py",
-        ROOT / "native_curriculum_ppo.py",
-    ):
-        hashes[path.name] = sha256(path)
+    for name in DIRECT_SOURCE_FILES:
+        path = ROOT / name
+        if not path.is_file():
+            raise FileNotFoundError(f"required trainer source is missing: {name}")
+        hashes[name] = sha256(path)
     return hashes
+
+
+def qualification_source_hashes(reference_root=None, frozen_root=None):
+    try:
+        import qualify_native_reengagement as qualification
+    except ImportError:
+        qualification = None
+    if qualification is not None:
+        exported = getattr(qualification, "source_hashes", None)
+        if callable(exported):
+            try:
+                return dict(exported(reference_root, frozen_root))
+            except TypeError:
+                try:
+                    return dict(exported())
+                except TypeError:
+                    pass
+    hashes = {}
+    for name in QUALIFICATION_SOURCE_FILES:
+        path = ROOT / name
+        if not path.is_file():
+            raise FileNotFoundError(f"required qualification source is missing: {name}")
+        hashes[name] = sha256(path)
+    return hashes
+
+
+def _resolved_path_matches(actual, expected):
+    if actual is None:
+        return False
+    return Path(actual).resolve() == Path(expected).resolve()
+
+
+def _qualification_root(proof, key):
+    provenance = proof.get("provenance") or {}
+    return proof.get(key) or provenance.get(key)
+
+
+def _validate_stage_artifact(receipt_path, stage, evidence_key, expected_sha):
+    artifact = receipt_path.parent / f"{stage}.{evidence_key}"
+    if not artifact.is_file() or artifact.is_symlink():
+        raise ValueError(f"B2 qualification evidence artifact is missing: {artifact.name}")
+    if sha256(artifact) != expected_sha:
+        raise ValueError(f"B2 qualification evidence artifact changed: {artifact.name}")
+
+
+def require_b2_qualification(path, reference_root, frozen_root):
+    path = Path(path)
+    proof = json.loads(path.read_text())
+    expected_mask = [bool(value) for value in TASK_MASKS["combat"]]
+    contract = proof.get("version_contract") or {}
+    checkpoint = proof.get("checkpoint") or {}
+    if (
+        proof.get("schema_version") != QUALIFICATION_SCHEMA_VERSION
+        or proof.get("qualified") is not True
+        or contract.get("curriculum_task") != "combat"
+        or contract.get("curriculum_version") != REENGAGEMENT_VERSION
+        or [bool(value) for value in contract.get("allowed_control_mask", [])] != expected_mask
+        or checkpoint.get("sha256") != PARENT_CHECKPOINT_SHA256
+        or not _resolved_path_matches(_qualification_root(proof, "reference_root"), reference_root)
+        or not _resolved_path_matches(_qualification_root(proof, "frozen_root"), frozen_root)
+    ):
+        raise ValueError("B2 reengagement qualification failed, stale, incomplete, or for a different contract")
+    expected_sources = qualification_source_hashes(reference_root, frozen_root)
+    if proof.get("source_hashes") != expected_sources:
+        raise ValueError("B2 reengagement qualification source hashes do not match this source tree")
+    stages = proof.get("stage_status") or {}
+    for stage in ("python_oracle_native_cpu", "native_cpu_cuda", "collector_learner_smoke"):
+        if (stages.get(stage) or {}).get("status") != "passed":
+            raise ValueError(f"B2 reengagement qualification did not pass required stage: {stage}")
+    for stage in ("python_oracle_native_cpu", "native_cpu_cuda"):
+        evidence = (stages.get(stage) or {}).get("evidence") or {}
+        for artifact_key, sha_key in (("log", "log_sha256"), ("xml", "xml_sha256")):
+            digest = evidence.get(sha_key)
+            if not isinstance(digest, str) or len(digest) != 64:
+                raise ValueError(f"B2 qualification evidence is missing {sha_key} for {stage}")
+            _validate_stage_artifact(path, stage, artifact_key, digest)
+    return proof
 
 
 def receipt_callback_base():
@@ -206,6 +323,78 @@ def _strict_bool_mask(value, model_task):
     if actual.dtype != np.dtype(bool) or actual.shape != expected.shape or not np.array_equal(actual, expected):
         raise RuntimeError("episode info task/mask/version does not match the active rollout")
     return actual.tolist()
+
+
+def _dtype_name(value):
+    dtype = getattr(value, "dtype", value)
+    name = str(dtype)
+    if name.startswith("<class 'numpy."):
+        name = name.removeprefix("<class 'numpy.").removesuffix("'>")
+    return name
+
+
+def _require_float32_tensor(name, value):
+    if value is None or not hasattr(value, "dtype"):
+        return
+    dtype_name = _dtype_name(value)
+    if dtype_name not in {"float32", "torch.float32", "numpy.float32"}:
+        raise RuntimeError(f"native reengagement training requires FP32; {name} has dtype {dtype_name}")
+
+
+def _autocast_enabled():
+    try:
+        import torch
+    except ImportError:
+        return False
+    checks = []
+    try:
+        checks.append(bool(torch.is_autocast_enabled()))
+    except TypeError:
+        pass
+    try:
+        checks.append(bool(torch.is_autocast_enabled("cuda")))
+    except TypeError:
+        pass
+    except RuntimeError:
+        pass
+    try:
+        checks.append(bool(torch.is_autocast_enabled("cpu")))
+    except TypeError:
+        cpu_check = getattr(torch, "is_autocast_cpu_enabled", None)
+        if callable(cpu_check):
+            try:
+                checks.append(bool(cpu_check()))
+            except RuntimeError:
+                pass
+    except RuntimeError:
+        pass
+    return any(checks)
+
+
+def validate_fp32_runtime(model, precision_state):
+    if _autocast_enabled():
+        raise RuntimeError("native reengagement training requires FP32; autocast/mixed precision is enabled")
+    if precision_state.get("cuda_matmul_allow_tf32") or precision_state.get("cudnn_allow_tf32"):
+        raise RuntimeError("native reengagement training requires FP32; TF32 is not allowed")
+    if precision_state.get("float32_matmul_precision") not in (None, "highest"):
+        raise RuntimeError("native reengagement training requires highest float32 matmul precision")
+    for index, parameter in enumerate(model.policy.parameters()):
+        _require_float32_tensor(f"policy parameter {index}", parameter)
+    rollout_buffer = getattr(model, "rollout_buffer", None)
+    if rollout_buffer is not None:
+        for name in (
+            "observations",
+            "actions",
+            "executed_actions",
+            "rewards",
+            "episode_starts",
+            "values",
+            "log_probs",
+            "advantages",
+            "returns",
+        ):
+            _require_float32_tensor(f"rollout_buffer.{name}", getattr(rollout_buffer, name, None))
+    return precision_state
 
 
 def completed_reengagement_episode_infos(callback, rollout_task):
@@ -426,7 +615,7 @@ def run_block(args):
     )
     throughput.validate_deadline(args.deadline_unix)
     checkpoint, preservation = verify_input_checkpoint(args)
-    qualification = base.require_qualification(args.qualification, args.reference_root, args.frozen_root)
+    qualification = require_b2_qualification(args.qualification, args.reference_root, args.frozen_root)
     hashes = source_hashes(args.reference_root, args.frozen_root)
     device = base.require_cuda(cfg.device)
 
@@ -478,7 +667,7 @@ def run_block(args):
                 "gpu": throughput.cuda_device_name(device),
                 "python": platform.python_version(),
                 "packages": throughput.package_versions(("stable-baselines3", "numpy", "gymnasium", "pymunk")),
-                "torch_precision": throughput.torch_precision_state(),
+                "torch_precision": validate_fp32_runtime(model, throughput.torch_precision_state()) if model else throughput.torch_precision_state(),
             },
             "claim": "B2 reengagement/native-navigation training block; evaluation and promotion are separate",
         }
@@ -493,6 +682,7 @@ def run_block(args):
             "note": "B2 block preserves the parent policy, critics, optimizer, action head, LR schedule and counters",
         }
         optimizer_at_load = validate_reengagement_runtime(model, cfg, requested_rollout_task="reengagement")
+        precision_state = validate_fp32_runtime(model, throughput.torch_precision_state())
         policy_digest_before = throughput.policy_parameter_digest(model)
         manifest.update({
             "model_parameter_count": throughput.model_parameter_count(model),
@@ -500,6 +690,7 @@ def run_block(args):
             "learning_rate_variant": learning_variant,
             "action_initialization_actual": throughput.verified_action_initialization(model, optimizer_at_load),
             "start_model_counters": throughput.final_model_counters(model),
+            "torch_precision": precision_state,
         })
         atomic_json(output / "manifest.json", manifest)
         atomic_json(output / "scenarios-reengagement.json", task_scenario_metadata(environments["reengagement"], "reengagement"))
@@ -538,11 +729,12 @@ def run_block(args):
             )
             throughput.validate_deadline(args.deadline_unix, reserve_seconds=60)
             model._update_current_progress_remaining(model.num_timesteps, model._total_timesteps)
+            episode_infos = completed_reengagement_episode_infos(callback, rollout_task)
+            validate_fp32_runtime(model, throughput.torch_precision_state())
             model.train()
             throughput.synchronize_cuda(device)
             updated = throughput.perf_counter_sequence()
             actual_update = throughput.validate_update_diagnostics(model.last_update_diagnostics, cfg)
-            episode_infos = completed_reengagement_episode_infos(callback, rollout_task)
             episode_receipt = write_task_episode_infos(output, index, rollout_task, episode_infos)
             task_transitions[rollout_task] += cfg.transitions_per_rollout
             row = {

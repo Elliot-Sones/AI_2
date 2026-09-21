@@ -186,6 +186,132 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "task/mask/version|reengagement payload"):
                 m.completed_reengagement_episode_infos(callback, "reengagement")
 
+    def test_bad_rollout_diagnostics_stop_before_optimizer_update(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        with TemporaryDirectory() as directory:
+            args = self.args(Path(directory))
+            reengagement_env = self.fake_env(m, cfg, "reengagement")
+            navigation_env = self.fake_env(m, cfg, "navigation")
+            model = self.fake_model(
+                m,
+                cfg,
+                start_timesteps=m.PARENT_LIFETIME_TRANSITIONS,
+                bad_episode_version=True,
+            )
+            with self.common_patches(m, cfg, reengagement_env, navigation_env, model), \
+                 patch.object(m.NativeCurriculumPPO, "load_contact_checkpoint", return_value=model), \
+                 self.assertRaisesRegex(RuntimeError, "task/mask/version"):
+                m.run_block(args)
+            self.assertEqual(model.train_count, 0)
+            self.assertEqual(model._n_updates, 0)
+
+    def test_runtime_precision_must_remain_fp32_and_disallow_tf32(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        model = self.fake_model(m, cfg, start_timesteps=m.PARENT_LIFETIME_TRANSITIONS)
+        self.assertEqual(m.validate_fp32_runtime(model, {"available": True}), {"available": True})
+
+        model.policy.parameters = lambda: [self.fake_parameter([1, 2, 3], dtype="torch.float16")]
+        with self.assertRaisesRegex(RuntimeError, "FP32"):
+            m.validate_fp32_runtime(model, {"available": True})
+
+        model = self.fake_model(m, cfg, start_timesteps=m.PARENT_LIFETIME_TRANSITIONS)
+        model.rollout_buffer.rewards = SimpleNamespace(dtype="torch.float64")
+        with self.assertRaisesRegex(RuntimeError, "FP32"):
+            m.validate_fp32_runtime(model, {"available": True})
+
+        model = self.fake_model(m, cfg, start_timesteps=m.PARENT_LIFETIME_TRANSITIONS)
+        with self.assertRaisesRegex(RuntimeError, "TF32"):
+            m.validate_fp32_runtime(model, {
+                "available": True,
+                "cuda_matmul_allow_tf32": True,
+                "cudnn_allow_tf32": False,
+                "float32_matmul_precision": "highest",
+            })
+
+    def test_source_hash_inventory_includes_direct_trainer_imports_and_fails_missing(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(m.throughput, "source_hashes", return_value={}):
+                hashes = m.source_hashes(root, root)
+            for key in (
+                "train_reengagement_campaign_block.py",
+                "native_reengagement_lane_vec_env.py",
+                "native_reengagement_episode.py",
+                "native_navigation_curriculum_env.py",
+                "native_curriculum_ppo.py",
+                "benchmark_curriculum_throughput.py",
+                "benchmark_native_contact_training.py",
+                "train_contact_campaign_block.py",
+            ):
+                self.assertRegex(hashes[key], r"^[0-9a-f]{64}$")
+            with patch.object(m.throughput, "source_hashes", return_value={}), \
+                 patch.object(m, "DIRECT_SOURCE_FILES", ("missing-source.py",)), \
+                 self.assertRaisesRegex(FileNotFoundError, "missing-source"):
+                m.source_hashes(root, root)
+
+    def test_b2_qualification_consumer_rejects_b1_or_stale_receipts(self):
+        m = self.subject()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            proof = root / "qualification.json"
+            (root / "python_oracle_native_cpu.log").write_text("cpu passed")
+            (root / "python_oracle_native_cpu.xml").write_text("<testsuite><testcase name='a'/></testsuite>")
+            (root / "native_cpu_cuda.log").write_text("cuda passed")
+            (root / "native_cpu_cuda.xml").write_text("<testsuite><testcase name='b'/></testsuite>")
+            source_hashes = {"native_reengagement_lane_vec_env.py": "a" * 64}
+            payload = {
+                "schema_version": m.QUALIFICATION_SCHEMA_VERSION,
+                "qualified": True,
+                "checkpoint": {"sha256": m.PARENT_CHECKPOINT_SHA256},
+                "provenance": {
+                    "reference_root": str(root.resolve()),
+                    "frozen_root": str(root.resolve()),
+                },
+                "version_contract": {
+                    "curriculum_task": "combat",
+                    "curriculum_version": m.REENGAGEMENT_VERSION,
+                    "allowed_control_mask": [bool(value) for value in m.TASK_MASKS["combat"]],
+                },
+                "source_hashes": source_hashes,
+                "stage_status": {
+                    "python_oracle_native_cpu": {
+                        "status": "passed",
+                        "evidence": {
+                            "log_sha256": m.sha256(root / "python_oracle_native_cpu.log"),
+                            "xml_sha256": m.sha256(root / "python_oracle_native_cpu.xml"),
+                        },
+                    },
+                    "native_cpu_cuda": {
+                        "status": "passed",
+                        "evidence": {
+                            "log_sha256": m.sha256(root / "native_cpu_cuda.log"),
+                            "xml_sha256": m.sha256(root / "native_cpu_cuda.xml"),
+                        },
+                    },
+                    "collector_learner_smoke": {"status": "passed", "evidence": {"optimizer_steps": 1}},
+                },
+            }
+            proof.write_text(json.dumps(payload))
+            with patch.object(m, "qualification_source_hashes", return_value=source_hashes):
+                accepted = m.require_b2_qualification(proof, root, root)
+            self.assertTrue(accepted["qualified"])
+
+            payload["schema_version"] = "ai2.native_contact_qualification.v1"
+            proof.write_text(json.dumps(payload))
+            with patch.object(m, "qualification_source_hashes", return_value=source_hashes), \
+                 self.assertRaisesRegex(ValueError, "B2 reengagement qualification"):
+                m.require_b2_qualification(proof, root, root)
+
+            payload["schema_version"] = m.QUALIFICATION_SCHEMA_VERSION
+            payload["source_hashes"] = {"native_reengagement_lane_vec_env.py": "b" * 64}
+            proof.write_text(json.dumps(payload))
+            with patch.object(m, "qualification_source_hashes", return_value=source_hashes), \
+                 self.assertRaisesRegex(ValueError, "source"):
+                m.require_b2_qualification(proof, root, root)
+
     def test_failure_preserves_recovery_checkpoint_and_receipt(self):
         m = self.subject()
         cfg = m.ReengagementCampaignConfig()
@@ -240,7 +366,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
                 {"path": "checkpoint.zip", "sha256": m.PARENT_CHECKPOINT_SHA256, "canonical_parent": True},
                 {"verified": True},
             )),
-            patch.object(m.base, "require_qualification", return_value={"qualified": True}),
+            patch.object(m, "require_b2_qualification", return_value={"qualified": True}),
             patch.object(m.base, "qualification_sources", return_value={}),
             patch.object(m.base, "require_cuda", return_value="cuda:0"),
             patch.object(m.throughput, "seed_everything"),
@@ -255,6 +381,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             patch.object(m, "source_hashes", return_value={"source.py": "a" * 64}),
             patch.object(m.throughput, "optimizer_state_summary", side_effect=lambda ppo: ppo.optimizer_summary()),
             patch.object(m.throughput, "verified_action_initialization", return_value={"arm": "B_projected"}),
+            patch.object(m.throughput, "torch_precision_state", return_value={"available": True, "float32_matmul_precision": "highest"}),
         ]
 
         class Stack:
@@ -306,7 +433,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             close=lambda: None,
         )
 
-    def fake_model(self, m, cfg, *, start_timesteps, fail_on_collect=None):
+    def fake_model(self, m, cfg, *, start_timesteps, fail_on_collect=None, bad_episode_version=False):
         model = SimpleNamespace(
             n_steps=cfg.n_steps,
             batch_size=cfg.batch_size,
@@ -335,7 +462,17 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             lr_schedule=lambda _: cfg.learning_rate,
             clip_range=lambda _: cfg.clip_range,
             logger=SimpleNamespace(name_to_value={}, dump=lambda **kwargs: None),
-            rollout_buffer=SimpleNamespace(actions=None, executed_actions=None),
+            rollout_buffer=SimpleNamespace(
+                actions=self.fake_tensor(dtype="torch.float32"),
+                executed_actions=self.fake_tensor(dtype="torch.float32"),
+                rewards=self.fake_tensor(dtype="torch.float32"),
+                observations=self.fake_tensor(dtype="torch.float32"),
+                values=self.fake_tensor(dtype="torch.float32"),
+                log_probs=self.fake_tensor(dtype="torch.float32"),
+                advantages=self.fake_tensor(dtype="torch.float32"),
+                returns=self.fake_tensor(dtype="torch.float32"),
+                episode_starts=self.fake_tensor(dtype="torch.float32"),
+            ),
             last_update_diagnostics={"attempted_epochs": 4, "optimizer_steps": cfg.nominal_optimizer_steps, "kl_early_stop": False},
             switches=[],
             collect_tasks=[],
@@ -376,11 +513,12 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             payload = {"lane": 0, "episode_index": model.num_timesteps}
             if raw_env.task == "reengagement":
                 payload["diagnostics"] = {"success": False}
+            version = "bridge_b1_contact-v1" if bad_episode_version else raw_env.curriculum_version
             callback.episodes = [{
                 payload_key: payload,
                 "episode": {"r": 1.0, "l": 1},
                 "curriculum_task": raw_env.model_task,
-                "curriculum_version": raw_env.curriculum_version,
+                "curriculum_version": version,
                 "allowed_control_mask": [bool(value) for value in m.TASK_MASKS[raw_env.model_task]],
             }]
             return True
@@ -396,12 +534,16 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
         model.optimizer_summary = lambda: {"available": True, "state_tensor_elements": 3}
         return model
 
-    def fake_parameter(self, values):
+    def fake_tensor(self, *, dtype):
+        return SimpleNamespace(dtype=dtype)
+
+    def fake_parameter(self, values, *, dtype="torch.float32"):
         class Parameter:
             device = SimpleNamespace(type="cuda")
 
-            def __init__(self, values):
+            def __init__(self, values, dtype):
                 self.values = values
+                self.dtype = dtype
 
             def numel(self):
                 return len(self.values)
@@ -421,7 +563,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             def tobytes(self):
                 return bytes(self.values)
 
-        return Parameter(values)
+        return Parameter(values, dtype)
 
     def clock(self):
         value = 0.0
