@@ -323,6 +323,11 @@ def _default_train_block(*, phase: Mapping[str, Any], checkpoint_path: Path, out
         configured.pop("checkpoint_sha256", None)
         configured.pop("resume", None)
         configured.pop("resume_parent_result", None)
+        raw_require_wandb = configured.pop("require_wandb", None)
+        if raw_require_wandb is not None:
+            if raw_require_wandb is not True:
+                raise ValueError("native_reengagement require_wandb must be true when configured")
+            boolean_flags.append("--require-wandb")
         if raw_cycle_index == 1:
             configured["checkpoint_sha256"] = train_module.PARENT_CHECKPOINT_SHA256
         else:

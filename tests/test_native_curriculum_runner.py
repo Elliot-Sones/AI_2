@@ -534,6 +534,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 "qualification": root / "qualification.json",
                 "deadline_unix": 9999999999.0,
                 "schedule": "R4E1N",
+                "require_wandb": True,
                 "checkpoint_sha256": "0" * 64,
                 "resume_parent_result": root / "stale-result.json",
             }
@@ -580,15 +581,28 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(observed[0]["checkpoint"], parent)
             self.assertEqual(observed[0]["output"], cycle_1_dir)
             self.assertFalse(observed[0]["resume"])
+            self.assertTrue(observed[0]["require_wandb"])
             self.assertEqual(observed[0]["cycle_index"], 1)
             self.assertEqual(observed[0]["checkpoint_sha256"], reengagement.PARENT_CHECKPOINT_SHA256)
             self.assertIsNone(observed[0]["resume_parent_result"])
             self.assertEqual(observed[1]["checkpoint"], cycle_1_dir / "final.zip")
             self.assertEqual(observed[1]["output"], cycle_2_dir)
             self.assertTrue(observed[1]["resume"])
+            self.assertTrue(observed[1]["require_wandb"])
             self.assertEqual(observed[1]["cycle_index"], 2)
             self.assertEqual(observed[1]["checkpoint_sha256"], runner.sha256_file(cycle_1_dir / "final.zip"))
             self.assertEqual(observed[1]["resume_parent_result"], cycle_1_dir / "result.json")
+
+            phase_bad_wandb = {"block": {"type": "native_reengagement", "args": {
+                **common_args,
+                "require_wandb": False,
+            }}}
+            with self.assertRaisesRegex(ValueError, "require_wandb"):
+                runner._default_train_block(
+                    phase=phase_bad_wandb,
+                    checkpoint_path=parent,
+                    output_dir=root / "bad-wandb",
+                )
 
     def test_both_block_types_reject_phase_owned_checkpoint_and_output(self):
         import native_curriculum_runner as runner
