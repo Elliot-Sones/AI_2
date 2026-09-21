@@ -332,6 +332,7 @@ def _default_train_block(*, phase: Mapping[str, Any], checkpoint_path: Path, out
             configured["checkpoint_sha256"] = train_module.PARENT_CHECKPOINT_SHA256
         else:
             configured["checkpoint_sha256"] = sha256_file(checkpoint_path)
+            configured["checkpoint_ack"] = checkpoint_path.parent / "preservation_ack.json"
             configured["cycle_index"] = raw_cycle_index
             configured["resume_parent_result"] = checkpoint_path.parent / "result.json"
             boolean_flags.append("--resume")

@@ -592,6 +592,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(observed[1]["cycle_index"], 2)
             self.assertEqual(observed[1]["checkpoint_sha256"], runner.sha256_file(cycle_1_dir / "final.zip"))
             self.assertEqual(observed[1]["resume_parent_result"], cycle_1_dir / "result.json")
+            self.assertEqual(observed[1]["checkpoint_ack"], cycle_1_dir / "preservation_ack.json")
 
             phase_bad_wandb = {"block": {"type": "native_reengagement", "args": {
                 **common_args,
