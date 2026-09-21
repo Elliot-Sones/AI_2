@@ -518,7 +518,7 @@ def _failure_category(trace: Mapping[str, Any]) -> str:
     if outcome == "success":
         return "invalid_success_evidence"
     if outcome in {"own_stock_loss", "opponent_stock_loss"}:
-        return outcome
+        return "stock_loss"
     if outcome == "unsafe_support":
         return "unsafe_support"
     if outcome == "response_deadline":

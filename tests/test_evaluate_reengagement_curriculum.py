@@ -188,6 +188,15 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
                 trace = {"player_slot": 0, **fields}
                 self.assertEqual(module.reconstruct_trace(trace)["failure_category"], expected)
 
+    def test_stock_loss_taxonomy_collapses_own_and_opponent_stock_losses(self):
+        module = self.subject()
+        for outcome in ("own_stock_loss", "opponent_stock_loss"):
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    module.reconstruct_trace({"player_slot": 0, "outcome": outcome})["failure_category"],
+                    "stock_loss",
+                )
+
     def test_summary_splits_modes_slots_and_reports_b2_taxonomy(self):
         module = self.subject()
         rows = [
