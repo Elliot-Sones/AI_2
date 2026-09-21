@@ -118,24 +118,53 @@ def choose_target_anchor(floor_left, floor_right, target_half_width, learner_x, 
     return max(candidates, key=lambda item: item[2])[1]
 
 
-def _validate_scenario(seed, player_slot, direction, gap, midpoint):
+def _validate_seed(seed):
     if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
-    if player_slot not in (0, 1):
+
+
+def _validate_player_slot(player_slot):
+    if not isinstance(player_slot, int) or isinstance(player_slot, bool) or player_slot not in (0, 1):
         raise ValueError("player_slot must be 0 or 1")
-    if direction not in (-1, 1):
+
+
+def _validate_direction(direction):
+    if not isinstance(direction, int) or isinstance(direction, bool) or direction not in (-1, 1):
         raise ValueError("direction must be -1 or 1")
-    if not isinstance(gap, (int, float)) or not math.isfinite(gap) or not 3.1 <= gap <= 3.4:
+
+
+def _validate_gap(gap):
+    if (
+        not isinstance(gap, (int, float))
+        or isinstance(gap, bool)
+        or not math.isfinite(gap)
+        or not 3.1 <= gap <= 3.4
+    ):
         raise ValueError("gap must be in [3.1, 3.4]")
-    if not isinstance(midpoint, (int, float)) or not math.isfinite(midpoint) or not 4.35 <= midpoint <= 4.65:
+
+
+def _validate_midpoint(midpoint):
+    if (
+        not isinstance(midpoint, (int, float))
+        or isinstance(midpoint, bool)
+        or not math.isfinite(midpoint)
+        or not 4.35 <= midpoint <= 4.65
+    ):
         raise ValueError("midpoint must be in [4.35, 4.65]")
 
 
+def _validate_scenario(seed, player_slot, direction, gap, midpoint):
+    _validate_seed(seed)
+    _validate_player_slot(player_slot)
+    _validate_direction(direction)
+    _validate_gap(gap)
+    _validate_midpoint(midpoint)
+
+
 def scenario_from_seed(seed, player_slot=None, direction=None):
-    if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
-        raise ValueError("seed must be a nonnegative integer")
+    _validate_seed(seed)
     rng = np.random.default_rng(seed)
-    slot = int(seed % 2) if player_slot is None else player_slot
+    slot = seed % 2 if player_slot is None else player_slot
     dir_value = -1 if (seed // 2) % 2 == 0 else 1
     if direction is not None:
         dir_value = direction
@@ -190,14 +219,17 @@ class ReengagementEnv:
 
     def reset(self, *, seed=None, options=None):
         scenario_options = dict((options or {}).get("scenario") or {})
-        seed_value = int(seed if seed is not None else scenario_options.get("seed", 0))
+        seed_value = seed if seed is not None else scenario_options.get("seed", 0)
+        _validate_seed(seed_value)
         generated = scenario_from_seed(seed_value)
-        player_slot = int(scenario_options.get("player_slot", generated["player_slot"]))
-        direction = int(scenario_options.get("direction", generated["direction"]))
-        gap = float(scenario_options.get("gap", generated["gap"]))
-        midpoint = float(scenario_options.get("midpoint", generated["midpoint"]))
+        player_slot = scenario_options.get("player_slot", generated["player_slot"])
+        direction = scenario_options.get("direction", generated["direction"])
+        gap = scenario_options.get("gap", generated["gap"])
+        midpoint = scenario_options.get("midpoint", generated["midpoint"])
         scenario_id = str(scenario_options.get("id", f"reengagement-s{seed_value}-p{player_slot}-d{direction}"))
         _validate_scenario(seed_value, player_slot, direction, gap, midpoint)
+        gap = float(gap)
+        midpoint = float(midpoint)
 
         self.seed_value = seed_value
         self.player_slot = player_slot
@@ -647,10 +679,10 @@ class ReengagementEnv:
                 if self.second_hit_tick is None:
                     return "pursued_missed_second"
             if self.first_hit_tick is None:
-                if self.light_request_ticks > 0:
-                    return "requested_no_start"
                 if self.attack_start_count > 0:
                     return "started_missed"
+                if self.light_request_ticks > 0:
+                    return "requested_no_start"
                 if self.movement_request_ticks > 0 and self.max_initial_approach_progress < 1.0:
                     return "no_approach"
                 return "no_attack_request"

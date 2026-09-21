@@ -235,6 +235,43 @@ def test_invalid_scenarios_are_rejected_before_reset_mutates(scenario):
     assert after == before
 
 
+@pytest.mark.parametrize(
+    "seed_value, scenario_override",
+    [
+        (True, {}),
+        (1.9, {}),
+        ("7", {}),
+        (17, {"player_slot": True}),
+        (17, {"direction": True}),
+        (17, {"gap": "3.2"}),
+        (17, {"midpoint": "4.5"}),
+    ],
+)
+def test_scenario_reset_rejects_raw_invalid_types_without_mutating_episode(seed_value, scenario_override):
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        _, info = env.reset(seed=17, options={"scenario": {"player_slot": 0, "direction": 1}})
+        before = {
+            "seed": env.seed_value,
+            "scenario": dict(env.scenario),
+            "episode_number": env._episode_number,
+            "tick": env.tick,
+            "post_players": info["trace"]["post_players"],
+        }
+        with pytest.raises(ValueError):
+            env.reset(seed=seed_value, options={"scenario": scenario_override})
+        after = {
+            "seed": env.seed_value,
+            "scenario": dict(env.scenario),
+            "episode_number": env._episode_number,
+            "tick": env.tick,
+            "post_players": env._snapshots(),
+        }
+    finally:
+        env.close()
+    assert after == before
+
+
 def test_relocation_recreates_only_target_and_preserves_required_state(monkeypatch):
     env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
     try:
@@ -620,7 +657,7 @@ def test_completed_diagnostics_include_reconstructable_relocation_damage_clearan
     "controller, expected",
     [
         ("idle", "no_attack_request"),
-        ("held_light", "requested_no_start"),
+        ("held_light", "started_missed"),
         ("one_hit_then_idle", "first_hit_only"),
         ("move_without_second_hit", "pursued_missed_second"),
         ("walkoff", "own_stock_loss"),
@@ -636,13 +673,26 @@ def test_representative_failure_categories(controller, expected):
     assert info["episode_diagnostics"]["failure_category"] == expected
 
 
-def test_started_missed_and_bad_support_categories_are_reported_from_terminal_diagnostics():
+def test_started_missed_request_without_contact_takes_precedence_over_request_only():
     attack_started = {"type": "attack_started", "player_slot": 0, "attack_id": "miss", "attack_type": "DLIGHT"}
     env = controlled_env(tick=300, events=[attack_started])
-    _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+    env.light_request_ticks = 1
+    action = zero_action()
+    action[7] = 1
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, action)
     assert terminated is True
     assert info["episode_diagnostics"]["failure_category"] == "started_missed"
 
+    env = controlled_env(tick=300)
+    env.light_request_ticks = 1
+    action = zero_action()
+    action[7] = 1
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, action)
+    assert terminated is True
+    assert info["episode_diagnostics"]["failure_category"] == "requested_no_start"
+
+
+def test_bad_support_category_is_reported_from_terminal_diagnostics():
     post = [
         player_snapshot(0, fully_supported=False, clearance=-0.1),
         player_snapshot(1, fully_supported=True, clearance=1.0),
