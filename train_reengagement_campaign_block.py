@@ -27,6 +27,7 @@ from native_reengagement_lane_vec_env import build_reengagement_env
 
 SCHEMA_VERSION = "ai2.reengagement_campaign_block.v1"
 QUALIFICATION_SCHEMA_VERSION = "ai2.native_reengagement_qualification.v1"
+QUALIFICATION_VERSION = "b2-reengagement-qualification-v1"
 PARENT_CHECKPOINT_SHA256 = "d6e487c22f73913cd88a428683c7ca721e23b1f9cb5a3a561ad24d1f5bf410db"
 PARENT_LIFETIME_TRANSITIONS = 60_391_424
 SCHEDULES = {
@@ -221,28 +222,29 @@ def source_hashes(reference_root, frozen_root):
     return hashes
 
 
-def qualification_source_hashes(reference_root=None, frozen_root=None):
-    try:
-        import qualify_native_reengagement as qualification
-    except ImportError:
-        qualification = None
-    if qualification is not None:
-        exported = getattr(qualification, "source_hashes", None)
-        if callable(exported):
-            try:
-                return dict(exported(reference_root, frozen_root))
-            except TypeError:
-                try:
-                    return dict(exported())
-                except TypeError:
-                    pass
-    hashes = {}
-    for name in QUALIFICATION_SOURCE_FILES:
-        path = ROOT / name
-        if not path.is_file():
-            raise FileNotFoundError(f"required qualification source is missing: {name}")
-        hashes[name] = sha256(path)
-    return hashes
+def qualification_source_inventory(reference_root, frozen_root):
+    import qualify_native_reengagement as qualification
+
+    exported = getattr(qualification, "qualification_source_hashes", None)
+    if not callable(exported):
+        raise RuntimeError("B2 qualification source inventory implementation is unavailable")
+    inventory = exported(Path(reference_root), Path(frozen_root))
+    if not isinstance(inventory, dict):
+        raise RuntimeError("B2 qualification source inventory is malformed")
+    if not isinstance(inventory.get("source_sha256"), dict) or not isinstance(
+        inventory.get("root_hashes"), dict
+    ):
+        raise RuntimeError("B2 qualification source inventory is incomplete")
+    return inventory
+
+
+def qualification_source_hashes(reference_root, frozen_root):
+    inventory = qualification_source_inventory(reference_root, frozen_root)
+    return dict(inventory["source_sha256"])
+
+
+def _sha_map_like(value):
+    return isinstance(value, dict) and all(isinstance(key, str) and isinstance(digest, str) and len(digest) == 64 for key, digest in value.items())
 
 
 def _resolved_path_matches(actual, expected):
@@ -270,32 +272,94 @@ def require_b2_qualification(path, reference_root, frozen_root):
     expected_mask = [bool(value) for value in TASK_MASKS["combat"]]
     contract = proof.get("version_contract") or {}
     checkpoint = proof.get("checkpoint") or {}
+    contract_mask = contract.get("allowed_control_mask")
     if (
         proof.get("schema_version") != QUALIFICATION_SCHEMA_VERSION
+        or proof.get("qualification_version") != QUALIFICATION_VERSION
         or proof.get("qualified") is not True
+        or proof.get("overall_status") != "passed"
         or contract.get("curriculum_task") != "combat"
         or contract.get("curriculum_version") != REENGAGEMENT_VERSION
-        or [bool(value) for value in contract.get("allowed_control_mask", [])] != expected_mask
+        or not isinstance(contract_mask, list)
+        or any(type(value) is not bool for value in contract_mask)
+        or contract_mask != expected_mask
         or checkpoint.get("sha256") != PARENT_CHECKPOINT_SHA256
+        or checkpoint.get("expected_sha256") not in (None, PARENT_CHECKPOINT_SHA256)
         or not _resolved_path_matches(_qualification_root(proof, "reference_root"), reference_root)
         or not _resolved_path_matches(_qualification_root(proof, "frozen_root"), frozen_root)
     ):
         raise ValueError("B2 reengagement qualification failed, stale, incomplete, or for a different contract")
-    expected_sources = qualification_source_hashes(reference_root, frozen_root)
-    if proof.get("source_hashes") != expected_sources:
+    source_inventory = qualification_source_inventory(reference_root, frozen_root)
+    expected_sources = source_inventory["source_sha256"]
+    expected_roots = source_inventory["root_hashes"]
+    if not _sha_map_like(proof.get("source_hashes")) or proof.get("source_hashes") != expected_sources:
         raise ValueError("B2 reengagement qualification source hashes do not match this source tree")
+    if proof.get("root_hashes") != expected_roots:
+        raise ValueError("B2 reengagement qualification root hashes do not match this source tree")
     stages = proof.get("stage_status") or {}
-    for stage in ("python_oracle_native_cpu", "native_cpu_cuda", "collector_learner_smoke"):
-        if (stages.get(stage) or {}).get("status") != "passed":
+    for stage in (
+        "source_build_inventory",
+        "b1_behavior_regression",
+        "python_oracle_native_cpu",
+        "native_cpu_cuda",
+        "collector_learner_smoke",
+    ):
+        row = stages.get(stage) or {}
+        if row.get("status") != "passed" or row.get("required") is not True:
             raise ValueError(f"B2 reengagement qualification did not pass required stage: {stage}")
-    for stage in ("python_oracle_native_cpu", "native_cpu_cuda"):
+    source_evidence = stages["source_build_inventory"].get("evidence") or {}
+    if source_evidence.get("source_files") != len(expected_sources) or source_evidence.get(
+        "missing_sources"
+    ) != []:
+        raise ValueError("B2 qualification source/build inventory evidence is incomplete")
+    for stage in ("b1_behavior_regression", "python_oracle_native_cpu", "native_cpu_cuda"):
         evidence = (stages.get(stage) or {}).get("evidence") or {}
+        if type(evidence.get("cases")) is not int or evidence["cases"] <= 0:
+            raise ValueError(f"B2 qualification evidence ran no cases for {stage}")
+        skips = evidence.get("skips")
+        if not isinstance(skips, list):
+            raise ValueError(f"B2 qualification evidence is missing skip records for {stage}")
+        if stage != "native_cpu_cuda" and skips:
+            raise ValueError(f"B2 qualification evidence skipped required cases for {stage}")
+        if stage == "native_cpu_cuda":
+            optional = evidence.get("optional_skips")
+            if not isinstance(optional, list) or skips != optional:
+                raise ValueError("B2 qualification CUDA evidence contains non-optional skips")
         for artifact_key, sha_key in (("log", "log_sha256"), ("xml", "xml_sha256")):
             digest = evidence.get(sha_key)
-            if not isinstance(digest, str) or len(digest) != 64:
+            if not _sha_like(digest):
                 raise ValueError(f"B2 qualification evidence is missing {sha_key} for {stage}")
             _validate_stage_artifact(path, stage, artifact_key, digest)
+    smoke = (stages.get("collector_learner_smoke") or {}).get("evidence") or {}
+    metrics = smoke.get("training_metrics") or {}
+    parent = smoke.get("parent_metadata") or {}
+    if (
+        smoke.get("checkpoint_sha256") != PARENT_CHECKPOINT_SHA256
+        or smoke.get("train_invocations") != 1
+        or type(smoke.get("optimizer_steps")) is not int
+        or smoke.get("optimizer_steps") < 1
+        or type(smoke.get("attempted_epochs")) is not int
+        or smoke.get("attempted_epochs") < 1
+        or smoke.get("update_counter_delta") != smoke["attempted_epochs"]
+        or not all(
+            isinstance(metrics.get(name), (int, float))
+            and not isinstance(metrics.get(name), bool)
+            and np.isfinite(metrics[name])
+            for name in ("train/value_loss", "train/entropy_loss")
+        )
+        or parent.get("action_ab_arm") != "B_projected"
+        or parent.get("action_head") != "bernoulli_10"
+        or parent.get("policy_action_head") != "bernoulli_10"
+        or dict(parent.get("task_versions") or {}) != EXPECTED_TASK_VERSIONS
+    ):
+        raise ValueError("B2 qualification collector smoke evidence is incomplete or stale")
     return proof
+
+
+def _sha_like(value):
+    return isinstance(value, str) and len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
 
 
 def receipt_callback_base():
@@ -341,6 +405,41 @@ def _require_float32_tensor(name, value):
         raise RuntimeError(f"native reengagement training requires FP32; {name} has dtype {dtype_name}")
 
 
+def configure_fp32_runtime():
+    import torch
+
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.set_float32_matmul_precision("highest")
+    precision_state = throughput.torch_precision_state()
+    if (
+        precision_state.get("cuda_matmul_allow_tf32")
+        or precision_state.get("cudnn_allow_tf32")
+        or precision_state.get("float32_matmul_precision") != "highest"
+    ):
+        raise RuntimeError("failed to configure strict FP32 CUDA runtime")
+    return precision_state
+
+
+def _validate_optimizer_fp32(model):
+    optimizer = getattr(getattr(model, "policy", None), "optimizer", None)
+    for entry in getattr(optimizer, "state", {}).values():
+        if not isinstance(entry, dict):
+            continue
+        for name, value in entry.items():
+            if name == "step" or value is None or not hasattr(value, "dtype"):
+                continue
+            dtype_name = _dtype_name(value)
+            if "float" in dtype_name and dtype_name not in {
+                "float32",
+                "torch.float32",
+                "numpy.float32",
+            }:
+                raise RuntimeError(
+                    f"native reengagement training requires FP32; optimizer {name} has dtype {dtype_name}"
+                )
+
+
 def _autocast_enabled():
     try:
         import torch
@@ -380,6 +479,7 @@ def validate_fp32_runtime(model, precision_state):
         raise RuntimeError("native reengagement training requires highest float32 matmul precision")
     for index, parameter in enumerate(model.policy.parameters()):
         _require_float32_tensor(f"policy parameter {index}", parameter)
+    _validate_optimizer_fp32(model)
     rollout_buffer = getattr(model, "rollout_buffer", None)
     if rollout_buffer is not None:
         for name in (
@@ -573,17 +673,9 @@ def validate_reengagement_runtime(model, cfg, *, requested_rollout_task):
 
 def set_model_task_environment(model, rollout_task, env):
     model_task = MODEL_TASKS[rollout_task]
-    try:
-        model.set_task_environment(
-            model_task,
-            env,
-            calibration=False,
-            expected_task_versions=EXPECTED_TASK_VERSIONS,
-        )
-    except TypeError as error:
-        if "expected_task_versions" not in str(error):
-            raise
-        model.set_task_environment(model_task, env, calibration=False)
+    if dict(getattr(model, "task_versions", {}) or {}) != EXPECTED_TASK_VERSIONS:
+        raise ValueError("loaded model task version contract differs from B2 training")
+    model.set_task_environment(model_task, env, calibration=False)
 
 
 def load_parent_model(checkpoint, env, cfg):
@@ -632,6 +724,7 @@ def run_block(args):
 
     try:
         throughput.reset_peak_memory(device)
+        precision_state = configure_fp32_runtime()
         BaseCallback = receipt_callback_base()
 
         class ReceiptCallback(BaseCallback):
@@ -667,7 +760,7 @@ def run_block(args):
                 "gpu": throughput.cuda_device_name(device),
                 "python": platform.python_version(),
                 "packages": throughput.package_versions(("stable-baselines3", "numpy", "gymnasium", "pymunk")),
-                "torch_precision": validate_fp32_runtime(model, throughput.torch_precision_state()) if model else throughput.torch_precision_state(),
+                "torch_precision": precision_state,
             },
             "claim": "B2 reengagement/native-navigation training block; evaluation and promotion are separate",
         }
@@ -690,7 +783,6 @@ def run_block(args):
             "learning_rate_variant": learning_variant,
             "action_initialization_actual": throughput.verified_action_initialization(model, optimizer_at_load),
             "start_model_counters": throughput.final_model_counters(model),
-            "torch_precision": precision_state,
         })
         atomic_json(output / "manifest.json", manifest)
         atomic_json(output / "scenarios-reengagement.json", task_scenario_metadata(environments["reengagement"], "reengagement"))
@@ -730,7 +822,7 @@ def run_block(args):
             throughput.validate_deadline(args.deadline_unix, reserve_seconds=60)
             model._update_current_progress_remaining(model.num_timesteps, model._total_timesteps)
             episode_infos = completed_reengagement_episode_infos(callback, rollout_task)
-            validate_fp32_runtime(model, throughput.torch_precision_state())
+            validate_fp32_runtime(model, configure_fp32_runtime())
             model.train()
             throughput.synchronize_cuda(device)
             updated = throughput.perf_counter_sequence()

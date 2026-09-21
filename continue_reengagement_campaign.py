@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import tempfile
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -160,7 +161,7 @@ def development_gate(result: dict) -> GateVerdict:
     raw = dict(result)
     panels = _panels(result)
     counter = result.get("checkpoint_counter")
-    checkpoint_hash = result.get("checkpoint_hash")
+    checkpoint_hash = _checkpoint_hash(result)
     components = {}
     stop = False
     failed = []
@@ -200,7 +201,7 @@ def development_gate(result: dict) -> GateVerdict:
             failed.append(f"{mode}.falls")
     return GateVerdict(
         eligible=not failed,
-        stop=stop or any(name.endswith((".successes", ".falls")) for name in failed),
+        stop=stop,
         reason="eligible" if not failed else "failed: " + ", ".join(failed),
         checkpoint_counter=counter if isinstance(counter, int) else None,
         checkpoint_hash=checkpoint_hash if _sha_like(checkpoint_hash) else None,
@@ -325,9 +326,9 @@ def stop_decision(
 
 
 def preserve_receipt(block_dir: Path, payload: dict, *, expected_checkpoint_hash: str) -> dict:
-    receipt = _validate_receipt(payload, expected_checkpoint_hash=expected_checkpoint_hash)
     block_dir = Path(block_dir)
     block_dir.mkdir(parents=True, exist_ok=True)
+    receipt = _validate_receipt(payload, expected_checkpoint_hash=expected_checkpoint_hash, base_dir=block_dir)
     atomic_output(block_dir / "preservation_receipt.json", receipt)
     return receipt
 
@@ -336,7 +337,7 @@ def verify_reuse_receipt(block_dir: Path, *, expected_checkpoint_hash: str) -> d
     path = Path(block_dir) / "preservation_receipt.json"
     if not path.is_file():
         raise FileNotFoundError("preservation receipt is required before checkpoint reuse")
-    return _validate_receipt(json.loads(path.read_text()), expected_checkpoint_hash=expected_checkpoint_hash)
+    return _validate_receipt(json.loads(path.read_text()), expected_checkpoint_hash=expected_checkpoint_hash, base_dir=Path(block_dir))
 
 
 def atomic_output(path: Path, payload: dict) -> None:
@@ -356,7 +357,7 @@ def atomic_output(path: Path, payload: dict) -> None:
         raise
 
 
-def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str) -> dict:
+def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str, base_dir: Path | None = None) -> dict:
     if not _sha_like(expected_checkpoint_hash):
         raise ValueError("expected checkpoint hash must be sha256-like")
     if not isinstance(payload, dict):
@@ -368,13 +369,40 @@ def _validate_receipt(payload: dict, *, expected_checkpoint_hash: str) -> dict:
     if not isinstance(checkpoint, dict) or checkpoint.get("sha256") != expected_checkpoint_hash:
         raise ValueError("preservation receipt checkpoint hash mismatch")
     wandb = payload.get("wandb")
-    if not isinstance(wandb, dict) or not wandb.get("receipt_sha256") or not wandb.get("offline_dir"):
-        raise ValueError("preservation receipt requires W&B receipt and offline dir")
+    if not isinstance(wandb, dict) or not wandb.get("receipt_sha256"):
+        raise ValueError("preservation receipt requires W&B receipt")
+    if not wandb.get("offline_dir") and not (wandb.get("url") or wandb.get("run_path")):
+        raise ValueError("preservation receipt requires W&B online receipt or offline dir")
     if not isinstance(payload.get("logs"), list) or not payload["logs"]:
         raise ValueError("preservation receipt requires logs")
     if not isinstance(payload.get("commands"), list) or not payload["commands"]:
         raise ValueError("preservation receipt requires commands")
+    if base_dir is not None:
+        for section in ("logs", "commands"):
+            _validate_artifact_rows(base_dir, payload[section])
+        for section in ("inventory", "local_acknowledgement", "evaluation_receipt", "monitor"):
+            _validate_artifact_object(base_dir, payload[section], section)
     return dict(payload)
+
+
+def _validate_artifact_object(base_dir: Path, value, label: str) -> None:
+    if not isinstance(value, dict) or "path" not in value or "sha256" not in value:
+        raise ValueError(f"preservation receipt requires {label} object")
+    _validate_artifact_rows(base_dir, [value])
+
+
+def _validate_artifact_rows(base_dir: Path, rows: list[dict]) -> None:
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("path") or not _sha_like(row.get("sha256")):
+            raise ValueError("preservation artifact rows require path and sha256")
+        relative = Path(row["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("preservation artifact paths must be receipt-relative")
+        artifact = base_dir / relative
+        if not artifact.is_file() or artifact.is_symlink():
+            raise ValueError(f"preserved artifact is missing: {relative}")
+        if _sha256(artifact) != row["sha256"]:
+            raise ValueError(f"preserved artifact hash mismatch: {relative}")
 
 
 def _assert_result_matches_checkpoint(result: dict, checkpoint: CheckpointRef, label: str) -> None:
@@ -400,9 +428,15 @@ def _has_success_or_time_improvement(current: dict, parent: dict) -> bool:
 
 
 def _panels(result: dict) -> dict:
-    if not isinstance(result, dict) or not isinstance(result.get("panels"), dict):
-        raise TypeError("result must include panels")
-    return result["panels"]
+    if not isinstance(result, dict):
+        raise TypeError("result must be an object")
+    if isinstance(result.get("panels"), dict):
+        return result["panels"]
+    summary = result.get("summary")
+    modes = summary.get("modes") if isinstance(summary, dict) else None
+    if not isinstance(modes, dict):
+        raise TypeError("result must include panels or summary.modes")
+    return {mode: _panel_from_evaluator_mode(row) for mode, row in modes.items()}
 
 
 def _mode_row(panels: dict, mode: str, episodes: int) -> dict:
@@ -417,6 +451,44 @@ def _mode_row(panels: dict, mode: str, episodes: int) -> dict:
     return row
 
 
+def _panel_from_evaluator_mode(row: dict) -> dict:
+    if not isinstance(row, dict):
+        raise TypeError("evaluator mode summary must be an object")
+    timing = row.get("timing") if isinstance(row.get("timing"), dict) else {}
+    second_hit_ticks = timing.get("second_hit_ticks") if isinstance(timing.get("second_hit_ticks"), list) else []
+    if second_hit_ticks:
+        time_to_reengagement = sum(float(value) for value in second_hit_ticks) / len(second_hit_ticks)
+    else:
+        time_to_reengagement = float(timing.get("average_ticks", math.inf))
+    slots = row.get("slots") if isinstance(row.get("slots"), dict) else {}
+    return {
+        "episodes": row.get("episodes"),
+        "successes": row.get("full_sequence_successes"),
+        "falls": row.get("falls", 0),
+        "invalid": row.get("invalid_or_ambiguous", 0),
+        "ambiguous": 0,
+        "time_to_reengagement": time_to_reengagement,
+        "learner_slots": {
+            f"slot{slot}": slot_row.get("full_sequence_successes")
+            for slot, slot_row in slots.items()
+            if isinstance(slot_row, dict)
+        },
+    }
+
+
+def _checkpoint_hash(result: dict):
+    for value in (
+        result.get("checkpoint_hash"),
+        (result.get("checkpoint") or {}).get("sha256") if isinstance(result.get("checkpoint"), dict) else None,
+        (result.get("checkpoint_hash_receipt") or {}).get("checkpoint_sha256")
+        if isinstance(result.get("checkpoint_hash_receipt"), dict)
+        else None,
+    ):
+        if value is not None:
+            return value
+    return None
+
+
 def _finite_number(value, label: str) -> float:
     if not _is_finite_number(value):
         raise ValueError(f"{label} must be finite")
@@ -429,3 +501,11 @@ def _is_finite_number(value) -> bool:
 
 def _sha_like(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()

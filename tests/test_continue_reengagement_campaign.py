@@ -1,4 +1,5 @@
 import json
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -59,6 +60,29 @@ def preservation_payload(checkpoint_hash="a" * 64):
     }
 
 
+def write_preservation_payload(block_dir, checkpoint_hash="a" * 64):
+    block_dir.mkdir(parents=True, exist_ok=True)
+    files = {
+        "inventory.json": b"inventory",
+        "ack.json": b"ack",
+        "eval.json": b"eval",
+        "run.log": b"log",
+        "monitor.jsonl": b"monitor",
+        "command.json": b"command",
+    }
+    for name, data in files.items():
+        (block_dir / name).write_bytes(data)
+    digest = lambda name: hashlib.sha256((block_dir / name).read_bytes()).hexdigest()
+    payload = preservation_payload(checkpoint_hash)
+    payload["inventory"] = {"path": "inventory.json", "sha256": digest("inventory.json"), "files": [{"path": "final.zip", "sha256": checkpoint_hash}]}
+    payload["local_acknowledgement"] = {"path": "ack.json", "sha256": digest("ack.json")}
+    payload["evaluation_receipt"] = {"path": "eval.json", "sha256": digest("eval.json")}
+    payload["logs"] = [{"path": "run.log", "sha256": digest("run.log")}]
+    payload["monitor"] = {"path": "monitor.jsonl", "sha256": digest("monitor.jsonl")}
+    payload["commands"] = [{"path": "command.json", "sha256": digest("command.json")}]
+    return payload
+
+
 def test_build_next_cycle_requires_matched_parent_development_rerun_and_exactly_one_cycle():
     m = subject()
     parent = m.CheckpointRef(name="parent", checkpoint_hash="a" * 64, counter=10)
@@ -94,6 +118,47 @@ def test_development_mastery_requires_two_distinct_increasing_qualified_checkpoi
     bad_evidence = m.development_gate(development_result(counter=6, ambiguous=1))
     assert bad_evidence.stop
     assert "invalid_or_ambiguous" in bad_evidence.reason
+
+
+def test_development_gate_consumes_real_task7_evaluator_schema_without_invented_panels():
+    m = subject()
+    result = {
+        "checkpoint_counter": 7,
+        "checkpoint_hash_receipt": {"checkpoint_sha256": "7" * 64},
+        "summary": {
+            "modes": {
+                "deterministic": {
+                    "episodes": 20,
+                    "full_sequence_successes": 18,
+                    "falls": 1,
+                    "invalid_or_ambiguous": 0,
+                    "timing": {"second_hit_ticks": [9, 11]},
+                    "slots": {
+                        "0": {"full_sequence_successes": 9},
+                        "1": {"full_sequence_successes": 9},
+                    },
+                },
+                "sampled": {
+                    "episodes": 20,
+                    "full_sequence_successes": 19,
+                    "falls": 0,
+                    "invalid_or_ambiguous": 0,
+                    "timing": {"average_ticks": 12},
+                    "slots": {
+                        "0": {"full_sequence_successes": 10},
+                        "1": {"full_sequence_successes": 9},
+                    },
+                },
+            }
+        },
+    }
+
+    verdict = m.development_gate(result)
+
+    assert verdict.eligible
+    assert not verdict.stop
+    assert verdict.checkpoint_hash == "7" * 64
+    assert verdict.components["deterministic"]["time_to_reengagement"] == 10.0
 
 
 def test_confirmation_gate_requires_100_case_modes_falls_and_per_slot_successes():
@@ -150,17 +215,45 @@ def test_preservation_receipt_is_required_before_reuse_and_written_atomically_wi
     checkpoint_hash = "a" * 64
     with TemporaryDirectory() as directory:
         root = Path(directory)
-        receipt = m.preserve_receipt(root / "block", preservation_payload(checkpoint_hash), expected_checkpoint_hash=checkpoint_hash)
+        block = root / "block"
+        receipt = m.preserve_receipt(block, write_preservation_payload(block, checkpoint_hash), expected_checkpoint_hash=checkpoint_hash)
         assert receipt["checkpoint"]["sha256"] == checkpoint_hash
-        assert (root / "block" / "preservation_receipt.json").is_file()
+        assert (block / "preservation_receipt.json").is_file()
         with pytest.raises(FileExistsError):
-            m.preserve_receipt(root / "block", preservation_payload("b" * 64), expected_checkpoint_hash="b" * 64)
-        assert m.verify_reuse_receipt(root / "block", expected_checkpoint_hash=checkpoint_hash)["checkpoint"]["sha256"] == checkpoint_hash
+            m.preserve_receipt(block, write_preservation_payload(block, "b" * 64), expected_checkpoint_hash="b" * 64)
+        assert m.verify_reuse_receipt(block, expected_checkpoint_hash=checkpoint_hash)["checkpoint"]["sha256"] == checkpoint_hash
 
         missing = root / "missing"
         missing.mkdir()
         with pytest.raises(FileNotFoundError):
             m.verify_reuse_receipt(missing, expected_checkpoint_hash=checkpoint_hash)
+
+
+def test_preservation_receipt_accepts_online_wandb_and_hashes_real_files():
+    m = subject()
+    checkpoint_hash = "a" * 64
+    with TemporaryDirectory() as directory:
+        block = Path(directory) / "block"
+        payload = write_preservation_payload(block, checkpoint_hash)
+        payload["wandb"] = {
+            "receipt_sha256": "e" * 64,
+            "url": "https://wandb.ai/entity/project/runs/run-id",
+        }
+        assert m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)["wandb"]["url"]
+
+    with TemporaryDirectory() as directory:
+        block = Path(directory) / "block"
+        payload = write_preservation_payload(block, checkpoint_hash)
+        payload["inventory"] = {"sha256": "b" * 64, "files": [{"path": "final.zip", "sha256": checkpoint_hash}]}
+        with pytest.raises(ValueError, match="inventory object"):
+            m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
+
+    with TemporaryDirectory() as directory:
+        block = Path(directory) / "block"
+        payload = write_preservation_payload(block, checkpoint_hash)
+        payload["logs"][0]["sha256"] = "0" * 64
+        with pytest.raises(ValueError, match="hash mismatch"):
+            m.preserve_receipt(block, payload, expected_checkpoint_hash=checkpoint_hash)
 
 
 def test_confirmation_bank_is_blocked_until_two_development_checkpoints_qualify():

@@ -1,6 +1,7 @@
 import gzip
 import importlib.util
 import json
+import sys
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
@@ -230,6 +231,53 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
                 "float32_matmul_precision": "highest",
             })
 
+        model = self.fake_model(m, cfg, start_timesteps=m.PARENT_LIFETIME_TRANSITIONS)
+        model.policy.optimizer.state[1]["exp_avg"] = self.fake_parameter(
+            [1, 2, 3], dtype="torch.float16"
+        )
+        with self.assertRaisesRegex(RuntimeError, "optimizer"):
+            m.validate_fp32_runtime(model, {"available": True})
+
+    def test_fp32_runtime_is_configured_before_validation(self):
+        m = self.subject()
+        matmul = SimpleNamespace(allow_tf32=True)
+        cudnn = SimpleNamespace(allow_tf32=True)
+        calls = []
+        fake_torch = SimpleNamespace(
+            backends=SimpleNamespace(cuda=SimpleNamespace(matmul=matmul), cudnn=cudnn),
+            set_float32_matmul_precision=lambda value: calls.append(value),
+        )
+        expected = {
+            "available": True,
+            "cuda_matmul_allow_tf32": False,
+            "cudnn_allow_tf32": False,
+            "float32_matmul_precision": "highest",
+        }
+        with patch.dict(sys.modules, {"torch": fake_torch}), patch.object(
+            m.throughput, "torch_precision_state", return_value=expected
+        ):
+            self.assertEqual(m.configure_fp32_runtime(), expected)
+        self.assertFalse(matmul.allow_tf32)
+        self.assertFalse(cudnn.allow_tf32)
+        self.assertEqual(calls, ["highest"])
+
+    def test_task_switch_requires_exact_model_versions_without_signature_fallback(self):
+        m = self.subject()
+        calls = []
+        model = SimpleNamespace(
+            task_versions=dict(m.EXPECTED_TASK_VERSIONS),
+            set_task_environment=lambda task, env, *, calibration=False: calls.append(
+                (task, env, calibration)
+            ),
+        )
+        env = object()
+        m.set_model_task_environment(model, "reengagement", env)
+        self.assertEqual(calls, [("combat", env, False)])
+        model.task_versions = {**m.EXPECTED_TASK_VERSIONS, "combat": "bridge_b1_contact-v1"}
+        with self.assertRaisesRegex(ValueError, "task version"):
+            m.set_model_task_environment(model, "reengagement", env)
+        self.assertEqual(len(calls), 1)
+
     def test_source_hash_inventory_includes_direct_trainer_imports_and_fails_missing(self):
         m = self.subject()
         with TemporaryDirectory() as directory:
@@ -261,10 +309,14 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             (root / "python_oracle_native_cpu.xml").write_text("<testsuite><testcase name='a'/></testsuite>")
             (root / "native_cpu_cuda.log").write_text("cuda passed")
             (root / "native_cpu_cuda.xml").write_text("<testsuite><testcase name='b'/></testsuite>")
+            (root / "b1_behavior_regression.log").write_text("b1 passed")
+            (root / "b1_behavior_regression.xml").write_text("<testsuite><testcase name='c'/></testsuite>")
             source_hashes = {"native_reengagement_lane_vec_env.py": "a" * 64}
             payload = {
                 "schema_version": m.QUALIFICATION_SCHEMA_VERSION,
+                "qualification_version": m.QUALIFICATION_VERSION,
                 "qualified": True,
+                "overall_status": "passed",
                 "checkpoint": {"sha256": m.PARENT_CHECKPOINT_SHA256},
                 "provenance": {
                     "reference_root": str(root.resolve()),
@@ -276,39 +328,97 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
                     "allowed_control_mask": [bool(value) for value in m.TASK_MASKS["combat"]],
                 },
                 "source_hashes": source_hashes,
+                "root_hashes": {
+                    "source_root": "b" * 64,
+                    "reference_root": "c" * 64,
+                    "frozen_root": "d" * 64,
+                },
                 "stage_status": {
-                    "python_oracle_native_cpu": {
-                        "status": "passed",
+                    "source_build_inventory": {
+                        "status": "passed", "required": True,
+                        "evidence": {"source_files": 1, "missing_sources": []},
+                    },
+                    "b1_behavior_regression": {
+                        "status": "passed", "required": True,
                         "evidence": {
+                            "cases": 1, "skips": [],
+                            "log_sha256": m.sha256(root / "b1_behavior_regression.log"),
+                            "xml_sha256": m.sha256(root / "b1_behavior_regression.xml"),
+                        },
+                    },
+                    "python_oracle_native_cpu": {
+                        "status": "passed", "required": True,
+                        "evidence": {
+                            "cases": 1, "skips": [],
                             "log_sha256": m.sha256(root / "python_oracle_native_cpu.log"),
                             "xml_sha256": m.sha256(root / "python_oracle_native_cpu.xml"),
                         },
                     },
                     "native_cpu_cuda": {
-                        "status": "passed",
+                        "status": "passed", "required": True,
                         "evidence": {
+                            "cases": 1, "skips": [], "optional_skips": [],
                             "log_sha256": m.sha256(root / "native_cpu_cuda.log"),
                             "xml_sha256": m.sha256(root / "native_cpu_cuda.xml"),
                         },
                     },
-                    "collector_learner_smoke": {"status": "passed", "evidence": {"optimizer_steps": 1}},
+                    "collector_learner_smoke": {
+                        "status": "passed", "required": True,
+                        "evidence": {
+                            "optimizer_steps": 1,
+                            "train_invocations": 1,
+                            "attempted_epochs": 4,
+                            "update_counter_delta": 4,
+                            "checkpoint_sha256": m.PARENT_CHECKPOINT_SHA256,
+                            "training_metrics": {
+                                "train/value_loss": 0.25,
+                                "train/entropy_loss": -0.5,
+                            },
+                            "parent_metadata": {
+                                "action_ab_arm": "B_projected",
+                                "action_head": "bernoulli_10",
+                                "policy_action_head": "bernoulli_10",
+                                "task_versions": dict(m.EXPECTED_TASK_VERSIONS),
+                            },
+                        },
+                    },
                 },
             }
             proof.write_text(json.dumps(payload))
-            with patch.object(m, "qualification_source_hashes", return_value=source_hashes):
+            expected_inventory = {
+                "source_sha256": source_hashes,
+                "root_hashes": payload["root_hashes"],
+            }
+            with patch.object(m, "qualification_source_inventory", return_value=expected_inventory):
                 accepted = m.require_b2_qualification(proof, root, root)
             self.assertTrue(accepted["qualified"])
 
+            missing_b1 = json.loads(json.dumps(payload))
+            missing_b1["stage_status"].pop("b1_behavior_regression")
+            proof.write_text(json.dumps(missing_b1))
+            with patch.object(m, "qualification_source_inventory", return_value=expected_inventory), \
+                 self.assertRaisesRegex(ValueError, "b1_behavior_regression"):
+                m.require_b2_qualification(proof, root, root)
+
+            wrong_mask = json.loads(json.dumps(payload))
+            wrong_mask["version_contract"]["allowed_control_mask"] = [
+                int(value) for value in m.TASK_MASKS["combat"]
+            ]
+            proof.write_text(json.dumps(wrong_mask))
+            with patch.object(m, "qualification_source_inventory", return_value=expected_inventory), \
+                 self.assertRaisesRegex(ValueError, "qualification"):
+                m.require_b2_qualification(proof, root, root)
+
             payload["schema_version"] = "ai2.native_contact_qualification.v1"
             proof.write_text(json.dumps(payload))
-            with patch.object(m, "qualification_source_hashes", return_value=source_hashes), \
+            with patch.object(m, "qualification_source_inventory", return_value=expected_inventory), \
                  self.assertRaisesRegex(ValueError, "B2 reengagement qualification"):
                 m.require_b2_qualification(proof, root, root)
 
             payload["schema_version"] = m.QUALIFICATION_SCHEMA_VERSION
             payload["source_hashes"] = {"native_reengagement_lane_vec_env.py": "b" * 64}
             proof.write_text(json.dumps(payload))
-            with patch.object(m, "qualification_source_hashes", return_value=source_hashes), \
+            with patch.object(m, "qualification_source_inventory", return_value=expected_inventory), \
                  self.assertRaisesRegex(ValueError, "source"):
                 m.require_b2_qualification(proof, root, root)
 
@@ -448,6 +558,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             _n_updates=0,
             _episode_num=0,
             task="combat",
+            task_versions=dict(m.EXPECTED_TASK_VERSIONS),
             calibration=False,
             arm="E1",
             action_head=cfg.action_head,
@@ -491,15 +602,15 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             )
             return model._total_timesteps, callback
 
-        def switch(model_task, env, calibration=False, expected_task_versions=None):
+        def switch(model_task, env, calibration=False):
             raw_env = getattr(env, "env", env)
             self.assertEqual(model_task, raw_env.model_task)
             self.assertFalse(calibration)
-            self.assertEqual(expected_task_versions[model_task], raw_env.curriculum_version)
+            self.assertEqual(model.task_versions[model_task], raw_env.curriculum_version)
             model.task = model_task
             model.policy.task = model_task
             model.policy.allowed_control_mask = [bool(value) for value in m.TASK_MASKS[model_task]]
-            model.switches.append((model_task, expected_task_versions[model_task]))
+            model.switches.append((model_task, model.task_versions[model_task]))
 
         def collect(env, callback, buffer, n_steps):
             index = len(model.collect_tasks)
