@@ -82,12 +82,22 @@ class ReengagementLaneTests(unittest.TestCase):
         env = self.make_env(lanes=2)
         meta = env.backend.scenario_metadata
         self.assertEqual(meta["generator"], "b2-reengagement-vector-env-gym-seeds-v1")
+        self.assertEqual(
+            meta["direction_rule"],
+            "-1 if (seed // 2) % 2 == 0 else +1",
+        )
         rows = meta["scenarios"]
         self.assertEqual(len(rows), 8)
         self.assertEqual(rows[0]["lane"], 0)
         self.assertEqual(rows[0]["episode"], 0)
         self.assertEqual(rows[0]["curriculum_version"], "bridge_b2_reengagement-v1")
         self.assertEqual(rows[0]["scenario"]["seed"], 7)
+        for row in rows:
+            scenario = self.core.scenario_from_seed(
+                row["scenario"]["seed"],
+                player_slot=row["scenario"]["player_slot"],
+            )
+            self.assertEqual(row["scenario"]["direction"], scenario.direction)
         self.assertIn("sha256", meta)
         with tempfile.TemporaryDirectory() as directory:
             path = env.backend.write_scenarios_json(Path(directory) / "scenarios.json")

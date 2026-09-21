@@ -15,6 +15,8 @@
 #define AI2B2_TIME_LIMIT 300
 #define AI2B2_ATTRIBUTED_EVENT_CAPACITY 2
 #define AI2B2_OBS_RESIDUAL_VELOCITY_EPSILON 1e-15
+#define AI2B2_RELOCATE_PENDING 0
+#define AI2B2_RELOCATE_DONE 1
 
 enum {
     AI2B2_ONGOING = 0, AI2B2_SUCCESS = 1, AI2B2_OWN_STOCK_LOSS = 2,
@@ -333,6 +335,16 @@ AI2N_HD static inline int ai2b2_fail_restore(AI2B2State *s, AI2NRng *rng,
     return rc;
 }
 
+AI2N_HD static inline int ai2b2_fail_restore_clean(AI2B2State *s, AI2NRng *rng,
+                                                   const AI2B2State *state_before,
+                                                   const AI2NRng *rng_before,
+                                                   AI2B2StepResult *out, int rc) {
+    if (s && state_before) *s = *state_before;
+    if (rng && rng_before) *rng = *rng_before;
+    if (out) { ai2n_zero(out, sizeof(*out)); out->error = rc; }
+    return rc;
+}
+
 AI2N_HD static inline void ai2b2_fill_obs(AI2B2State *s, int learner, AI2B2StepResult *out) {
     double obs[2][64];
     int i;
@@ -411,25 +423,28 @@ AI2N_HD static inline int ai2b2_choose_anchor(AI2GState *g, int target_slot, dou
 
 AI2N_HD static inline int ai2b2_relocate(AI2B2State *s) {
     AI2B2Diagnostics *d = &s->diagnostics;
+    AI2B2State before;
     int learner = s->scenario.player_slot, target = 1 - learner;
-    double anchor;
+    double anchor, y;
+    int rc;
     if (!ai2b2_choose_anchor(&s->game, target, d->players[learner].x, s->scenario.direction, &anchor))
-        return 0;
+        return AI2B2_RELOCATE_PENDING;
+    before = *s;
     ai2b2_snapshot(&s->game, target, &d->relocation_pre_target);
     d->relocation_tick = d->tick;
     d->relocation_learner_x = d->players[learner].x;
     d->relocation_target_x = anchor;
     d->relocation_gap = fabs(anchor - d->relocation_learner_x);
     d->pursuit_direction = anchor >= d->relocation_learner_x ? 1 : -1;
-    if (ai2b2_fresh_player(&s->game, target, anchor,
-        ai2c_shape_cache(&s->game.scene.world.shapes[0],
-        s->game.scene.world.bodies[s->game.scene.world.shapes[0].body].tf).b - 0.5,
-        -d->pursuit_direction)) return 0;
+    y = ai2c_shape_cache(&s->game.scene.world.shapes[0],
+        s->game.scene.world.bodies[s->game.scene.world.shapes[0].body].tf).b - 0.5;
+    rc = ai2b2_fresh_player(&s->game, target, anchor, y, -d->pursuit_direction);
+    if (rc) { *s = before; return rc; }
     ai2b2_snapshot(&s->game, target, &d->relocation_post_target);
     ai2b2_snapshot(&s->game, learner, &d->players[learner]);
     d->players[target] = d->relocation_post_target;
     s->second_stage = 1; s->relocated = 1; d->hit_attack_id = 0;
-    return 1;
+    return AI2B2_RELOCATE_DONE;
 }
 
 AI2N_HD static inline int ai2b2_debug_prepare_boundary(AI2B2State *s,
@@ -622,7 +637,9 @@ AI2N_HD static inline int ai2b2_step_core(AI2B2State *s, const double action[10]
         if (!d->players[0].fully_supported || !d->players[1].fully_supported || d->players[learner].clearance < 0.2) {
             d->outcome = AI2B2_UNSAFE_SUPPORT; out->reward_terms[5] = -2.0;
         } else if (!s->second_stage) {
-            (void)ai2b2_relocate(s);
+            rc = ai2b2_relocate(s);
+            if (rc != AI2B2_RELOCATE_PENDING && rc != AI2B2_RELOCATE_DONE)
+                return ai2b2_fail_restore_clean(s, rng, &state_before, &rng_before, out, rc);
         } else if (s->second_attack_id && d->pursuit_tick >= 0) {
             d->outcome = AI2B2_SUCCESS; out->reward_terms[3] = 2.0;
         }

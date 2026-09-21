@@ -336,7 +336,7 @@ class ReengagementLaneBackend:
             "shape": list(self._schedule.shape),
             "dtype": SCENARIO_DTYPE.descr,
             "slot_rule": "lane % 2" if generated else "explicit",
-            "direction_rule": "+1 for odd episode seed, -1 for even"
+            "direction_rule": "-1 if (seed // 2) % 2 == 0 else +1"
             if generated
             else "explicit",
             "reset_rule": "consume next scenario; no rewind; exhaustion fails closed",

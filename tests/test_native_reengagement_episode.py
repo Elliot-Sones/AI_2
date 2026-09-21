@@ -7,6 +7,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -52,6 +53,55 @@ class NativeReengagementTests(unittest.TestCase):
         from native_reengagement_episode import ReengagementReference
 
         return ReengagementReference(self.native_library)
+
+    @classmethod
+    def relocation_probe(cls):
+        if hasattr(cls, "_relocation_probe"):
+            return cls._relocation_probe
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "relocation_probe.c"
+            library = Path(directory) / "relocation_probe.so"
+            source.write_text(
+                textwrap.dedent(
+                    """
+                    #include "native/reengagement_episode.h"
+                    int ai2b2_test_relocate_export(AI2B2State *s) {
+                        return ai2b2_relocate(s);
+                    }
+                    """
+                )
+            )
+            subprocess.run(
+                [
+                    os.environ.get("CC", "cc"),
+                    "-std=c99",
+                    "-O2",
+                    "-fno-fast-math",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-pedantic",
+                    "-shared",
+                    "-fPIC",
+                    "-I",
+                    str(ROOT),
+                    str(source),
+                    "-lm",
+                    "-o",
+                    str(library),
+                ],
+                cwd=ROOT,
+                check=True,
+            )
+            cls._relocation_probe_path = ROOT / ".native-build" / f"relocation-probe-{os.getpid()}.so"
+            cls._relocation_probe_path.write_bytes(library.read_bytes())
+        probe = C.CDLL(str(cls._relocation_probe_path))
+        from native_reengagement_episode import State
+
+        probe.ai2b2_test_relocate_export.argtypes = [C.POINTER(State)]
+        probe.ai2b2_test_relocate_export.restype = C.c_int
+        cls._relocation_probe = probe
+        return probe
 
     def injected_step(self, native, stream, event, action=None):
         from native_reengagement_episode import StepResult
@@ -517,6 +567,52 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertEqual(choose_target_anchor(0, 10, 0.435, 5.0, 1), 9.365)
         self.assertEqual(choose_target_anchor(0, 10, 0.435, 5.0, -1), 0.635)
         self.assertEqual(choose_target_anchor(0, 3, 0.435, 1.5, 1), None)
+
+    def test_relocation_distinguishes_pending_anchor_from_recreation_failure(self):
+        from native_reengagement_episode import PlayerEvent
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+        floor = native.state.game.scene.world.shapes[0]
+        for index in range(floor.count):
+            floor.v0[index].x = 0.0
+        pending_code = self.relocation_probe().ai2b2_test_relocate_export(
+            C.byref(native.state)
+        )
+        self.assertEqual(pending_code, 0)
+        self.assertEqual(native.state.diagnostics.relocation_tick, -1)
+        self.assertEqual(native.state.second_stage, 0)
+        self.assertEqual(native.state.error, 0)
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+        learner = native.state.scenario.player_slot
+        target = 1 - learner
+        target_shape = native.state.game.scene.players[target].shape
+        native.state.game.scene.world.shape_active[target_shape] = 0
+        before, rng_before = bytes(native.state), bytes(native.rng)
+        event = PlayerEvent(
+            kind=4,
+            source=learner,
+            target=target,
+            move=0,
+            power=0,
+            cast=0,
+            hitbox=0,
+            phase_player=0,
+            event_sequence=0,
+            attack_id=333,
+            amount=1.0,
+        )
+        code, result = self.injected_step(native, learner, event)
+        self.assertEqual(code, 5)
+        self.assertEqual(result.error, 5)
+        self.assertEqual(bytes(native.state), before)
+        self.assertEqual(bytes(native.rng), rng_before)
+        self.assertEqual(result.reward, 0.0)
+        self.assertTrue(np.all(np.asarray(result.reward_terms) == 0.0))
+        self.assertEqual(result.diagnostics.relocation_tick, 0)
+        self.assertEqual(result.diagnostics.first_hit_attack_id, 0)
 
     def test_private_rng_determinism_and_projection_serializable(self):
         first, second, unrelated = self.native(), self.native(), self.native()
