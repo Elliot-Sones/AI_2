@@ -120,6 +120,10 @@ class QualifyNativeReengagementTests(unittest.TestCase):
             self.assertIn("tests/test_reengagement_curriculum.py", commands[1][0])
             for _command, env in commands:
                 self.assertNotIn("WANDB_API_KEY", env)
+                self.assertEqual(
+                    env["AI2_CONTACT_REFERENCE"],
+                    str((root / "reference" / "combat_curriculum.py").resolve()),
+                )
 
     def test_gpu_host_requires_cuda_and_collector_stages_to_pass(self):
         q = self.subject()

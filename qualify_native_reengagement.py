@@ -128,6 +128,7 @@ def scrubbed_env(args: argparse.Namespace) -> dict[str, str]:
         SDL_AUDIODRIVER="dummy",
         WANDB_MODE="offline",
         AI2_FROZEN_SOURCE_ROOT=str(args.frozen_root),
+        AI2_CONTACT_REFERENCE=str((args.reference_root / "combat_curriculum.py").resolve()),
         AI2_REENGAGEMENT_REFERENCE_ROOT=str(args.reference_root),
         AI2_REENGAGEMENT_CHECKPOINT=str(args.checkpoint),
         AI2_REENGAGEMENT_QUALIFICATION_DIR=str(args.output_dir),
