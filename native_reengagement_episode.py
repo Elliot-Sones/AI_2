@@ -369,6 +369,7 @@ def diagnostics_projection(d):
         )
     return {
         "version": VERSION,
+        "trace_status": "reconstructable",
         "seed": d.seed,
         "scenario_id": f"reengagement-s{d.seed}-p{d.player_slot}-d{d.direction}",
         "scenario_id_hash": d.scenario_id_hash,

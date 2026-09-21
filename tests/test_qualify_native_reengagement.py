@@ -243,6 +243,15 @@ class QualifyNativeReengagementTests(unittest.TestCase):
             q.validate_b2_episode_rows([dict(q.valid_b2_episode_row(), curriculum_version="bridge_b1_contact-v1")])
         with self.assertRaisesRegex(q.QualificationError, "curriculum task/mask/version"):
             q.validate_b2_episode_rows([dict(q.valid_b2_episode_row(), allowed_control_mask=(True,) * 10)])
+        with self.assertRaisesRegex(q.QualificationError, "curriculum task/mask/version"):
+            q.validate_b2_episode_rows(
+                [
+                    dict(
+                        q.valid_b2_episode_row(),
+                        allowed_control_mask=[int(value) for value in q.CONTROL_MASK],
+                    )
+                ]
+            )
         ambiguous = q.valid_b2_episode_row()
         ambiguous["reengagement"]["diagnostics"]["trace_status"] = "ambiguous"
         with self.assertRaisesRegex(q.QualificationError, "ambiguous"):
@@ -263,6 +272,20 @@ class QualifyNativeReengagementTests(unittest.TestCase):
         missing_attack["reengagement"]["diagnostics"].pop("second_hit_attack_id")
         with self.assertRaisesRegex(q.QualificationError, "diagnostic field"):
             q.validate_b2_episode_rows([missing_attack])
+        failed_episode = q.valid_b2_episode_row()
+        failed_diagnostics = failed_episode["reengagement"]["diagnostics"]
+        failed_diagnostics.update(
+            success=False,
+            sequence_completed=False,
+            achieved_first_hit=False,
+            achieved_relocation=False,
+            achieved_pursuit=False,
+            achieved_second_hit=False,
+            achieved_safe_resolution=False,
+            first_hit_attack_id=None,
+            second_hit_attack_id=None,
+        )
+        q.validate_b2_episode_rows([failed_episode])
         with self.assertRaisesRegex(q.QualificationError, "loss"):
             q.validate_collector_smoke(
                 q.CollectorSmokeResult(

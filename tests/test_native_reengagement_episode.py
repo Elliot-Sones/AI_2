@@ -154,6 +154,7 @@ class NativeReengagementTests(unittest.TestCase):
         trace = info["trace"]
         projection = native.diagnostics(result)
         self.assertEqual(projection["version"], "bridge_b2_reengagement-v1")
+        self.assertEqual(projection["trace_status"], "reconstructable")
         self.assertEqual(projection["outcome"], trace["outcome"])
         self.assertEqual(projection["tick"], trace["tick"])
         self.assertEqual(projection["first_hit_tick"], trace["first_hit_tick"])

@@ -297,7 +297,10 @@ def valid_b2_episode_row() -> dict[str, Any]:
             "diagnostics": {
                 "version": CURRICULUM_VERSION,
                 "trace_status": "reconstructable",
+                "success": True,
+                "sequence_completed": True,
                 "achieved_first_hit": True,
+                "achieved_relocation": True,
                 "achieved_pursuit": True,
                 "achieved_second_hit": True,
                 "achieved_safe_resolution": True,
@@ -312,7 +315,10 @@ def validate_b2_episode_rows(rows: list[dict[str, Any]]) -> None:
     if not rows:
         raise QualificationError("collector smoke produced no B2 episode rows")
     required_diagnostic_fields = (
+        "success",
+        "sequence_completed",
         "achieved_first_hit",
+        "achieved_relocation",
         "achieved_pursuit",
         "achieved_second_hit",
         "achieved_safe_resolution",
@@ -320,9 +326,13 @@ def validate_b2_episode_rows(rows: list[dict[str, Any]]) -> None:
         "second_hit_attack_id",
     )
     for row in rows:
+        action_mask = row.get("allowed_control_mask")
         if (
             row.get("curriculum_task") != "combat"
-            or tuple(row.get("allowed_control_mask", ())) != CONTROL_MASK
+            or not isinstance(action_mask, (list, tuple))
+            or len(action_mask) != len(CONTROL_MASK)
+            or any(type(value) is not bool for value in action_mask)
+            or tuple(action_mask) != CONTROL_MASK
             or row.get("curriculum_version") != CURRICULUM_VERSION
         ):
             raise QualificationError("Native episode records have a missing or wrong curriculum task/mask/version")
@@ -338,13 +348,27 @@ def validate_b2_episode_rows(rows: list[dict[str, Any]]) -> None:
         missing_fields = [name for name in required_diagnostic_fields if name not in diagnostics]
         if missing_fields:
             raise QualificationError(f"Native episode missing required B2 diagnostic field(s): {missing_fields}")
-        for name in required_diagnostic_fields[:4]:
+        for name in required_diagnostic_fields[:-2]:
             if not isinstance(diagnostics.get(name), bool):
                 raise QualificationError(f"Native episode B2 diagnostic field {name} must be boolean")
         first = int(diagnostics.get("first_hit_attack_id", 0) or 0)
         second = int(diagnostics.get("second_hit_attack_id", 0) or 0)
-        if first == 0 or second == 0 or first == second:
+        if diagnostics["achieved_first_hit"] != bool(first):
+            raise QualificationError("B2 first-hit diagnostic is inconsistent with its attack ID")
+        if diagnostics["achieved_second_hit"] != bool(second):
+            raise QualificationError("B2 second-hit diagnostic is inconsistent with its attack ID")
+        if second and (not first or first == second):
             raise QualificationError("B2 row is not reconstructable from two distinct attacks")
+        if diagnostics["success"] != diagnostics["sequence_completed"]:
+            raise QualificationError("B2 success and sequence-completion diagnostics disagree")
+        if diagnostics["success"] and not (
+            diagnostics["achieved_first_hit"]
+            and diagnostics["achieved_relocation"]
+            and diagnostics["achieved_pursuit"]
+            and diagnostics["achieved_second_hit"]
+            and diagnostics["achieved_safe_resolution"]
+        ):
+            raise QualificationError("successful B2 row is missing sequence evidence")
 
 
 def validate_collector_smoke(result: CollectorSmokeResult) -> dict[str, Any]:
