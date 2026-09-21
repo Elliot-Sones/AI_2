@@ -68,11 +68,9 @@ class NativeReengagementTests(unittest.TestCase):
         return recorder
 
     def compare(self, native, result, observation, reward, terminated, truncated, info):
-        np.testing.assert_array_max_ulp(
-            np.asarray(result.obs, dtype=np.float32),
-            observation,
-            maxulp=8,
-        )
+        got_obs = np.asarray(result.obs, dtype=np.float32).view(np.uint32)
+        expected_obs = np.asarray(observation, dtype=np.float32).view(np.uint32)
+        np.testing.assert_array_equal(got_obs, expected_obs)
         self.assertEqual(result.reward, reward)
         self.assertEqual(bool(result.terminated), terminated)
         self.assertEqual(bool(result.truncated), truncated)
@@ -86,6 +84,27 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertEqual(projection["relocation_tick"], trace["relocation_tick"])
         self.assertEqual(projection["pursuit_tick"], trace["pursuit_tick"])
         self.assertEqual(projection["reward_terms"], trace["reward_totals"])
+        self.assertEqual(projection["scenario_id"], trace["scenario_id"])
+        self.assertEqual(
+            projection["sequence_completed"],
+            trace["outcome"] == "success"
+            and trace["first_hit_tick"] is not None
+            and trace["second_hit_tick"] is not None,
+        )
+        self.assertEqual(projection["success"], trace["outcome"] == "success")
+        self.assertEqual(projection["terminal_reason"], trace["outcome"])
+        self.assertEqual(projection["attributed_damage_event_count"], len(trace["attributed_damage_events"]))
+        self.assertEqual(
+            [event["attack_id"] for event in projection["attributed_damage_events"]],
+            [projection["first_hit_attack_id"], projection["second_hit_attack_id"]][
+                : len(trace["attributed_damage_events"])
+            ],
+        )
+        self.assertEqual(projection["achieved_first_hit"], trace["first_hit_tick"] is not None)
+        self.assertEqual(projection["achieved_relocation"], trace["relocation_tick"] is not None)
+        self.assertEqual(projection["achieved_pursuit"], trace["pursuit_tick"] is not None)
+        self.assertEqual(projection["achieved_second_hit"], trace["second_hit_tick"] is not None)
+        self.assertEqual(projection["achieved_safe_resolution"], trace["outcome"] == "success")
         np.testing.assert_array_equal(result.raw_action, trace["raw_action"])
         np.testing.assert_array_equal(result.executed_action, trace["executed_action"])
         for got, expected in zip(projection["players"], trace["post_players"]):
@@ -125,6 +144,14 @@ class NativeReengagementTests(unittest.TestCase):
                 elif controller == "first_then_idle":
                     if self.env.first_hit_tick is None:
                         action = self.reference.scripted_reengagement_action(self.env)
+                elif controller == "pursue_then_idle":
+                    if self.env.first_hit_tick is None:
+                        action = self.reference.scripted_reengagement_action(self.env)
+                    elif self.env.pursuit_tick is None:
+                        learner = self.env.raw_env.players[self.env.player_slot]
+                        target = self.env.raw_env.players[1 - self.env.player_slot]
+                        gap = target.body.position.x - learner.body.position.x
+                        action[3 if gap >= 0 else 1] = 1
                 observation, reward, terminated, truncated, info = self.env.step(action)
                 result = native.step_replay(action, recorder.take())
                 self.compare(native, result, observation, reward, terminated, truncated, info)
@@ -138,8 +165,12 @@ class NativeReengagementTests(unittest.TestCase):
 
     def test_constants_abi_sizes_reward_order_and_scenario_generation(self):
         from native_reengagement_episode import (
+            ABI_OFFSETS,
             REWARD_NAMES,
             Scenario,
+            PlayerEvent,
+            PlayerSnapshot,
+            Diagnostics,
             State,
             StepResult,
             diagnostics_projection,
@@ -164,8 +195,16 @@ class NativeReengagementTests(unittest.TestCase):
             ("scenario", Scenario),
             ("state", State),
             ("result", StepResult),
+            ("diagnostics", Diagnostics),
+            ("player", PlayerSnapshot),
         ):
             self.assertEqual(getattr(native.lib, f"ai2b2_{name}_size")(), C.sizeof(cls))
+        for cls, fields in ABI_OFFSETS.items():
+            for field_name, export_name in fields.items():
+                with self.subTest(cls=cls.__name__, field=field_name):
+                    fn = getattr(native.lib, export_name)
+                    self.assertEqual(fn(), getattr(cls, field_name).offset)
+        self.assertEqual(C.sizeof(PlayerEvent), native.lib.ai2b2_player_event_size())
         first = scenario_from_seed(134000)
         second = scenario_from_seed(134000)
         self.assertEqual(bytes(first), bytes(second))
@@ -177,6 +216,9 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertLessEqual(first.midpoint, 4.65)
         projection = diagnostics_projection(native.reset_generated(first).diagnostics)
         self.assertEqual(projection["outcome"], None)
+        self.assertEqual(projection["scenario_id"], "reengagement-s134000-p0-d-1")
+        self.assertFalse(projection["achieved_first_hit"])
+        self.assertEqual(projection["attributed_damage_events"], [])
 
     def test_fresh_reset_matches_both_slots_and_directions(self):
         native = self.native()
@@ -269,11 +311,43 @@ class NativeReengagementTests(unittest.TestCase):
             native.step_generated(np.zeros(10))
         self.assertEqual(bytes(native.state), before)
         native.reset_generated(native.scenario(134000))
-        native.state.diagnostics.tick = -1
-        self.assert_invalid_state(native)
-        native.reset_generated(native.scenario(134000))
-        native.state.second_stage = 2
-        self.assert_invalid_state(native)
+        for mutate in (
+            lambda s: setattr(s.diagnostics, "tick", -1),
+            lambda s: setattr(s, "second_stage", 2),
+            lambda s: setattr(s, "relocated", 2),
+            lambda s: setattr(s, "first_attack_id", 99),
+            lambda s: setattr(s.diagnostics, "first_hit_attack_id", 99),
+            lambda s: setattr(s.diagnostics, "first_hit_tick", 1),
+            lambda s: setattr(s, "second_attack_id", 99),
+            lambda s: setattr(s.diagnostics, "second_hit_attack_id", 99),
+            lambda s: setattr(s.diagnostics, "second_hit_tick", 1),
+            lambda s: setattr(s, "last_second_duplicate_id", 99),
+            lambda s: setattr(s.diagnostics, "relocation_tick", 1),
+            lambda s: setattr(s.diagnostics, "pursuit_tick", 1),
+            lambda s: setattr(s.diagnostics, "pursuit_direction", 1),
+            lambda s: setattr(s.diagnostics, "outcome", 1),
+            lambda s: setattr(s.diagnostics, "achieved_first_hit", 1),
+        ):
+            native.reset_generated(native.scenario(134000))
+            mutate(native.state)
+            self.assert_invalid_state(native)
+
+        native, result = self.episode("scripted", seed=134000, slot=0, direction=-1)
+        for mutate in (
+            lambda s: setattr(s, "first_attack_id", s.first_attack_id + 1),
+            lambda s: setattr(s, "second_attack_id", s.second_attack_id + 1),
+            lambda s: setattr(s, "last_second_duplicate_id", s.second_attack_id + 1),
+            lambda s: setattr(s.diagnostics, "first_hit_tick", -1),
+            lambda s: setattr(s.diagnostics, "second_hit_tick", -1),
+            lambda s: setattr(s.diagnostics, "relocation_tick", -1),
+            lambda s: setattr(s.diagnostics, "pursuit_tick", -1),
+            lambda s: setattr(s.diagnostics, "achieved_safe_resolution", 0),
+            lambda s: setattr(s.diagnostics, "success", 0),
+            lambda s: setattr(s.diagnostics, "sequence_completed", 0),
+        ):
+            native.state.diagnostics.outcome = 0
+            mutate(native.state)
+            self.assert_invalid_state(native)
 
     def assert_invalid_state(self, native):
         from native_reengagement_episode import StepResult
@@ -299,12 +373,25 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertIsNotNone(projection["relocation_tick"])
         self.assertEqual(projection["tick"] - projection["relocation_tick"], 60)
         self.assertEqual(result.reward_terms[6], -1.0)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            native.step_generated(np.zeros(10))
+
+        native, result = self.episode("pursue_then_idle", seed=134000, slot=0, direction=-1)
+        projection = native.diagnostics(result)
+        self.assertEqual(projection["outcome"], "second_hit_deadline")
+        self.assertIsNotNone(projection["relocation_tick"])
+        self.assertIsNotNone(projection["pursuit_tick"])
+        self.assertEqual(projection["tick"] - projection["relocation_tick"], 90)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            native.step_generated(np.zeros(10))
 
         native, result = self.episode("idle", seed=134000, slot=0, direction=-1)
         projection = native.diagnostics(result)
         self.assertEqual(projection["outcome"], "total_deadline")
         self.assertEqual(projection["tick"], 300)
         self.assertEqual(result.reward_terms[6], -1.0)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            native.step_generated(np.zeros(10))
 
         from reengagement_curriculum import choose_target_anchor
 
@@ -329,6 +416,24 @@ class NativeReengagementTests(unittest.TestCase):
         projection = first.diagnostics(a)
         self.assertIn("players", projection)
         self.assertEqual(set(projection["reward_terms"]), set(self.reference.REWARD_NAMES))
+        self.assertIn(projection["failure_category"], {
+            None,
+            "success",
+            "own_stock_loss",
+            "opponent_stock_loss",
+            "unsafe_support",
+            "response_deadline",
+            "second_hit_deadline",
+            "total_deadline",
+            "first_hit_only",
+            "failed_renewed_pursuit",
+            "pursued_missed_second",
+            "started_missed",
+            "requested_no_start",
+            "no_approach",
+            "no_attack_request",
+            "deadline",
+        })
 
     def test_corrupt_stored_scenario_rejected_in_subprocess(self):
         script = textwrap.dedent(
@@ -374,6 +479,35 @@ class NativeReengagementTests(unittest.TestCase):
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 scenario_from_seed(**kwargs)
+
+    def test_invalid_positive_damage_evidence_is_rejected(self):
+        from native_reengagement_episode import PlayerEvent
+
+        native = self.native()
+        native.reset_generated(native.scenario(134000, 0, -1))
+
+        def validate(event):
+            result = native.lib.ai2b2_validate_event_export(C.byref(native.state), C.byref(event))
+            return result
+
+        valid = PlayerEvent(kind=4, source=0, target=1, move=0, power=0, cast=0,
+                            hitbox=0, phase_player=0, event_sequence=0,
+                            attack_id=11, amount=1.0)
+        self.assertEqual(validate(valid), 0)
+        no_event = PlayerEvent(kind=4, source=1, target=0, move=3, power=0, cast=0,
+                               hitbox=0, phase_player=0, event_sequence=0,
+                               attack_id=0, amount=0.0)
+        self.assertEqual(validate(no_event), 0)
+        for event in (
+            PlayerEvent(kind=4, source=1, target=0, move=0, power=0, cast=0,
+                        hitbox=0, phase_player=0, event_sequence=0, attack_id=11, amount=1.0),
+            PlayerEvent(kind=4, source=0, target=1, move=0, power=0, cast=0,
+                        hitbox=0, phase_player=0, event_sequence=0, attack_id=0, amount=1.0),
+            PlayerEvent(kind=4, source=0, target=1, move=3, power=0, cast=0,
+                        hitbox=0, phase_player=0, event_sequence=0, attack_id=11, amount=1.0),
+        ):
+            with self.subTest(event=bytes(event)):
+                self.assertEqual(validate(event), 406)
 
 
 if __name__ == "__main__":

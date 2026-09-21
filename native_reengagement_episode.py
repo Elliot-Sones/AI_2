@@ -27,6 +27,24 @@ OUTCOMES = (
     "second_hit_deadline",
     "total_deadline",
 )
+FAILURE_CATEGORIES = (
+    None,
+    "success",
+    "own_stock_loss",
+    "opponent_stock_loss",
+    "unsafe_support",
+    "response_deadline",
+    "second_hit_deadline",
+    "total_deadline",
+    "first_hit_only",
+    "failed_renewed_pursuit",
+    "pursued_missed_second",
+    "started_missed",
+    "requested_no_start",
+    "no_approach",
+    "no_attack_request",
+    "deadline",
+)
 STATE_NAMES = (
     "WalkingState",
     "StandingState",
@@ -95,10 +113,27 @@ class PlayerSnapshot(C.Structure):
     )
 
 
+class PlayerEvent(C.Structure):
+    _fields_ = [
+        ("kind", INT32),
+        ("source", INT32),
+        ("target", INT32),
+        ("move", INT32),
+        ("power", INT32),
+        ("cast", INT32),
+        ("hitbox", INT32),
+        ("phase_player", INT32),
+        ("event_sequence", INT32),
+        ("attack_id", U),
+        ("amount", D),
+    ]
+
+
 class Diagnostics(C.Structure):
     _fields_ = (
         [
             ("seed", U),
+            ("scenario_id_hash", U),
             ("first_hit_attack_id", U),
             ("second_hit_attack_id", U),
             ("hit_attack_id", U),
@@ -115,7 +150,25 @@ class Diagnostics(C.Structure):
                 "relocation_tick",
                 "pursuit_tick",
                 "pursuit_direction",
+                "terminal_reason",
+                "success",
+                "sequence_completed",
+                "failure_category",
+                "achieved_first_hit",
+                "achieved_relocation",
+                "achieved_pursuit",
+                "achieved_second_hit",
+                "achieved_safe_resolution",
+                "attributed_damage_event_count",
             )
+        ]
+        + [
+            ("attributed_damage_attack_ids", U * 2),
+            ("attributed_damage_ticks", INT32 * 2),
+            ("attributed_damage_sources", INT32 * 2),
+            ("attributed_damage_targets", INT32 * 2),
+            ("attributed_damage_moves", INT32 * 2),
+            ("attributed_damage_amounts", D * 2),
         ]
         + [("initial_stocks", INT32 * 2)]
         + [
@@ -200,6 +253,46 @@ class StepResult(C.Structure):
     )
 
 
+ABI_OFFSETS = {
+    Scenario: {
+        "seed": "ai2b2_offset_scenario_seed",
+        "player_slot": "ai2b2_offset_scenario_player_slot",
+        "direction": "ai2b2_offset_scenario_direction",
+        "gap": "ai2b2_offset_scenario_gap",
+        "midpoint": "ai2b2_offset_scenario_midpoint",
+    },
+    PlayerSnapshot: {
+        "x": "ai2b2_offset_player_x",
+        "y": "ai2b2_offset_player_y",
+        "attack_id": "ai2b2_offset_player_attack_id",
+    },
+    Diagnostics: {
+        "seed": "ai2b2_offset_diagnostics_seed",
+        "scenario_id_hash": "ai2b2_offset_diagnostics_scenario_id_hash",
+        "first_hit_attack_id": "ai2b2_offset_diagnostics_first_hit_attack_id",
+        "second_hit_attack_id": "ai2b2_offset_diagnostics_second_hit_attack_id",
+        "terminal_reason": "ai2b2_offset_diagnostics_terminal_reason",
+        "achieved_safe_resolution": "ai2b2_offset_diagnostics_achieved_safe_resolution",
+        "attributed_damage_attack_ids": "ai2b2_offset_diagnostics_attributed_damage_attack_ids",
+        "players": "ai2b2_offset_diagnostics_players",
+    },
+    State: {
+        "game": "ai2b2_offset_state_game",
+        "scenario": "ai2b2_offset_state_scenario",
+        "diagnostics": "ai2b2_offset_state_diagnostics",
+        "first_attack_id": "ai2b2_offset_state_first_attack_id",
+        "second_attack_id": "ai2b2_offset_state_second_attack_id",
+        "last_second_duplicate_id": "ai2b2_offset_state_last_second_duplicate_id",
+    },
+    StepResult: {
+        "obs": "ai2b2_offset_result_obs",
+        "reward": "ai2b2_offset_result_reward",
+        "reward_terms": "ai2b2_offset_result_reward_terms",
+        "diagnostics": "ai2b2_offset_result_diagnostics",
+    },
+}
+
+
 def scenario_from_seed(seed, player_slot=None, direction=None):
     if type(seed) is not int or not 0 <= seed < 2**64:
         raise ValueError("seed must be an unsigned 64-bit integer")
@@ -278,13 +371,39 @@ def diagnostics_projection(d):
     post = _snapshot_projection(d.relocation_post_target)
     if d.relocation_tick < 0:
         pre = post = None
+    count = max(0, min(int(d.attributed_damage_event_count), 2))
+    damage_events = []
+    for i in range(count):
+        damage_events.append(
+            {
+                "type": "damage",
+                "source_slot": d.attributed_damage_sources[i],
+                "target_slot": d.attributed_damage_targets[i],
+                "attack_id": d.attributed_damage_attack_ids[i] or None,
+                "attack_type": "LIGHT",
+                "move": d.attributed_damage_moves[i],
+                "amount": d.attributed_damage_amounts[i],
+                "tick": d.attributed_damage_ticks[i],
+            }
+        )
     return {
         "version": VERSION,
         "seed": d.seed,
+        "scenario_id": f"reengagement-s{d.seed}-p{d.player_slot}-d{d.direction}",
+        "scenario_id_hash": d.scenario_id_hash,
         "player_slot": d.player_slot,
         "direction": d.direction,
         "tick": d.tick,
         "outcome": OUTCOMES[d.outcome],
+        "terminal_reason": OUTCOMES[d.terminal_reason],
+        "success": bool(d.success),
+        "sequence_completed": bool(d.sequence_completed),
+        "failure_category": FAILURE_CATEGORIES[d.failure_category],
+        "achieved_first_hit": bool(d.achieved_first_hit),
+        "achieved_relocation": bool(d.achieved_relocation),
+        "achieved_pursuit": bool(d.achieved_pursuit),
+        "achieved_second_hit": bool(d.achieved_second_hit),
+        "achieved_safe_resolution": bool(d.achieved_safe_resolution),
         "first_hit_tick": d.first_hit_tick if d.first_hit_tick >= 0 else None,
         "second_hit_tick": d.second_hit_tick if d.second_hit_tick >= 0 else None,
         "relocation_tick": d.relocation_tick if d.relocation_tick >= 0 else None,
@@ -317,6 +436,8 @@ def diagnostics_projection(d):
         "attack_starts": d.attack_starts,
         "attack_contacts": d.attack_contacts,
         "damage_events": d.damage_events,
+        "attributed_damage_event_count": count,
+        "attributed_damage_events": damage_events,
         "min_clearance": list(d.min_clearance),
         "unsupported_ticks": list(d.unsupported_ticks),
         "falls": list(d.falls),
@@ -349,6 +470,10 @@ class ReengagementReference:
             fn.restype = C.c_size_t
             if fn() != C.sizeof(cls):
                 raise RuntimeError(f"reengagement ABI size mismatch: {name}")
+        for fields in ABI_OFFSETS.values():
+            for export_name in fields.values():
+                getattr(self.lib, export_name).restype = C.c_size_t
+        self.lib.ai2b2_player_event_size.restype = C.c_size_t
         self.lib.ai2b2_reset_export.argtypes = [
             C.POINTER(State),
             C.POINTER(nav.Config),
@@ -366,6 +491,11 @@ class ReengagementReference:
             C.POINTER(StepResult),
         ]
         self.lib.ai2b2_step_export.restype = INT32
+        self.lib.ai2b2_validate_event_export.argtypes = [
+            C.POINTER(State),
+            C.POINTER(PlayerEvent),
+        ]
+        self.lib.ai2b2_validate_event_export.restype = INT32
 
     @staticmethod
     def _check(code):

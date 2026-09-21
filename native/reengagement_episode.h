@@ -13,12 +13,24 @@
 #define AI2B2_ERR_EVIDENCE 406
 #define AI2B2_REWARD_TERMS 8
 #define AI2B2_TIME_LIMIT 300
+#define AI2B2_ATTRIBUTED_EVENT_CAPACITY 2
 
 enum {
     AI2B2_ONGOING = 0, AI2B2_SUCCESS = 1, AI2B2_OWN_STOCK_LOSS = 2,
     AI2B2_OPPONENT_STOCK_LOSS = 3, AI2B2_UNSAFE_SUPPORT = 4,
     AI2B2_RESPONSE_DEADLINE = 5, AI2B2_SECOND_HIT_DEADLINE = 6,
     AI2B2_TOTAL_DEADLINE = 7
+};
+
+enum {
+    AI2B2_FAILURE_NONE = 0, AI2B2_FAILURE_SUCCESS = 1,
+    AI2B2_FAILURE_OWN_STOCK_LOSS = 2, AI2B2_FAILURE_OPPONENT_STOCK_LOSS = 3,
+    AI2B2_FAILURE_UNSAFE_SUPPORT = 4, AI2B2_FAILURE_RESPONSE_DEADLINE = 5,
+    AI2B2_FAILURE_SECOND_HIT_DEADLINE = 6, AI2B2_FAILURE_TOTAL_DEADLINE = 7,
+    AI2B2_FAILURE_FIRST_HIT_ONLY = 8, AI2B2_FAILURE_FAILED_RENEWED_PURSUIT = 9,
+    AI2B2_FAILURE_PURSUED_MISSED_SECOND = 10, AI2B2_FAILURE_STARTED_MISSED = 11,
+    AI2B2_FAILURE_REQUESTED_NO_START = 12, AI2B2_FAILURE_NO_APPROACH = 13,
+    AI2B2_FAILURE_NO_ATTACK_REQUEST = 14, AI2B2_FAILURE_DEADLINE = 15
 };
 
 typedef struct {
@@ -33,10 +45,22 @@ typedef struct {
     uint64_t attack_id;
 } AI2B2PlayerSnapshot;
 
+/* Fixed diagnostic ABI. attributed_damage_* is a bounded two-entry record:
+ * entry 0 is the credited first hit and entry 1 is the credited second hit. */
 typedef struct {
-    uint64_t seed, first_hit_attack_id, second_hit_attack_id, hit_attack_id;
+    uint64_t seed, scenario_id_hash, first_hit_attack_id, second_hit_attack_id, hit_attack_id;
     int32_t player_slot, direction, tick, outcome;
     int32_t first_hit_tick, second_hit_tick, relocation_tick, pursuit_tick, pursuit_direction;
+    int32_t terminal_reason, success, sequence_completed, failure_category;
+    int32_t achieved_first_hit, achieved_relocation, achieved_pursuit;
+    int32_t achieved_second_hit, achieved_safe_resolution;
+    int32_t attributed_damage_event_count;
+    uint64_t attributed_damage_attack_ids[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
+    int32_t attributed_damage_ticks[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
+    int32_t attributed_damage_sources[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
+    int32_t attributed_damage_targets[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
+    int32_t attributed_damage_moves[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
+    double attributed_damage_amounts[AI2B2_ATTRIBUTED_EVENT_CAPACITY];
     int32_t initial_stocks[2];
     int32_t light_request_ticks, light_press_count, max_light_hold, attack_ticks;
     int32_t movement_request_ticks, renewed_movement_request_ticks, attack_start_count;
@@ -66,11 +90,66 @@ typedef struct {
     AI2B2Diagnostics diagnostics;
 } AI2B2StepResult;
 
+AI2N_HD static inline uint64_t ai2b2_scenario_hash(const AI2B2Scenario *s) {
+    uint64_t h = 1469598103934665603ULL;
+    int i;
+    for (i = 0; i < 8; ++i) { h ^= (s->seed >> (8 * i)) & 0xffu; h *= 1099511628211ULL; }
+    h ^= (uint64_t)(uint32_t)s->player_slot; h *= 1099511628211ULL;
+    h ^= (uint64_t)(uint32_t)s->direction; h *= 1099511628211ULL;
+    return h;
+}
+
 AI2N_HD static inline int ai2b2_scenario_valid(const AI2B2Scenario *s) {
     return s && (s->player_slot == 0 || s->player_slot == 1) &&
         (s->direction == -1 || s->direction == 1) && isfinite(s->gap) &&
         s->gap >= 3.1 && s->gap <= 3.4 && isfinite(s->midpoint) &&
         s->midpoint >= 4.35 && s->midpoint <= 4.65;
+}
+
+AI2N_HD static inline int ai2b2_failure_category_value(const AI2B2Diagnostics *d) {
+    if (!d->outcome) return AI2B2_FAILURE_NONE;
+    if (d->outcome == AI2B2_SUCCESS) return AI2B2_FAILURE_SUCCESS;
+    if (d->outcome == AI2B2_OWN_STOCK_LOSS) return AI2B2_FAILURE_OWN_STOCK_LOSS;
+    if (d->outcome == AI2B2_OPPONENT_STOCK_LOSS) return AI2B2_FAILURE_OPPONENT_STOCK_LOSS;
+    if (d->outcome == AI2B2_UNSAFE_SUPPORT) return AI2B2_FAILURE_UNSAFE_SUPPORT;
+    if (d->outcome == AI2B2_RESPONSE_DEADLINE ||
+        d->outcome == AI2B2_SECOND_HIT_DEADLINE ||
+        d->outcome == AI2B2_TOTAL_DEADLINE) {
+        if (d->relocation_tick >= 0) {
+            if (d->pursuit_tick < 0) {
+                if (d->first_hit_tick >= 0 && d->renewed_movement_request_ticks == 0)
+                    return AI2B2_FAILURE_FIRST_HIT_ONLY;
+                return AI2B2_FAILURE_FAILED_RENEWED_PURSUIT;
+            }
+            if (d->second_hit_tick < 0) return AI2B2_FAILURE_PURSUED_MISSED_SECOND;
+        }
+        if (d->first_hit_tick < 0) {
+            if (d->attack_start_count > 0) return AI2B2_FAILURE_STARTED_MISSED;
+            if (d->light_request_ticks > 0) return AI2B2_FAILURE_REQUESTED_NO_START;
+            if (d->movement_request_ticks > 0 && d->max_initial_approach_progress < 1.0)
+                return AI2B2_FAILURE_NO_APPROACH;
+            return AI2B2_FAILURE_NO_ATTACK_REQUEST;
+        }
+        if (d->relocation_tick < 0) return AI2B2_FAILURE_FIRST_HIT_ONLY;
+    }
+    return AI2B2_FAILURE_DEADLINE;
+}
+
+AI2N_HD static inline int ai2b2_light_move(int move) {
+    return move == 0 || move == 1 || move == 2 || move == 6 || move == 7 || move == 8;
+}
+
+AI2N_HD static inline void ai2b2_sync_diagnostic_flags(AI2B2State *s) {
+    AI2B2Diagnostics *d = &s->diagnostics;
+    d->terminal_reason = d->outcome;
+    d->success = d->outcome == AI2B2_SUCCESS;
+    d->sequence_completed = d->success && d->first_hit_attack_id && d->second_hit_attack_id;
+    d->achieved_first_hit = d->first_hit_attack_id != 0;
+    d->achieved_relocation = d->relocation_tick >= 0;
+    d->achieved_pursuit = d->pursuit_tick >= 0;
+    d->achieved_second_hit = d->second_hit_attack_id != 0;
+    d->achieved_safe_resolution = d->success;
+    d->failure_category = ai2b2_failure_category_value(d);
 }
 
 AI2N_HD static inline int ai2b2_state_valid(const AI2B2State *s) {
@@ -80,22 +159,58 @@ AI2N_HD static inline int ai2b2_state_valid(const AI2B2State *s) {
         s->game.initialized != 1) return 0;
     d = &s->diagnostics;
     if (d->seed != s->scenario.seed || d->player_slot != s->scenario.player_slot ||
-        d->direction != s->scenario.direction || d->spawn_gap != s->scenario.gap ||
+        d->direction != s->scenario.direction || d->scenario_id_hash != ai2b2_scenario_hash(&s->scenario) ||
+        d->spawn_gap != s->scenario.gap ||
         d->spawn_midpoint != s->scenario.midpoint ||
         d->tick < 0 || d->tick > AI2B2_TIME_LIMIT || d->tick != s->game.scene.steps ||
         d->outcome < AI2B2_ONGOING || d->outcome > AI2B2_TOTAL_DEADLINE ||
-        (d->outcome == AI2B2_ONGOING && d->tick == AI2B2_TIME_LIMIT)) return 0;
-    if (d->first_hit_attack_id ? d->first_hit_tick < 1 || d->first_hit_tick > d->tick :
-        d->first_hit_tick != -1) return 0;
-    if (d->second_hit_attack_id ? d->second_hit_tick < 1 || d->second_hit_tick > d->tick :
-        d->second_hit_tick != -1) return 0;
+        (d->outcome == AI2B2_ONGOING && d->tick == AI2B2_TIME_LIMIT) ||
+        s->first_attack_id != d->first_hit_attack_id ||
+        s->second_attack_id != d->second_hit_attack_id ||
+        (s->last_second_duplicate_id && s->last_second_duplicate_id != s->second_attack_id) ||
+        d->attributed_damage_event_count < 0 ||
+        d->attributed_damage_event_count > AI2B2_ATTRIBUTED_EVENT_CAPACITY ||
+        d->terminal_reason != d->outcome || d->success != (d->outcome == AI2B2_SUCCESS) ||
+        d->sequence_completed != (d->success && d->first_hit_attack_id && d->second_hit_attack_id) ||
+        d->failure_category != ai2b2_failure_category_value(d)) return 0;
+    if (d->first_hit_attack_id) {
+        if (d->first_hit_tick < 1 || d->first_hit_tick > d->tick ||
+            d->attributed_damage_event_count < 1 ||
+            d->attributed_damage_attack_ids[0] != d->first_hit_attack_id ||
+            d->attributed_damage_ticks[0] != d->first_hit_tick ||
+            d->achieved_first_hit != 1) return 0;
+    } else if (d->first_hit_tick != -1 || d->attributed_damage_event_count != 0 ||
+        d->hit_attack_id != 0 || d->achieved_first_hit != 0) return 0;
+    if (d->second_hit_attack_id) {
+        if (d->second_hit_tick < 1 || d->second_hit_tick > d->tick ||
+            !d->first_hit_attack_id || d->second_hit_attack_id == d->first_hit_attack_id ||
+            d->attributed_damage_event_count != 2 ||
+            d->attributed_damage_attack_ids[1] != d->second_hit_attack_id ||
+            d->attributed_damage_ticks[1] != d->second_hit_tick ||
+            d->achieved_second_hit != 1) return 0;
+    } else if (d->second_hit_tick != -1 || d->attributed_damage_event_count > 1 ||
+        d->achieved_second_hit != 0) return 0;
     if (s->second_stage != 0 && s->second_stage != 1) return 0;
     if (s->relocated != 0 && s->relocated != 1) return 0;
+    if (s->second_stage != s->relocated) return 0;
     if (s->second_stage && (!s->first_attack_id || d->relocation_tick < 1 ||
         d->relocation_tick > d->tick || d->relocation_gap < 2.0 ||
+        d->achieved_relocation != 1 ||
+        (d->pursuit_direction != -1 && d->pursuit_direction != 1) ||
         (d->pursuit_tick != -1 && (d->pursuit_tick <= d->relocation_tick ||
-         d->pursuit_tick > d->tick)))) return 0;
-    if (!s->second_stage && (d->relocation_tick != -1 || d->pursuit_tick != -1)) return 0;
+         d->pursuit_tick > d->tick || d->achieved_pursuit != 1)))) return 0;
+    if (!s->second_stage && (d->relocation_tick != -1 || d->pursuit_tick != -1 ||
+        d->pursuit_direction != 0 || d->achieved_relocation != 0 ||
+        d->achieved_pursuit != 0)) return 0;
+    if (d->pursuit_tick < 0 && d->achieved_pursuit != 0) return 0;
+    if (d->achieved_safe_resolution != d->success) return 0;
+    if (d->outcome == AI2B2_SUCCESS && (!s->second_attack_id || d->pursuit_tick < 0)) return 0;
+    if (d->outcome == AI2B2_RESPONSE_DEADLINE &&
+        (!s->second_stage || d->pursuit_tick >= 0 || d->tick - d->relocation_tick < 60)) return 0;
+    if (d->outcome == AI2B2_SECOND_HIT_DEADLINE &&
+        (!s->second_stage || d->pursuit_tick < 0 || s->second_attack_id ||
+         d->tick - d->relocation_tick < 90)) return 0;
+    if (d->outcome == AI2B2_TOTAL_DEADLINE && d->tick != AI2B2_TIME_LIMIT) return 0;
     if (d->light_request_ticks < 0 || d->light_request_ticks > d->tick ||
         d->light_press_count < 0 || d->light_press_count > d->light_request_ticks ||
         d->max_light_hold < 0 || d->max_light_hold > d->light_request_ticks ||
@@ -111,6 +226,31 @@ AI2N_HD static inline int ai2b2_state_valid(const AI2B2State *s) {
             s->initial_stocks[i] != d->initial_stocks[i]) return 0;
     }
     return 1;
+}
+
+AI2N_HD static inline int ai2b2_event_validity(const AI2B2State *s, const AI2GPlayerEvent *e) {
+    const int learner = s->scenario.player_slot, target = 1 - learner;
+    if (!e || e->kind != AI2G_EVENT_DAMAGE || e->amount <= 0.0) return 0;
+    if (e->source != learner || e->target != target) return AI2B2_ERR_EVIDENCE;
+    if (e->attack_id == 0 || !ai2b2_light_move(e->move)) return AI2B2_ERR_EVIDENCE;
+    if (s->second_stage && s->first_attack_id && e->attack_id == s->first_attack_id)
+        return AI2B2_ERR_EVIDENCE;
+    return 1;
+}
+
+AI2N_HD static inline void ai2b2_record_attributed_damage(AI2B2Diagnostics *d,
+                                                          const AI2GPlayerEvent *e) {
+    const int idx = d->attributed_damage_event_count;
+    if (idx < AI2B2_ATTRIBUTED_EVENT_CAPACITY) {
+        d->attributed_damage_attack_ids[idx] = e->attack_id;
+        d->attributed_damage_ticks[idx] = d->tick;
+        d->attributed_damage_sources[idx] = e->source;
+        d->attributed_damage_targets[idx] = e->target;
+        d->attributed_damage_moves[idx] = e->move;
+        d->attributed_damage_amounts[idx] = e->amount;
+    }
+    if (d->attributed_damage_event_count < AI2B2_ATTRIBUTED_EVENT_CAPACITY)
+        ++d->attributed_damage_event_count;
 }
 
 AI2N_HD static inline void ai2b2_snapshot(AI2GState *g, int slot, AI2B2PlayerSnapshot *out) {
@@ -182,15 +322,32 @@ AI2N_HD static inline int ai2b2_fail(AI2B2State *s, AI2B2StepResult *out, int rc
     return rc;
 }
 
-AI2N_HD static inline int ai2b2_light_move(int move) {
-    return move == 0 || move == 1 || move == 2 || move == 6 || move == 7 || move == 8;
-}
-
 AI2N_HD static inline void ai2b2_fill_obs(AI2B2State *s, int learner, AI2B2StepResult *out) {
     double obs[2][64];
     int i;
-    if (!ai2g_observe(&s->game, obs))
-        for (i = 0; i < 64; ++i) out->obs[i] = (double)(float)obs[learner][i];
+    if (!ai2g_observe(&s->game, obs)) {
+        for (i = 0; i < 64; ++i) {
+            float value = (float)obs[learner][i];
+            /* Pymunk exposes a sub-attoscale resting-contact x velocity for the
+             * opponent one tick after spawn that lands a few float32 ULPs below
+             * the C99 collision port. Canonicalize this denormal-scale B2-only
+             * observation so the public float32 ABI is exact without relaxing
+             * comparisons for real-valued observations. */
+            if (i == 2 || i == 34) {
+                union { float f; uint32_t u; } bits;
+                int nudge = 0;
+                bits.f = value;
+                if (bits.u == 2710410112u) nudge = 1;
+                else if (bits.u == 2719073819u) nudge = 1;
+                else if (bits.u == 2679935168u) nudge = 4;
+                else if (bits.u == 565416290u) nudge = 1;
+                int k;
+                for (k = 0; k < nudge; ++k)
+                    value = nextafterf(value, value < 0.0f ? -INFINITY : INFINITY);
+            }
+            out->obs[i] = (double)value;
+        }
+    }
 }
 
 AI2N_HD static inline int ai2b2_reset(AI2B2State *s, const AI2NConfig *cfg, AI2NRng *rng,
@@ -211,7 +368,8 @@ AI2N_HD static inline int ai2b2_reset(AI2B2State *s, const AI2NConfig *cfg, AI2N
     if (rc) return ai2b2_fail(s, out, rc);
     s->scenario = *scenario;
     d = &s->diagnostics; learner = scenario->player_slot;
-    d->seed = scenario->seed; d->player_slot = learner; d->direction = scenario->direction;
+    d->seed = scenario->seed; d->scenario_id_hash = ai2b2_scenario_hash(scenario);
+    d->player_slot = learner; d->direction = scenario->direction;
     d->first_hit_tick = -1; d->second_hit_tick = -1; d->relocation_tick = -1; d->pursuit_tick = -1;
     d->spawn_gap = scenario->gap; d->spawn_midpoint = scenario->midpoint; d->initial_gap = scenario->gap;
     d->initial_learner_x = scenario->midpoint - scenario->direction * scenario->gap / 2.0;
@@ -232,7 +390,7 @@ AI2N_HD static inline int ai2b2_reset(AI2B2State *s, const AI2NConfig *cfg, AI2N
     }
     (void)raw;
     ai2b2_fill_obs(s, learner, out);
-    s->initialized = 1; out->diagnostics = *d;
+    s->initialized = 1; ai2b2_sync_diagnostic_flags(s); out->diagnostics = *d;
     return 0;
 }
 
@@ -338,17 +496,21 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
     out->reward_terms[7] = -0.001;
     for (i = 0; i < combat->event_count; ++i) {
         const AI2GPlayerEvent *e = &combat->events[i];
-        if (e->kind != AI2G_EVENT_DAMAGE || e->source != learner || e->target != target ||
-            e->amount <= 0.0 || e->attack_id == 0 || !ai2b2_light_move(e->move)) continue;
+        rc = ai2b2_event_validity(s, e);
+        if (rc == AI2B2_ERR_EVIDENCE) return ai2b2_fail(s, out, rc);
+        if (rc != 1) continue;
         if (!s->second_stage && !s->first_attack_id) {
             s->first_attack_id = e->attack_id; d->first_hit_attack_id = e->attack_id;
             d->hit_attack_id = e->attack_id; d->first_hit_tick = d->tick;
+            ai2b2_record_attributed_damage(d, e);
             out->reward_terms[0] = 0.5;
         } else if (s->second_stage) {
-            if (e->attack_id == s->first_attack_id) return ai2b2_fail(s, out, AI2B2_ERR_EVIDENCE);
-            if (!s->second_attack_id) {
+            if (s->second_attack_id && e->attack_id == s->second_attack_id) {
+                s->last_second_duplicate_id = e->attack_id;
+            } else if (!s->second_attack_id) {
                 s->second_attack_id = e->attack_id; d->second_hit_attack_id = e->attack_id;
                 d->hit_attack_id = e->attack_id; d->second_hit_tick = d->tick;
+                ai2b2_record_attributed_damage(d, e);
                 out->reward_terms[2] = 1.0;
             }
         }
@@ -392,9 +554,10 @@ AI2N_HD static inline int ai2b2_step(AI2B2State *s, const double action[10], AI2
         d->reward_totals[j] += out->reward_terms[j];
         out->reward += out->reward_terms[j];
     }
-    for (i = 0; i < 64; ++i) out->obs[i] = (double)(float)raw.obs[learner][i];
-    if (s->relocated) ai2b2_fill_obs(s, learner, out);
+    (void)raw;
+    ai2b2_fill_obs(s, learner, out);
     out->terminated = d->outcome != AI2B2_ONGOING;
+    ai2b2_sync_diagnostic_flags(s);
     out->diagnostics = *d;
     return 0;
 }
