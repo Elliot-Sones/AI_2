@@ -98,6 +98,12 @@ class NativeCurriculumPPO:
 
         return implementation.load_contact_checkpoint(*args, **kwargs)
 
+    @staticmethod
+    def load(*args, **kwargs):
+        from native_curriculum_ppo import NativeCurriculumPPO as implementation
+
+        return implementation.load(*args, **kwargs)
+
 
 @dataclass(frozen=True)
 class ReengagementCampaignConfig:
@@ -195,20 +201,67 @@ def atomic_json(path, value):
     return base.atomic_json(path, value)
 
 
-def verify_input_checkpoint(args):
+def verify_input_checkpoint(args, cfg=None):
+    cfg = cfg or ReengagementCampaignConfig()
+    cycle_index = getattr(args, "cycle_index", 1)
+    if type(cycle_index) is not int or not 1 <= cycle_index <= 5:
+        raise ValueError("cycle-index must be an integer from 1 through 5")
+    if bool(args.resume) != (cycle_index > 1):
+        raise ValueError("cycle 1 must be fresh and cycles 2 through 5 must use --resume")
+    if not args.resume and getattr(args, "resume_parent_result", None) is not None:
+        raise ValueError("fresh cycle 1 must not supply a resume parent result")
     checkpoint = Path(args.checkpoint)
     expected_sha = str(args.checkpoint_sha256)
-    if expected_sha != PARENT_CHECKPOINT_SHA256:
-        raise ValueError("B2 reengagement blocks must start from the exact B_projected-050m parent SHA256")
+    if len(expected_sha) != 64 or any(char not in "0123456789abcdef" for char in expected_sha):
+        raise ValueError("checkpoint-sha256 must be a lowercase 64-character digest")
     actual = sha256(checkpoint)
-    if actual != PARENT_CHECKPOINT_SHA256:
-        raise ValueError(f"parent checkpoint SHA256 mismatch: expected {PARENT_CHECKPOINT_SHA256}, got {actual}")
+    if bool(args.resume):
+        if actual != expected_sha:
+            raise ValueError(f"resume checkpoint SHA256 mismatch: expected {expected_sha}, got {actual}")
+        canonical_parent = False
+        previous_path = Path(args.resume_parent_result)
+        if not previous_path.is_file():
+            raise FileNotFoundError("resume parent result is required before checkpoint reuse")
+        previous = json.loads(previous_path.read_text())
+        previous_cycle = cycle_index - 1
+        expected_start_timesteps = PARENT_LIFETIME_TRANSITIONS + previous_cycle * cfg.total_transitions
+        if previous.get("schema_version") != SCHEMA_VERSION:
+            raise ValueError("previous cycle result schema differs")
+        if previous.get("cycle_index") != previous_cycle:
+            raise ValueError("previous cycle result index is not contiguous")
+        if previous.get("checkpoint_sha256") != expected_sha:
+            raise ValueError("previous cycle checkpoint hash does not match resume input")
+        if previous.get("schedule_id") != cfg.schedule_id or previous.get("schedule") != list(cfg.schedule):
+            raise ValueError("previous cycle schedule differs")
+        if previous.get("expected_task_versions") != EXPECTED_TASK_VERSIONS:
+            raise ValueError("previous cycle task version contract differs")
+        if previous.get("root_parent_checkpoint_sha256") != PARENT_CHECKPOINT_SHA256:
+            raise ValueError("previous cycle root parent differs")
+        counters = previous.get("final_model_counters")
+        if not isinstance(counters, dict) or counters.get("num_timesteps") != expected_start_timesteps:
+            raise ValueError("previous cycle lifetime counter differs")
+        resume_parent_result = {
+            "path": str(previous_path),
+            "sha256": sha256(previous_path),
+            "cycle_index": previous_cycle,
+            "checkpoint_sha256": expected_sha,
+        }
+    else:
+        if expected_sha != PARENT_CHECKPOINT_SHA256:
+            raise ValueError("B2 reengagement blocks must start from the exact B_projected-050m parent SHA256")
+        if actual != PARENT_CHECKPOINT_SHA256:
+            raise ValueError(f"parent checkpoint SHA256 mismatch: expected {PARENT_CHECKPOINT_SHA256}, got {actual}")
+        canonical_parent = True
+        expected_start_timesteps = PARENT_LIFETIME_TRANSITIONS
+        resume_parent_result = None
     preservation = base.require_checkpoint_preservation(checkpoint, args.checkpoint_ack)
     return {
         "path": str(checkpoint),
         "sha256": actual,
-        "canonical_parent": True,
-        "num_timesteps": PARENT_LIFETIME_TRANSITIONS,
+        "canonical_parent": canonical_parent,
+        "num_timesteps": expected_start_timesteps,
+        "expected_start_timesteps": expected_start_timesteps,
+        "resume_parent_result": resume_parent_result,
     }, preservation
 
 
@@ -631,20 +684,17 @@ def _validate_rollout_progress(env, cfg, *, rollout_task, before_steps, before_c
     return int(sum(delta))
 
 
-def validate_reengagement_runtime(model, cfg, *, requested_rollout_task):
+def validate_reengagement_runtime(model, cfg, *, requested_rollout_task, expected_start_timesteps):
     model_task = MODEL_TASKS[requested_rollout_task]
+    if dict(getattr(model, "task_versions", {}) or {}) != EXPECTED_TASK_VERSIONS:
+        raise ValueError("loaded model task version contract differs from B2 training")
     for key in ("n_steps", "batch_size", "n_epochs", "gamma", "gae_lambda", "target_kl", "ent_coef"):
         if getattr(model, key) != getattr(cfg, key):
             raise ValueError(f"loaded reengagement learner runtime drift: {key}")
     if model.n_envs != cfg.lanes:
         raise ValueError("loaded reengagement learner lane count differs")
-    if (
-        model.num_timesteps != PARENT_LIFETIME_TRANSITIONS
-        and requested_rollout_task == "reengagement"
-        and not getattr(model, "_ai2_b2_parent_counter_checked", False)
-    ):
-        raise ValueError("B2 parent lifetime transition counter differs")
-    model._ai2_b2_parent_counter_checked = True
+    if model.num_timesteps != expected_start_timesteps:
+        raise ValueError("B2 input lifetime transition counter differs from the cycle lineage")
     if model.calibration or model.task != model_task or getattr(model.policy, "task", None) != model_task:
         raise ValueError("reengagement blocks require joint, non-calibration learning on the requested task")
     expected_mask = np.asarray(TASK_MASKS[model_task], dtype=bool)
@@ -660,6 +710,8 @@ def validate_reengagement_runtime(model, cfg, *, requested_rollout_task):
         raise RuntimeError("policy contains non-CUDA parameters")
     if getattr(model, "action_head", None) != cfg.action_head:
         raise ValueError("model action head differs from reengagement campaign config")
+    if getattr(model.policy, "action_head", cfg.action_head) != cfg.action_head:
+        raise ValueError("model policy action head differs from reengagement campaign config")
     if getattr(model, "action_ab_arm", None) != cfg.action_ab_arm:
         raise ValueError("model action A/B arm differs from reengagement campaign config")
     optimizer_state = throughput.optimizer_state_summary(model)
@@ -690,6 +742,16 @@ def load_parent_model(checkpoint, env, cfg):
     )
 
 
+def load_resume_model(checkpoint, env, cfg, expected_sha256):
+    return NativeCurriculumPPO.load(
+        checkpoint,
+        env=env,
+        expected_sha256=expected_sha256,
+        update_mode=cfg.update_mode,
+        expected_task_versions=EXPECTED_TASK_VERSIONS,
+    )
+
+
 def run_block(args):
     output = Path(args.output)
     if output.exists():
@@ -706,7 +768,7 @@ def run_block(args):
         episodes_per_lane=args.episodes_per_lane,
     )
     throughput.validate_deadline(args.deadline_unix)
-    checkpoint, preservation = verify_input_checkpoint(args)
+    checkpoint, preservation = verify_input_checkpoint(args, cfg)
     qualification = require_b2_qualification(args.qualification, args.reference_root, args.frozen_root)
     hashes = source_hashes(args.reference_root, args.frozen_root)
     device = base.require_cuda(cfg.device)
@@ -744,6 +806,11 @@ def run_block(args):
             "task_transition_totals": cfg.task_transition_totals,
             "checkpoint": checkpoint,
             "checkpoint_preservation": preservation,
+            "resume": bool(args.resume),
+            "fresh_parent_per_block": not bool(args.resume),
+            "cycle_index": args.cycle_index,
+            "expected_start_timesteps": checkpoint["expected_start_timesteps"],
+            "root_parent_checkpoint_sha256": PARENT_CHECKPOINT_SHA256,
             "parent_lifetime_transitions": PARENT_LIFETIME_TRANSITIONS,
             "expected_task_versions": dict(EXPECTED_TASK_VERSIONS),
             "qualification_sha256": sha256(args.qualification),
@@ -767,14 +834,22 @@ def run_block(args):
 
         environments = build_task_environments(args, cfg, device)
         env = environments["reengagement"]
-        model = load_parent_model(args.checkpoint, env, cfg)
+        if args.resume:
+            model = load_resume_model(args.checkpoint, env, cfg, args.checkpoint_sha256)
+        else:
+            model = load_parent_model(args.checkpoint, env, cfg)
         learning_variant = {
             "learning_rate": cfg.learning_rate,
             "learning_contract_variant": cfg.learning_contract_variant,
             "not_lossless_optimization": True,
             "note": "B2 block preserves the parent policy, critics, optimizer, action head, LR schedule and counters",
         }
-        optimizer_at_load = validate_reengagement_runtime(model, cfg, requested_rollout_task="reengagement")
+        optimizer_at_load = validate_reengagement_runtime(
+            model,
+            cfg,
+            requested_rollout_task="reengagement",
+            expected_start_timesteps=checkpoint["expected_start_timesteps"],
+        )
         precision_state = validate_fp32_runtime(model, throughput.torch_precision_state())
         policy_digest_before = throughput.policy_parameter_digest(model)
         manifest.update({
@@ -802,7 +877,12 @@ def run_block(args):
             env = environments[rollout_task]
             set_model_task_environment(model, rollout_task, env)
             if index == 0:
-                validate_reengagement_runtime(model, cfg, requested_rollout_task=rollout_task)
+                validate_reengagement_runtime(
+                    model,
+                    cfg,
+                    requested_rollout_task=rollout_task,
+                    expected_start_timesteps=checkpoint["expected_start_timesteps"],
+                )
             before_count = model.num_timesteps
             before_steps = list(_raw_env(env).backend.valid_steps) if rollout_task == "reengagement" else None
             throughput.synchronize_cuda(device)
@@ -871,6 +951,9 @@ def run_block(args):
         result = {
             "schema_version": SCHEMA_VERSION,
             "status": "trained_not_evaluated",
+            "cycle_index": args.cycle_index,
+            "root_parent_checkpoint_sha256": PARENT_CHECKPOINT_SHA256,
+            "expected_task_versions": dict(EXPECTED_TASK_VERSIONS),
             "schedule_id": cfg.schedule_id,
             "schedule": list(cfg.schedule),
             "summary": summary,
@@ -887,7 +970,7 @@ def run_block(args):
             "peak_gpu_memory_bytes": throughput.cuda_peak_memory(device),
             "checkpoint_sha256": final_checkpoint["sha256"],
             "actor_sha256": actor["sha256"],
-            "resume_from_checkpoint_sha256": None,
+            "resume_from_checkpoint_sha256": args.checkpoint_sha256 if args.resume else None,
             "wall_seconds_including_setup_logging_final_saves": throughput.perf_counter_sequence() - started,
             "finished_unix": time.time(),
             "next_required_action": "retrieve, hash-verify and evaluate this checkpoint in the original Python game",
@@ -922,7 +1005,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("checkpoint", "checkpoint-ack", "frozen-root", "reference-root", "qualification", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
-    parser.add_argument("--checkpoint-sha256", choices=(PARENT_CHECKPOINT_SHA256,), required=True)
+    parser.add_argument("--checkpoint-sha256", required=True)
     parser.add_argument("--deadline-unix", type=float, required=True)
     parser.add_argument("--schedule", choices=tuple(SCHEDULES), required=True)
     parser.add_argument("--navigation-build-dir", type=Path, default=ROOT / "native" / "build")
@@ -934,7 +1017,18 @@ def parse_args(argv=None):
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--update-mode", choices=("sb3", "deferred_metrics"), default="deferred_metrics")
     parser.add_argument("--action-ab-arm", choices=SUPPORTED_ARMS, default="B_projected")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--cycle-index", type=int, default=1)
+    parser.add_argument("--resume-parent-result", type=Path)
     args = parser.parse_args(argv)
+    if not args.resume and args.checkpoint_sha256 != PARENT_CHECKPOINT_SHA256:
+        parser.error("fresh B2 blocks require the canonical B_projected-050m checkpoint SHA256")
+    if not 1 <= args.cycle_index <= 5:
+        parser.error("cycle-index must be from 1 through 5")
+    if args.resume and (args.cycle_index == 1 or args.resume_parent_result is None):
+        parser.error("resumed cycles require cycle-index 2..5 and --resume-parent-result")
+    if not args.resume and (args.cycle_index != 1 or args.resume_parent_result is not None):
+        parser.error("fresh training is cycle 1 and must not supply --resume-parent-result")
     ReengagementCampaignConfig(
         schedule_id=args.schedule,
         lanes=args.lanes,

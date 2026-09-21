@@ -66,7 +66,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 m.ReengagementCampaignConfig(**changes)
 
-    def test_parse_requires_explicit_schedule_and_parent_sha(self):
+    def test_parse_requires_explicit_schedule_and_distinguishes_fresh_from_resume_sha(self):
         m = self.subject()
         root = Path("/tmp/root")
         base = [
@@ -83,8 +83,24 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             m.parse_args(base)
         args = m.parse_args(base + ["--schedule", "R4E1N"])
         self.assertEqual(args.schedule, "R4E1N")
+        self.assertFalse(args.resume)
+        alternate = list(base)
+        alternate[alternate.index("--checkpoint-sha256") + 1] = "a" * 64
         with self.assertRaises(SystemExit):
-            m.parse_args([*base[:-11], "--checkpoint-sha256", "a" * 64, *base[-10:], "--schedule", "R4E1N"])
+            m.parse_args(alternate + ["--schedule", "R4E1N"])
+        resumed = m.parse_args(alternate + [
+            "--schedule", "R4E1N",
+            "--resume",
+            "--cycle-index", "2",
+            "--resume-parent-result", str(root / "cycle-001-result.json"),
+        ])
+        self.assertTrue(resumed.resume)
+        self.assertEqual(resumed.cycle_index, 2)
+        self.assertEqual(resumed.checkpoint_sha256, "a" * 64)
+        with self.assertRaises(SystemExit):
+            m.parse_args(alternate + ["--schedule", "R4E1N", "--resume"])
+        with self.assertRaises(SystemExit):
+            m.parse_args(base + ["--schedule", "R4E1N", "--cycle-index", "2"])
 
     def test_parent_hash_and_preservation_are_verified_before_cuda_env_or_model(self):
         m = self.subject()
@@ -110,6 +126,50 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
                  self.assertRaisesRegex(RuntimeError, "ack missing"):
                 m.run_block(args)
             self.assertEqual(order, ["sha256"])
+
+    def test_resume_hash_and_preservation_are_verified_without_requiring_canonical_parent(self):
+        m = self.subject()
+        order = []
+        with TemporaryDirectory() as directory:
+            args = self.args(Path(directory), resume=True, checkpoint_sha="b" * 64)
+            args.checkpoint.write_bytes(b"previous B2 cycle")
+            with patch.object(m, "sha256", side_effect=lambda path: order.append("sha256") or "b" * 64), \
+                 patch.object(m.base, "require_checkpoint_preservation", side_effect=lambda *a: order.append("ack") or {"verified": True}):
+                checkpoint, preservation = m.verify_input_checkpoint(args)
+            self.assertEqual(order, ["sha256", "sha256", "ack"])
+            self.assertFalse(checkpoint["canonical_parent"])
+            self.assertEqual(checkpoint["sha256"], "b" * 64)
+            self.assertTrue(preservation["verified"])
+
+            order.clear()
+            with patch.object(m, "sha256", side_effect=lambda path: order.append("sha256") or "c" * 64), \
+                 patch.object(m.base, "require_checkpoint_preservation", side_effect=lambda *a: order.append("ack") or {}), \
+                 self.assertRaisesRegex(ValueError, "resume checkpoint SHA256 mismatch"):
+                m.verify_input_checkpoint(args)
+            self.assertEqual(order, ["sha256"])
+
+    def test_resume_requires_exact_previous_cycle_result_lineage(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        with TemporaryDirectory() as directory:
+            args = self.args(Path(directory), resume=True, checkpoint_sha="b" * 64)
+            args.checkpoint.write_bytes(b"previous B2 cycle")
+            with patch.object(m, "sha256", return_value="b" * 64), \
+                 patch.object(m.base, "require_checkpoint_preservation", return_value={"verified": True}):
+                checkpoint, _ = m.verify_input_checkpoint(args, cfg)
+            self.assertEqual(checkpoint["resume_parent_result"]["cycle_index"], 1)
+            self.assertEqual(
+                checkpoint["expected_start_timesteps"],
+                m.PARENT_LIFETIME_TRANSITIONS + cfg.total_transitions,
+            )
+
+            previous = json.loads(args.resume_parent_result.read_text())
+            previous["checkpoint_sha256"] = "c" * 64
+            args.resume_parent_result.write_text(json.dumps(previous))
+            with patch.object(m, "sha256", return_value="b" * 64), \
+                 patch.object(m.base, "require_checkpoint_preservation", return_value={"verified": True}), \
+                 self.assertRaisesRegex(ValueError, "previous cycle checkpoint hash"):
+                m.verify_input_checkpoint(args, cfg)
 
     def test_mocked_success_runs_exact_schedule_and_preserves_single_model_across_switches(self):
         m = self.subject()
@@ -165,6 +225,46 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             payload = gzip.decompress((args.output / rows[0]["episode_info"]["path"]).read_bytes())
             self.assertEqual(json.loads(payload)[0]["reengagement"]["lane"], 0)
             self.assertNotIn("promoted", json.dumps(result).lower())
+
+    def test_resume_loads_previous_b2_checkpoint_once_and_preserves_lineage(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        resume_sha = "b" * 64
+        with TemporaryDirectory() as directory:
+            args = self.args(Path(directory), resume=True, checkpoint_sha=resume_sha)
+            reengagement_env = self.fake_env(m, cfg, "reengagement")
+            navigation_env = self.fake_env(m, cfg, "navigation")
+            model = self.fake_model(
+                m,
+                cfg,
+                start_timesteps=m.PARENT_LIFETIME_TRANSITIONS + cfg.total_transitions,
+            )
+            with self.common_patches(
+                    m, cfg, reengagement_env, navigation_env, model, checkpoint_sha=resume_sha
+                 ), \
+                 patch.object(m.NativeCurriculumPPO, "load_contact_checkpoint") as load_parent, \
+                 patch.object(m.NativeCurriculumPPO, "load", return_value=model) as load_resume:
+                result = m.run_block(args)
+
+            load_parent.assert_not_called()
+            load_resume.assert_called_once()
+            _, kwargs = load_resume.call_args
+            self.assertEqual(kwargs["expected_sha256"], resume_sha)
+            self.assertEqual(kwargs["expected_task_versions"], m.EXPECTED_TASK_VERSIONS)
+            self.assertEqual(kwargs["update_mode"], cfg.update_mode)
+            self.assertEqual(result["resume_from_checkpoint_sha256"], resume_sha)
+            self.assertEqual(result["cycle_index"], 2)
+            self.assertEqual(result["root_parent_checkpoint_sha256"], m.PARENT_CHECKPOINT_SHA256)
+            self.assertGreater(result["final_model_counters"]["num_timesteps"], m.PARENT_LIFETIME_TRANSITIONS)
+            manifest = json.loads((args.output / "manifest.json").read_text())
+            self.assertTrue(manifest["resume"])
+            self.assertFalse(manifest["fresh_parent_per_block"])
+            self.assertFalse(manifest["checkpoint"]["canonical_parent"])
+            self.assertEqual(manifest["cycle_index"], 2)
+            self.assertEqual(
+                manifest["expected_start_timesteps"],
+                m.PARENT_LIFETIME_TRANSITIONS + cfg.total_transitions,
+            )
 
     def test_episode_extractor_rejects_wrong_task_version_mask_or_payload(self):
         m = self.subject()
@@ -277,6 +377,38 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "task version"):
             m.set_model_task_environment(model, "reengagement", env)
         self.assertEqual(len(calls), 1)
+
+    def test_resume_runtime_rejects_version_action_counter_or_optimizer_drift(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        expected_counter = m.PARENT_LIFETIME_TRANSITIONS + cfg.total_transitions
+
+        model = self.fake_model(m, cfg, start_timesteps=expected_counter)
+        model.task_versions = {**m.EXPECTED_TASK_VERSIONS, "combat": "bridge_b1_contact-v1"}
+        with self.assertRaisesRegex(ValueError, "task version"):
+            m.validate_reengagement_runtime(
+                model, cfg, requested_rollout_task="reengagement", expected_start_timesteps=expected_counter
+            )
+
+        model = self.fake_model(m, cfg, start_timesteps=expected_counter)
+        model.policy.action_head = "gaussian"
+        with self.assertRaisesRegex(ValueError, "policy action head"):
+            m.validate_reengagement_runtime(
+                model, cfg, requested_rollout_task="reengagement", expected_start_timesteps=expected_counter
+            )
+
+        model = self.fake_model(m, cfg, start_timesteps=expected_counter - 1)
+        with self.assertRaisesRegex(ValueError, "cycle lineage"):
+            m.validate_reengagement_runtime(
+                model, cfg, requested_rollout_task="reengagement", expected_start_timesteps=expected_counter
+            )
+
+        model = self.fake_model(m, cfg, start_timesteps=expected_counter)
+        model.policy.optimizer.state = {}
+        with self.assertRaisesRegex(ValueError, "optimizer"):
+            m.validate_reengagement_runtime(
+                model, cfg, requested_rollout_task="reengagement", expected_start_timesteps=expected_counter
+            )
 
     def test_source_hash_inventory_includes_direct_trainer_imports_and_fails_missing(self):
         m = self.subject()
@@ -439,7 +571,7 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             self.assertEqual(failure["completed_rollouts"], 1)
             self.assertEqual(failure["last_completed_checkpoint"], "failure-last.zip")
 
-    def args(self, root):
+    def args(self, root, *, resume=False, checkpoint_sha=None, cycle_index=None):
         root.mkdir(parents=True, exist_ok=True)
         checkpoint = root / "checkpoint.zip"
         checkpoint.write_bytes(b"canonical checkpoint")
@@ -448,9 +580,25 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
         qualification = root / "proof.json"
         qualification.write_text("{}")
         m = self.subject()
+        selected_cycle = cycle_index if cycle_index is not None else (2 if resume else 1)
+        resume_parent_result = root / "previous-result.json"
+        if resume:
+            resume_parent_result.write_text(json.dumps({
+                "schema_version": m.SCHEMA_VERSION,
+                "cycle_index": selected_cycle - 1,
+                "schedule_id": "R4E1N",
+                "schedule": list(m.SCHEDULES["R4E1N"]),
+                "expected_task_versions": dict(m.EXPECTED_TASK_VERSIONS),
+                "checkpoint_sha256": checkpoint_sha,
+                "root_parent_checkpoint_sha256": m.PARENT_CHECKPOINT_SHA256,
+                "final_model_counters": {
+                    "num_timesteps": m.PARENT_LIFETIME_TRANSITIONS
+                    + (selected_cycle - 1) * m.ReengagementCampaignConfig().total_transitions,
+                },
+            }))
         return SimpleNamespace(
             checkpoint=checkpoint,
-            checkpoint_sha256=m.PARENT_CHECKPOINT_SHA256,
+            checkpoint_sha256=checkpoint_sha or m.PARENT_CHECKPOINT_SHA256,
             checkpoint_ack=ack,
             frozen_root=root,
             reference_root=root,
@@ -466,14 +614,26 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             device="cuda",
             update_mode="deferred_metrics",
             action_ab_arm="B_projected",
+            resume=resume,
+            cycle_index=selected_cycle,
+            resume_parent_result=resume_parent_result if resume else None,
         )
 
-    def common_patches(self, m, cfg, reengagement_env, navigation_env, model):
+    def common_patches(self, m, cfg, reengagement_env, navigation_env, model, *, checkpoint_sha=None):
         wrappers = {"reengagement": self.fake_wrapper(reengagement_env), "navigation": self.fake_wrapper(navigation_env)}
+        input_sha = checkpoint_sha or m.PARENT_CHECKPOINT_SHA256
+        expected_start = m.PARENT_LIFETIME_TRANSITIONS + (
+            cfg.total_transitions if input_sha != m.PARENT_CHECKPOINT_SHA256 else 0
+        )
         patches = [
             patch.object(m, "ReengagementCampaignConfig", return_value=cfg),
             patch.object(m, "verify_input_checkpoint", return_value=(
-                {"path": "checkpoint.zip", "sha256": m.PARENT_CHECKPOINT_SHA256, "canonical_parent": True},
+                {
+                    "path": "checkpoint.zip",
+                    "sha256": input_sha,
+                    "canonical_parent": input_sha == m.PARENT_CHECKPOINT_SHA256,
+                    "expected_start_timesteps": expected_start,
+                },
                 {"verified": True},
             )),
             patch.object(m, "require_b2_qualification", return_value={"qualified": True}),
