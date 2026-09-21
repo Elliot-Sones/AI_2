@@ -16,6 +16,86 @@ def zero_action() -> np.ndarray:
     return np.zeros(10, dtype=np.float32)
 
 
+def player_snapshot(slot: int, *, x=0.0, y=0.35, stocks=3, damage=0.0, damage_done=0.0,
+                    damage_taken_total=0.0, grounded=True, fully_supported=True,
+                    clearance=1.0, attack_id=None, state="StandingState"):
+    return {
+        "player_slot": slot,
+        "x": float(x),
+        "y": float(y),
+        "vx": 0.0,
+        "vy": 0.0,
+        "facing": 1,
+        "stocks": int(stocks),
+        "damage": float(damage),
+        "damage_done": float(damage_done),
+        "damage_taken_total": float(damage_taken_total),
+        "state": state,
+        "grounded": grounded,
+        "fully_supported": fully_supported,
+        "horizontal_floor_clearance": float(clearance),
+        "stun_time_stored": 0,
+        "attack_id": attack_id,
+    }
+
+
+def controlled_env(*, tick=1, events=None, pre=None, post=None):
+    env = object.__new__(rc.ReengagementEnv)
+    env.player_slot = 0
+    env.direction = 1
+    env.seed_value = 1
+    env.scenario = {"id": "controlled", "seed": 1, "player_slot": 0, "direction": 1, "gap": 3.2, "midpoint": 4.5}
+    env.episode_id = "controlled-episode"
+    env.tick = tick - 1
+    env.encounter = 1
+    env.events = []
+    env.hit_ids = []
+    env.first_hit_tick = None
+    env.second_hit_tick = None
+    env.hit_attack_id = None
+    env.relocation_tick = None
+    env.relocation_gap = None
+    env.relocation_learner_x = None
+    env.relocation_target_x = None
+    env.pursuit_direction = None
+    env.pursuit_tick = None
+    env.outcome = None
+    env.previous_light = False
+    env.initial_stocks = [3, 3]
+    env.reward_totals = {name: 0.0 for name in rc.REWARD_NAMES}
+    env._trace_handle = None
+    env._observation_before = np.zeros(64, dtype=np.float32)
+    env._test_events = list(events or [])
+    env._test_pre = pre or [player_snapshot(0), player_snapshot(1, x=3.2)]
+    env._test_post = post or [player_snapshot(0), player_snapshot(1, x=3.2)]
+
+    def fake_game_step(action):
+        env.tick = tick
+        env.events = list(env._test_events)
+        return np.asarray(action, dtype=np.float32), np.asarray(action, dtype=np.float32), env._test_pre, env._test_post
+
+    env._game_step = fake_game_step
+    env._resolved = lambda: True
+    env._snapshots = lambda: env._test_post
+    env._observation = lambda: np.zeros(64, dtype=np.float32)
+    env._relocate = lambda post_value: False
+    return env
+
+
+def damage_event(*, attack_id="attack-1", attack_type="DLIGHT", source_slot=0, target_slot=1, amount=1.0):
+    return {
+        "type": "damage",
+        "source_slot": source_slot,
+        "target_slot": target_slot,
+        "attack_id": attack_id,
+        "attack_type": attack_type,
+        "amount": amount,
+        "damage_before": 0.0,
+        "damage_after": amount,
+        "source": "test",
+    }
+
+
 def finish_episode(env: rc.ReengagementEnv, controller: str, *, limit: int = 300):
     info = None
     for _ in range(limit):
@@ -123,6 +203,16 @@ def test_reset_is_deterministic_private_rng_and_safe_for_both_slots_directions(s
     assert first["opponent_action"] == [0.0] * 10
 
 
+def test_constructor_honors_player_slot_for_initial_episode():
+    env = rc.make_reengagement_env(FROZEN, seed=18, player_slot=1)
+    try:
+        assert env.player_slot == 1
+        assert env.scenario["player_slot"] == 1
+        assert env._snapshots()[1]["x"] == pytest.approx(env.scenario["midpoint"] - env.direction * env.scenario["gap"] / 2)
+    finally:
+        env.close()
+
+
 @pytest.mark.parametrize(
     "scenario",
     [
@@ -143,6 +233,91 @@ def test_invalid_scenarios_are_rejected_before_reset_mutates(scenario):
     finally:
         env.close()
     assert after == before
+
+
+def test_relocation_recreates_only_target_and_preserves_required_state(monkeypatch):
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        env.reset(seed=134040, options={"scenario": {"player_slot": 0, "direction": 1}})
+        learner = env.raw_env.players[env.player_slot]
+        target = env.raw_env.players[1 - env.player_slot]
+        learner.body.position = (4.5, env.floor_y)
+        target.stocks = 7
+        target.damage = 12.5
+        target.damage_done = 4.25
+        target.damage_taken_total = 9.75
+        learner_before_object = learner
+        target_before_object = target
+        learner_before = {
+            "body": learner.body,
+            "shape": learner.shape,
+            "state": learner.state,
+            "position": tuple(learner.body.position),
+            "velocity": tuple(learner.body.velocity),
+            "stocks": learner.stocks,
+            "damage": learner.damage,
+            "damage_done": learner.damage_done,
+            "damage_taken_total": learner.damage_taken_total,
+            "facing": int(learner.facing),
+        }
+        target_before_snapshot = env._snapshot(target)
+        monkeypatch.setattr(rc, "choose_target_anchor", lambda *args: 8.0)
+
+        assert env._relocate(env._snapshots()) is True
+
+        learner_after = env.raw_env.players[env.player_slot]
+        target_after = env.raw_env.players[1 - env.player_slot]
+        assert learner_after is learner_before_object
+        assert learner_after.body is learner_before["body"]
+        assert learner_after.shape is learner_before["shape"]
+        assert learner_after.state is learner_before["state"]
+        assert tuple(learner_after.body.position) == learner_before["position"]
+        assert tuple(learner_after.body.velocity) == learner_before["velocity"]
+        assert learner_after.stocks == learner_before["stocks"]
+        assert learner_after.damage == learner_before["damage"]
+        assert learner_after.damage_done == learner_before["damage_done"]
+        assert learner_after.damage_taken_total == learner_before["damage_taken_total"]
+        assert int(learner_after.facing) == learner_before["facing"]
+        assert target_after is not target_before_object
+        assert target_after.body is not target_before_object.body
+        assert target_after.shape is not target_before_object.shape
+        assert target_after.stocks == 7
+        assert target_after.damage == pytest.approx(12.5)
+        assert target_after.damage_done == pytest.approx(4.25)
+        assert target_after.damage_taken_total == pytest.approx(9.75)
+        assert target_after.body.position.x == pytest.approx(8.0)
+        assert target_after.body.position.y == pytest.approx(env.floor_y)
+        assert tuple(target_after.body.velocity) == (0.0, 0.0)
+        assert type(target_after.state).__name__ == "StandingState"
+        assert int(target_after.facing) == -1
+        relocation = next(event for event in env.events if event["type"] == "relocation")
+        assert relocation["pre_target"] == target_before_snapshot
+        assert relocation["post_target"]["x"] == pytest.approx(8.0)
+        assert relocation["relocation_gap"] == pytest.approx(3.5)
+        assert env.relocation_gap == pytest.approx(3.5)
+        assert env.relocation_tick == env.tick
+    finally:
+        env.close()
+
+
+def test_relocation_pending_when_no_safe_anchor_does_not_recreate_target(monkeypatch):
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        env.reset(seed=134041, options={"scenario": {"player_slot": 0, "direction": 1}})
+        learner = env.raw_env.players[env.player_slot]
+        target = env.raw_env.players[1 - env.player_slot]
+        learner.body.position = (4.5, env.floor_y)
+        target_before = target
+        monkeypatch.setattr(rc, "choose_target_anchor", lambda *args: None)
+
+        assert env._relocate(env._snapshots()) is False
+
+        assert env.raw_env.players[1 - env.player_slot] is target_before
+        assert env.relocation_tick is None
+        assert env.encounter == 1
+        assert any(event["type"] == "relocation_pending" for event in env.events)
+    finally:
+        env.close()
 
 
 @pytest.mark.parametrize("slot", [0, 1])
@@ -230,7 +405,167 @@ def test_repeated_first_attack_id_and_opponent_self_loss_fail_without_success_tr
     assert reward == pytest.approx(-1.001)
 
 
-def test_deadline_boundaries_process_tick_60_90_and_300_but_never_301():
+def test_invalid_damage_evidence_requires_nonzero_id_valid_type_and_correct_attribution():
+    invalid_events = [
+        damage_event(attack_id=None),
+        damage_event(attack_id=""),
+        damage_event(attack_type="HEAVY"),
+        damage_event(source_slot=1),
+        damage_event(target_slot=0),
+    ]
+    for event in invalid_events:
+        env = controlled_env(events=[event])
+        with pytest.raises(RuntimeError, match="invalid damage evidence"):
+            rc.ReengagementEnv._step(env, zero_action())
+
+
+def test_simultaneous_stock_loss_prioritizes_own_loss_and_adds_hit_penalty_and_tick():
+    pre = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=3)]
+    post = [player_snapshot(0, stocks=2), player_snapshot(1, stocks=2)]
+    env = controlled_env(pre=pre, post=post, events=[damage_event(attack_id="terminal-hit")])
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.outcome == "own_stock_loss"
+    assert reward == pytest.approx(0.5 - 5.0 - 0.001)
+    assert info["trace"]["reward_terms"]["first_hit"] == pytest.approx(0.5)
+    assert info["trace"]["reward_terms"]["stock_loss"] == pytest.approx(-5.0)
+    assert info["trace"]["reward_terms"]["tick"] == pytest.approx(-0.001)
+
+
+def test_step_restores_global_rng_state_for_python_and_numpy():
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        env.reset(seed=134050, options={"scenario": {"player_slot": 0, "direction": 1}})
+        random.seed(444)
+        np.random.seed(555)
+        py_before = random.getstate()
+        np_before = np.random.get_state()
+        for _ in range(3):
+            env.step(zero_action())
+            assert random.getstate() == py_before
+            assert np.array_equal(np.random.get_state()[1], np_before[1])
+    finally:
+        env.close()
+
+
+def test_pursuit_on_elapsed_tick_60_credits_before_deadline():
+    post = [player_snapshot(0, x=1.0), player_snapshot(1, x=3.0)]
+    env = controlled_env(tick=160, post=post)
+    env.encounter = 2
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+
+    _, reward, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert env.pursuit_tick == 160
+    assert terminated is False
+    assert env.outcome is None
+    assert reward == pytest.approx(0.5 - 0.001)
+    assert info["trace"]["reward_terms"]["pursuit"] == pytest.approx(0.5)
+
+
+def test_absent_pursuit_ends_exactly_on_elapsed_tick_60():
+    env = controlled_env(tick=160)
+    env.encounter = 2
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.tick == 160
+    assert env.outcome == "response_deadline"
+    assert reward == pytest.approx(-1.001)
+    assert info["episode_diagnostics"]["outcome"] == "response_deadline"
+
+
+def test_distinct_second_hit_on_elapsed_tick_90_credits_before_deadline_and_can_succeed():
+    post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
+    env = controlled_env(tick=190, post=post, events=[damage_event(attack_id="second-hit")])
+    env.encounter = 2
+    env.first_hit_tick = 20
+    env.hit_ids = ["first-hit"]
+    env.hit_attack_id = "first-hit"
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+    env.pursuit_tick = 160
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.outcome == "success"
+    assert env.second_hit_tick == 190
+    assert reward == pytest.approx(1.0 + 2.0 - 0.001)
+    assert info["trace"]["reward_terms"]["second_hit"] == pytest.approx(1.0)
+    assert info["trace"]["reward_terms"]["completion"] == pytest.approx(2.0)
+
+
+def test_absent_second_hit_ends_on_elapsed_tick_90_and_rejects_tick_91():
+    env = controlled_env(tick=190)
+    env.encounter = 2
+    env.first_hit_tick = 20
+    env.hit_ids = ["first-hit"]
+    env.hit_attack_id = None
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+    env.pursuit_tick = 160
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.tick == 190
+    assert env.outcome == "second_hit_deadline"
+    assert reward == pytest.approx(-1.001)
+    assert info["episode_diagnostics"]["outcome"] == "second_hit_deadline"
+    with pytest.raises(RuntimeError):
+        rc.ReengagementEnv._step(env, zero_action())
+
+
+def test_total_tick_300_processes_eligible_second_hit_success_before_total_deadline():
+    post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
+    env = controlled_env(tick=300, post=post, events=[damage_event(attack_id="second-hit")])
+    env.encounter = 2
+    env.first_hit_tick = 20
+    env.hit_ids = ["first-hit"]
+    env.hit_attack_id = "first-hit"
+    env.relocation_tick = 250
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+    env.pursuit_tick = 280
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.tick == 300
+    assert env.outcome == "success"
+    assert info["episode_diagnostics"]["outcome"] == "success"
+    assert reward == pytest.approx(1.0 + 2.0 - 0.001)
+    with pytest.raises(RuntimeError):
+        rc.ReengagementEnv._step(env, zero_action())
+
+
+def test_deadline_boundaries_process_tick_300_but_never_301_in_real_env():
     env = rc.make_reengagement_env(FROZEN, seed=17)
     try:
         env.reset(seed=134030, options={"scenario": {"player_slot": 0, "direction": 1}})
@@ -244,6 +579,100 @@ def test_deadline_boundaries_process_tick_60_90_and_300_but_never_301():
         assert env.tick - relocation_tick == 60
     finally:
         env.close()
+
+
+def test_completed_diagnostics_include_reconstructable_relocation_damage_clearance_and_stock_fields():
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        env.reset(seed=134060, options={"scenario": {"player_slot": 0, "direction": 1}})
+        info = finish_episode(env, "scripted")
+    finally:
+        env.close()
+    diag = info["episode_diagnostics"]
+    for field in (
+        "relocation_pre_target",
+        "relocation_post_target",
+        "relocation_gap",
+        "gap_closed",
+        "learner_progress",
+        "attributed_damage_events",
+        "min_clearance",
+        "unsupported_ticks",
+        "falls",
+        "stock_changes",
+        "failure_category",
+    ):
+        assert field in diag
+    assert diag["relocation_pre_target"]["player_slot"] == 1
+    assert diag["relocation_post_target"]["player_slot"] == 1
+    assert diag["relocation_gap"] >= 2.0
+    assert diag["gap_closed"] >= 1.0
+    assert diag["learner_progress"] >= 1.0
+    assert len(diag["attributed_damage_events"]) >= 2
+    assert diag["min_clearance"] >= 0.2
+    assert diag["unsupported_ticks"] == {0: 0, 1: 0}
+    assert diag["falls"] == {0: 0, 1: 0}
+    assert diag["stock_changes"] == {0: 0, 1: 0}
+    assert diag["failure_category"] == "success"
+
+
+@pytest.mark.parametrize(
+    "controller, expected",
+    [
+        ("idle", "no_attack_request"),
+        ("held_light", "requested_no_start"),
+        ("one_hit_then_idle", "first_hit_only"),
+        ("move_without_second_hit", "pursued_missed_second"),
+        ("walkoff", "own_stock_loss"),
+    ],
+)
+def test_representative_failure_categories(controller, expected):
+    env = rc.make_reengagement_env(FROZEN, seed=17, player_slot=0)
+    try:
+        env.reset(seed=134061, options={"scenario": {"player_slot": 0, "direction": 1}})
+        info = finish_episode(env, controller)
+    finally:
+        env.close()
+    assert info["episode_diagnostics"]["failure_category"] == expected
+
+
+def test_started_missed_and_bad_support_categories_are_reported_from_terminal_diagnostics():
+    attack_started = {"type": "attack_started", "player_slot": 0, "attack_id": "miss", "attack_type": "DLIGHT"}
+    env = controlled_env(tick=300, events=[attack_started])
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+    assert terminated is True
+    assert info["episode_diagnostics"]["failure_category"] == "started_missed"
+
+    post = [
+        player_snapshot(0, fully_supported=False, clearance=-0.1),
+        player_snapshot(1, fully_supported=True, clearance=1.0),
+    ]
+    env = controlled_env(tick=10, post=post)
+    env.hit_attack_id = "first-hit"
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+    assert terminated is True
+    assert info["episode_diagnostics"]["failure_category"] == "unsafe_support"
+
+
+def test_opponent_stock_loss_and_deadline_categories_are_reported():
+    pre = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=3)]
+    post = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=2)]
+    env = controlled_env(pre=pre, post=post)
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+    assert terminated is True
+    assert info["episode_diagnostics"]["failure_category"] == "opponent_stock_loss"
+
+    env = controlled_env(tick=160)
+    env.encounter = 2
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+    _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
+    assert terminated is True
+    assert info["episode_diagnostics"]["failure_category"] == "failed_renewed_pursuit"
+    assert info["episode_diagnostics"]["terminal_reason"] == "response_deadline"
 
     env = rc.make_reengagement_env(FROZEN, seed=17)
     try:

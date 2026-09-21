@@ -168,7 +168,7 @@ class ReengagementEnv:
         self._instance_id = uuid.uuid4().hex
         self._episode_number = 0
         self._damage_source = None
-        self.reset(seed=seed)
+        self.reset(seed=seed, options={"scenario": {"player_slot": player_slot}})
 
     @contextmanager
     def _rng_scope(self):
@@ -232,6 +232,7 @@ class ReengagementEnv:
         self.previous_light = False
         self.reward_totals = {name: 0.0 for name in REWARD_NAMES}
         self._damage_source = None
+        self._reset_diagnostics()
 
         with self._rng_scope(), _asset_directory(self.game), redirect_stdout(io.StringIO()):
             self.raw_env.reset(seed=seed_value)
@@ -252,9 +253,51 @@ class ReengagementEnv:
         snapshots = self._snapshots()
         if min(p["horizontal_floor_clearance"] for p in snapshots) < 0.2:
             raise RuntimeError("B2 spawn violates required full-body .2 floor clearance")
+        self.min_clearance = min(p["horizontal_floor_clearance"] for p in snapshots)
+        self.initial_gap = abs(snapshots[1 - self.player_slot]["x"] - snapshots[self.player_slot]["x"])
+        self.initial_learner_x = snapshots[self.player_slot]["x"]
         self._observation_before = self._observation()
         terms = {name: 0.0 for name in REWARD_NAMES}
         return self._observation(), self._info(snapshots, snapshots, np.zeros(10), np.zeros(10), terms)
+
+    def _reset_diagnostics(self):
+        self.relocation_pre_target = None
+        self.relocation_post_target = None
+        self.gap_closed = None
+        self.learner_progress = None
+        self.attributed_damage_events = []
+        self.min_clearance = math.inf
+        self.unsupported_ticks = {0: 0, 1: 0}
+        self.falls = {0: 0, 1: 0}
+        self.stock_changes = {0: 0, 1: 0}
+        self.light_request_ticks = 0
+        self.movement_request_ticks = 0
+        self.renewed_movement_request_ticks = 0
+        self.attack_start_count = 0
+        self.max_initial_approach_progress = 0.0
+
+    def _ensure_diagnostics(self):
+        defaults = {
+            "relocation_pre_target": None,
+            "relocation_post_target": None,
+            "gap_closed": None,
+            "learner_progress": None,
+            "attributed_damage_events": [],
+            "min_clearance": math.inf,
+            "unsupported_ticks": {0: 0, 1: 0},
+            "falls": {0: 0, 1: 0},
+            "stock_changes": {0: 0, 1: 0},
+            "light_request_ticks": 0,
+            "movement_request_ticks": 0,
+            "renewed_movement_request_ticks": 0,
+            "attack_start_count": 0,
+            "max_initial_approach_progress": 0.0,
+            "initial_gap": None,
+            "initial_learner_x": None,
+        }
+        for name, value in defaults.items():
+            if not hasattr(self, name):
+                setattr(self, name, value.copy() if isinstance(value, (dict, list)) else value)
 
     def _spawn_players(self, gap, midpoint):
         learner_x = midpoint - self.direction * gap / 2.0
@@ -390,6 +433,12 @@ class ReengagementEnv:
         self.events = []
         pre = self._snapshots()
         self._observation_before = self._observation()
+        if executed[7] > 0.5:
+            self.light_request_ticks += 1
+        if executed[1] > 0.5 or executed[3] > 0.5:
+            self.movement_request_ticks += 1
+            if self.relocation_tick is not None:
+                self.renewed_movement_request_ticks += 1
         if executed[7] > 0.5 and not self.previous_light:
             self._event("attack_press", player_slot=self.player_slot, control=7)
         self.previous_light = bool(executed[7] > 0.5)
@@ -409,13 +458,43 @@ class ReengagementEnv:
             if event.get("amount", 0.0) <= 0:
                 continue
             if event.get("source_slot") != self.player_slot or event.get("target_slot") != 1 - self.player_slot:
-                continue
+                raise RuntimeError("invalid damage evidence")
             attack_id = event.get("attack_id")
             attack_type = event.get("attack_type")
             if not attack_id or attack_type not in LIGHT_ATTACK_TYPES:
                 raise RuntimeError("invalid damage evidence")
             if self.encounter == 2 and attack_id in self.hit_ids:
                 raise RuntimeError("invalid damage evidence: repeated first attack id")
+
+    def _track_step_diagnostics(self, pre, post):
+        self._ensure_diagnostics()
+        for event in self.events:
+            if event.get("type") == "attack_started" and event.get("player_slot") == self.player_slot:
+                self.attack_start_count += 1
+        for snapshot in post:
+            slot = snapshot["player_slot"]
+            clearance = snapshot["horizontal_floor_clearance"]
+            if math.isclose(clearance, 0.2, rel_tol=0.0, abs_tol=1e-9):
+                clearance = 0.2
+            self.min_clearance = min(self.min_clearance, clearance)
+            if snapshot["grounded"] and not snapshot["fully_supported"]:
+                self.unsupported_ticks[slot] = self.unsupported_ticks.get(slot, 0) + 1
+            initial = self.initial_stocks[slot]
+            previous_change = self.stock_changes.get(slot, 0)
+            self.stock_changes[slot] = max(previous_change, max(0, initial - snapshot["stocks"]))
+        for before, after in zip(pre, post):
+            slot = after["player_slot"]
+            if after["stocks"] < before["stocks"]:
+                self.falls[slot] = self.falls.get(slot, 0) + before["stocks"] - after["stocks"]
+        if self.initial_gap is not None and self.initial_learner_x is not None and self.relocation_tick is None:
+            learner = post[self.player_slot]
+            target = post[1 - self.player_slot]
+            gap = abs(target["x"] - learner["x"])
+            progress = self.direction * (learner["x"] - self.initial_learner_x)
+            self.max_initial_approach_progress = max(
+                self.max_initial_approach_progress,
+                min(self.initial_gap - gap, progress),
+            )
 
     def _credit_hits(self, terms):
         for event in list(self.events):
@@ -431,12 +510,14 @@ class ReengagementEnv:
                     self.hit_ids.append(event["attack_id"])
                     self.hit_attack_id = event["attack_id"]
                     self.first_hit_tick = self.tick
+                    self.attributed_damage_events.append(dict(event))
                     terms["first_hit"] += 0.5
                     self._event("hit_credit", ordinal=1, player_slot=self.player_slot, attack_id=event["attack_id"])
                 elif self.encounter == 2 and self.second_hit_tick is None:
                     self.hit_ids.append(event["attack_id"])
                     self.hit_attack_id = event["attack_id"]
                     self.second_hit_tick = self.tick
+                    self.attributed_damage_events.append(dict(event))
                     terms["second_hit"] += 1.0
                     self._event("hit_credit", ordinal=2, player_slot=self.player_slot, attack_id=event["attack_id"])
                 break
@@ -451,6 +532,8 @@ class ReengagementEnv:
         target = post[1 - self.player_slot]
         gap_closed = self.relocation_gap - abs(target["x"] - player["x"])
         learner_progress = self.pursuit_direction * (player["x"] - self.relocation_learner_x)
+        self.gap_closed = gap_closed
+        self.learner_progress = learner_progress
         if gap_closed >= 1.0 and learner_progress >= 1.0:
             self.pursuit_tick = self.tick
             terms["pursuit"] += 0.5
@@ -486,6 +569,8 @@ class ReengagementEnv:
             preserve_from=target,
         )
         after = self._snapshot(recreated)
+        self.relocation_pre_target = before
+        self.relocation_post_target = after
         self._event(
             "relocation",
             reason="encounter_boundary",
@@ -500,10 +585,14 @@ class ReengagementEnv:
         return True
 
     def _step(self, action):
+        self._ensure_diagnostics()
+        if self.outcome is not None:
+            raise RuntimeError("reset is required after the episode ends")
         raw, executed, pre, post = self._game_step(action)
         self._validate_evidence()
         terms = {name: 0.0 for name in REWARD_NAMES}
         terms["tick"] = -0.001
+        self._track_step_diagnostics(pre, post)
 
         self._credit_hits(terms)
         self._credit_pursuit(post, terms)
@@ -543,6 +632,31 @@ class ReengagementEnv:
             self.outcome = "total_deadline"
             terms["deadline"] += -1.0
         return self._finish_step(pre, raw, executed, terms)
+
+    def _failure_category(self):
+        if self.outcome == "success":
+            return "success"
+        if self.outcome in ("own_stock_loss", "opponent_stock_loss", "unsafe_support"):
+            return self.outcome
+        if self.outcome in ("response_deadline", "second_hit_deadline", "total_deadline"):
+            if self.relocation_tick is not None:
+                if self.pursuit_tick is None:
+                    if self.first_hit_tick is not None and self.renewed_movement_request_ticks == 0:
+                        return "first_hit_only"
+                    return "failed_renewed_pursuit"
+                if self.second_hit_tick is None:
+                    return "pursued_missed_second"
+            if self.first_hit_tick is None:
+                if self.light_request_ticks > 0:
+                    return "requested_no_start"
+                if self.attack_start_count > 0:
+                    return "started_missed"
+                if self.movement_request_ticks > 0 and self.max_initial_approach_progress < 1.0:
+                    return "no_approach"
+                return "no_attack_request"
+            if self.relocation_tick is None:
+                return "first_hit_only"
+        return "deadline"
 
     def _finish_step(self, pre, raw, executed, terms):
         for name, value in terms.items():
@@ -591,6 +705,15 @@ class ReengagementEnv:
             "pursuit_tick": self.pursuit_tick,
             "pursuit_direction": self.pursuit_direction,
             "distinct_hit_ids": list(self.hit_ids),
+            "relocation_pre_target": self.relocation_pre_target,
+            "relocation_post_target": self.relocation_post_target,
+            "gap_closed": self.gap_closed,
+            "learner_progress": self.learner_progress,
+            "attributed_damage_events": list(self.attributed_damage_events),
+            "min_clearance": self.min_clearance,
+            "unsupported_ticks": dict(self.unsupported_ticks),
+            "falls": dict(self.falls),
+            "stock_changes": dict(self.stock_changes),
         }
         info = {
             "trace": trace,
@@ -615,7 +738,18 @@ class ReengagementEnv:
                 "first_hit_tick": self.first_hit_tick,
                 "second_hit_tick": self.second_hit_tick,
                 "relocation_tick": self.relocation_tick,
+                "relocation_pre_target": self.relocation_pre_target,
+                "relocation_post_target": self.relocation_post_target,
+                "relocation_gap": self.relocation_gap,
                 "pursuit_tick": self.pursuit_tick,
+                "gap_closed": self.gap_closed,
+                "learner_progress": self.learner_progress,
+                "attributed_damage_events": list(self.attributed_damage_events),
+                "min_clearance": self.min_clearance,
+                "unsupported_ticks": dict(self.unsupported_ticks),
+                "falls": dict(self.falls),
+                "stock_changes": dict(self.stock_changes),
+                "failure_category": self._failure_category(),
                 "positive_reward": (
                     self.reward_totals["first_hit"]
                     + self.reward_totals["pursuit"]
