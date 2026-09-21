@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -20,7 +21,11 @@ from typing import Any, Callable, Mapping, Sequence
 
 SCHEMA_VERSION = "ai2.native_curriculum_runner.v1"
 SCHEDULE_SCHEMA_VERSION = "ai2.native_curriculum_schedule.v1"
-SUPPORTED_BLOCKS = {"native_contact"}
+TRAIN_BLOCKS = {
+    "native_contact": "benchmark_native_contact_training",
+    "native_reengagement": "train_reengagement_campaign_block",
+}
+SUPPORTED_BLOCKS = frozenset(TRAIN_BLOCKS)
 REQUIRED_MODES = ("deterministic", "sampled")
 RATE_GATES = {"win_rate_min", "fall_rate_max", "hit_rate_min"}
 NONNEGATIVE_GATES = {"damage_done_min"}
@@ -298,27 +303,31 @@ def _validate_phase(raw: Any) -> dict[str, Any]:
 
 
 def _default_train_block(*, phase: Mapping[str, Any], checkpoint_path: Path, output_dir: Path) -> Mapping[str, Any]:
-    import benchmark_native_contact_training as contact
+    block_type = phase["block"]["type"]
+    module_name = TRAIN_BLOCKS.get(block_type)
+    if module_name is None:
+        raise ValueError(f"unsupported block type: {block_type!r}")
+    train_module = importlib.import_module(module_name)
 
     configured = dict(phase["block"].get("args", {}))
     configured.pop("checkpoint", None)
     configured.pop("output", None)
     if "deadline_unix" not in configured:
-        raise ValueError("native_contact block args require deadline_unix for the real runner")
+        raise ValueError(f"{block_type} block args require deadline_unix for the real runner")
     argv = ["--checkpoint", str(checkpoint_path), "--output", str(output_dir)]
     for key, value in configured.items():
         if isinstance(value, (dict, list, tuple, bool)):
-            raise ValueError(f"native_contact block arg {key!r} must be a scalar")
+            raise ValueError(f"{block_type} block arg {key!r} must be a scalar")
         if value is None:
             continue
         argv.extend(("--" + key.replace("_", "-"), str(value)))
     try:
-        namespace = contact.parse_args(argv)
+        namespace = train_module.parse_args(argv)
     except SystemExit as exc:
-        raise ValueError("native_contact block args do not satisfy the real runner contract") from exc
+        raise ValueError(f"{block_type} block args do not satisfy the real runner contract") from exc
     if Path(namespace.checkpoint) != checkpoint_path or Path(namespace.output) != output_dir:
-        raise ValueError("native_contact parser changed conductor-owned paths")
-    result = contact.run_block(namespace)
+        raise ValueError(f"{block_type} parser changed conductor-owned paths")
+    result = train_module.run_block(namespace)
     return {"checkpoint": output_dir / "final.zip", "result": result}
 
 
@@ -744,7 +753,12 @@ def _failure_receipt(
 
 def _source_hashes() -> dict[str, str | None]:
     root = Path(__file__).resolve().parent
-    names = ("native_curriculum_runner.py", "benchmark_native_contact_training.py", "evaluate_fullgame_bank.py")
+    names = (
+        "native_curriculum_runner.py",
+        "benchmark_native_contact_training.py",
+        "train_reengagement_campaign_block.py",
+        "evaluate_fullgame_bank.py",
+    )
     return {name: sha256_file(root / name) if (root / name).is_file() else None for name in names}
 
 

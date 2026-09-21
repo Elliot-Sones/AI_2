@@ -14,13 +14,13 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
     def sha256(path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
-    def write_schedule(self, root, *, gates=None, phase_id="contact_a"):
+    def write_schedule(self, root, *, gates=None, phase_id="contact_a", block_type="native_contact"):
         schedule = {
             "schema_version": "ai2.native_curriculum_schedule.v1",
             "phases": [
                 {
                     "id": phase_id,
-                    "block": {"type": "native_contact", "args": {"rollouts": 1}},
+                    "block": {"type": block_type, "args": {"rollouts": 1}},
                     "evaluation": {
                         "modes": ["deterministic", "sampled"],
                         "episode_max": 4,
@@ -461,6 +461,79 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(observed["device"], "cuda")
             self.assertEqual(observed["update_mode"], "deferred_metrics")
             self.assertEqual(result["checkpoint"], output / "final.zip")
+
+    def test_default_train_adapter_dispatches_contact_and_reengagement_modules(self):
+        import native_curriculum_runner as runner
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkpoint = root / "input.zip"
+            checkpoint.write_bytes(b"input")
+            observed = []
+
+            def module(label):
+                def parse_args(argv):
+                    parser = argparse.ArgumentParser()
+                    parser.add_argument("--checkpoint", type=Path, required=True)
+                    parser.add_argument("--output", type=Path, required=True)
+                    parser.add_argument("--deadline-unix", type=float, required=True)
+                    return parser.parse_args(argv)
+
+                def run_block(args):
+                    observed.append((label, args.checkpoint, args.output))
+                    args.output.mkdir()
+                    (args.output / "final.zip").write_bytes(label.encode("utf8"))
+                    return {"status": "trained_not_evaluated"}
+
+                return types.SimpleNamespace(parse_args=parse_args, run_block=run_block)
+
+            fake_modules = {
+                "benchmark_native_contact_training": module("contact"),
+                "train_reengagement_campaign_block": module("reengagement"),
+            }
+            with mock.patch.dict(sys.modules, fake_modules):
+                for block_type, label in (
+                    ("native_contact", "contact"),
+                    ("native_reengagement", "reengagement"),
+                ):
+                    output = root / label
+                    result = runner._default_train_block(
+                        phase={"block": {"type": block_type, "args": {"deadline_unix": 9999999999.0}}},
+                        checkpoint_path=checkpoint,
+                        output_dir=output,
+                    )
+                    self.assertEqual(result["checkpoint"], output / "final.zip")
+
+            self.assertEqual(
+                observed,
+                [
+                    ("contact", checkpoint, root / "contact"),
+                    ("reengagement", checkpoint, root / "reengagement"),
+                ],
+            )
+
+    def test_both_block_types_reject_phase_owned_checkpoint_and_output(self):
+        import native_curriculum_runner as runner
+
+        for block_type in ("native_contact", "native_reengagement"):
+            for owned_name in ("checkpoint", "output"):
+                with self.subTest(block_type=block_type, owned_name=owned_name):
+                    raw = {
+                        "id": "phase",
+                        "block": {"type": block_type, "args": {owned_name: "foreign"}},
+                        "evaluation": {
+                            "modes": ["deterministic", "sampled"],
+                            "policy_kind": "sb3",
+                            "action_head": "auto",
+                            "device": "cuda",
+                        },
+                        "gates": {
+                            "deterministic": {"win_rate_min": 0.5},
+                            "sampled": {"win_rate_min": 0.5},
+                        },
+                    }
+                    with self.assertRaisesRegex(ValueError, "cannot override conductor checkpoint or output"):
+                        runner._validate_phase(raw)
 
     def test_default_contact_adapter_matches_the_real_parser_contract(self):
         import benchmark_native_contact_training as contact
