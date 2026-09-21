@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -126,6 +127,41 @@ class EvaluateReengagementCurriculumTests(unittest.TestCase):
         overlap["reserved_training_seeds"] = [134000]
         with self.assertRaisesRegex(ValueError, "overlap"):
             module.validate_bank_manifest(overlap)
+
+    def test_injected_bank_is_safe_to_use_for_artifact_paths_and_scenarios(self):
+        module = self.subject()
+        scenario = module.curriculum.scenario_from_seed(120000, player_slot=0, direction=-1)
+        valid = module.CaseBank(
+            panel="development",
+            generator_version=module.GENERATOR_VERSION,
+            bank_sha256="0" * 64,
+            cases=[
+                module.EvaluationCase(
+                    case_id="reengagement-deterministic-p0-s120000",
+                    seed=120000,
+                    mode="deterministic",
+                    player_slot=0,
+                    direction=-1,
+                    scenario=scenario,
+                )
+            ],
+        )
+        module._validate_injected_bank(valid)
+
+        mutations = {
+            "unsafe case ID": dataclasses.replace(valid.cases[0], case_id="../escape"),
+            "non-integer seed": dataclasses.replace(valid.cases[0], seed=True),
+            "invalid direction": dataclasses.replace(valid.cases[0], direction=0),
+            "non-finite gap": dataclasses.replace(
+                valid.cases[0], scenario={**scenario, "gap": float("nan")}
+            ),
+            "mismatched scenario": dataclasses.replace(
+                valid.cases[0], scenario={**scenario, "player_slot": 1}
+            ),
+        }
+        for name, case in mutations.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                module._validate_injected_bank(dataclasses.replace(valid, cases=[case]))
 
     def test_trace_reconstruction_ignores_success_label_without_complete_evidence(self):
         module = self.subject()

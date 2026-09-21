@@ -770,6 +770,55 @@ def _validate_exact_bank_cases(panel: str, cases: Sequence[Mapping[str, Any]]) -
             raise ValueError("deterministic and sampled cases must share identical scenario identity")
 
 
+def _validate_injected_bank(bank: CaseBank) -> None:
+    if bank.generator_version != GENERATOR_VERSION:
+        raise ValueError("bank generator version mismatch")
+    if bank.panel not in {"development", "confirmation"}:
+        raise ValueError("bank panel must be development or confirmation")
+    if not bank.cases:
+        raise ValueError("bank manifest cases must be a nonempty list")
+    if any(not isinstance(case, EvaluationCase) for case in bank.cases):
+        raise ValueError("injected bank cases must be EvaluationCase values")
+    ids = [case.case_id for case in bank.cases]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate or malformed bank case IDs")
+    mode_seed = [(case.mode, case.seed) for case in bank.cases]
+    if len(mode_seed) != len(set(mode_seed)):
+        raise ValueError("duplicate bank mode/seed pairs")
+    for case in bank.cases:
+        if case.mode not in MODES:
+            raise ValueError("case mode must be deterministic or sampled")
+        scenario = case.scenario
+        if not isinstance(scenario, Mapping):
+            raise ValueError("case scenario must be an object")
+        try:
+            scenario_seed = scenario["seed"]
+            scenario_slot = scenario["player_slot"]
+            scenario_direction = scenario["direction"]
+            gap = scenario["gap"]
+            midpoint = scenario["midpoint"]
+            scenario_id = scenario["id"]
+        except KeyError as exc:
+            raise ValueError(f"case scenario is missing {exc.args[0]}") from exc
+        curriculum._validate_scenario(case.seed, case.player_slot, case.direction, gap, midpoint)
+        if (scenario_seed, scenario_slot, scenario_direction) != (
+            case.seed,
+            case.player_slot,
+            case.direction,
+        ):
+            raise ValueError("case scenario identity does not match its case")
+        expected_scenario_id = (
+            f"reengagement-s{case.seed}-p{case.player_slot}-d{case.direction}"
+        )
+        if scenario_id != expected_scenario_id:
+            raise ValueError("case scenario ID does not match its case")
+        expected_case_id = (
+            f"reengagement-{case.mode}-p{case.player_slot}-s{case.seed}"
+        )
+        if case.case_id != expected_case_id:
+            raise ValueError("case ID does not match its case")
+
+
 def _positive_tick(value: Any, name: str = "tick") -> int:
     tick = _int(value, name)
     if tick <= 0:
