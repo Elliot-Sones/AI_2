@@ -496,7 +496,12 @@ class ReengagementEnv:
             if not attack_id or attack_type not in LIGHT_ATTACK_TYPES:
                 raise RuntimeError("invalid damage evidence")
             if self.encounter == 2 and attack_id in self.hit_ids:
-                raise RuntimeError("invalid damage evidence: repeated first attack id")
+                credited_second_id = self.hit_ids[1] if self.second_hit_tick is not None and len(self.hit_ids) >= 2 else None
+                if attack_id == credited_second_id:
+                    continue
+                if self.hit_ids and attack_id == self.hit_ids[0]:
+                    raise RuntimeError("invalid damage evidence: replayed first encounter attack id after relocation")
+                raise RuntimeError("invalid damage evidence: duplicate credited attack id")
 
     def _track_step_diagnostics(self, pre, post):
         self._ensure_diagnostics()

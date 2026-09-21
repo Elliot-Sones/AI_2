@@ -423,7 +423,7 @@ def test_repeated_first_attack_id_and_opponent_self_loss_fail_without_success_tr
             return result
 
         env.raw_env.step = repeated_first_id_step
-        with pytest.raises(RuntimeError, match="invalid damage evidence"):
+        with pytest.raises(RuntimeError, match="replayed first encounter attack id after relocation"):
             env.step(zero_action())
     finally:
         env.close()
@@ -549,6 +549,34 @@ def test_distinct_second_hit_on_elapsed_tick_90_credits_before_deadline_and_can_
     assert reward == pytest.approx(1.0 + 2.0 - 0.001)
     assert info["trace"]["reward_terms"]["second_hit"] == pytest.approx(1.0)
     assert info["trace"]["reward_terms"]["completion"] == pytest.approx(2.0)
+
+
+def test_replayed_second_hit_damage_frame_is_ignored_while_resolution_completes_safely():
+    post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
+    env = controlled_env(tick=191, post=post, events=[damage_event(attack_id="second-hit")])
+    env.encounter = 2
+    env.first_hit_tick = 20
+    env.second_hit_tick = 190
+    env.hit_ids = ["first-hit", "second-hit"]
+    env.hit_attack_id = "second-hit"
+    env.relocation_tick = 100
+    env.relocation_gap = 4.0
+    env.relocation_learner_x = 0.0
+    env.relocation_target_x = 4.0
+    env.pursuit_direction = 1
+    env.pursuit_tick = 160
+    env.attributed_damage_events = [damage_event(attack_id="first-hit"), damage_event(attack_id="second-hit")]
+
+    _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
+
+    assert terminated is True
+    assert truncated is False
+    assert env.outcome == "success"
+    assert reward == pytest.approx(2.0 - 0.001)
+    assert info["trace"]["reward_terms"]["second_hit"] == 0.0
+    assert info["trace"]["reward_terms"]["completion"] == pytest.approx(2.0)
+    assert env.hit_ids == ["first-hit", "second-hit"]
+    assert len(env.attributed_damage_events) == 2
 
 
 def test_absent_second_hit_ends_on_elapsed_tick_90_and_rejects_tick_91():
