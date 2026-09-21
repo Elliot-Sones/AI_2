@@ -15,6 +15,7 @@ import numpy as np
 
 import benchmark_curriculum_throughput as throughput
 import benchmark_native_contact_training as base
+import tracking
 import train_contact_campaign_block as contact_block
 from benchmark_native_contact_training import ACTION_EXPERIMENT_ARMS
 from native_navigation_curriculum_env import (
@@ -56,6 +57,7 @@ DIRECT_SOURCE_FILES = (
     "native_curriculum_ppo.py",
     "benchmark_curriculum_throughput.py",
     "benchmark_native_contact_training.py",
+    "tracking.py",
     "train_contact_campaign_block.py",
 )
 QUALIFICATION_SOURCE_FILES = (
@@ -71,6 +73,7 @@ QUALIFICATION_SOURCE_FILES = (
     "ppo_update_optimizations.py",
     "benchmark_curriculum_throughput.py",
     "benchmark_native_contact_training.py",
+    "tracking.py",
     "train_contact_campaign_block.py",
     "native_game_episode.py",
     "native_navigation_episode.py",
@@ -199,6 +202,87 @@ def sha256(path):
 
 def atomic_json(path, value):
     return base.atomic_json(path, value)
+
+
+def wandb_run_receipt(output):
+    path = Path(output) / tracking.RECORD_NAME
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, dict) or not payload.get("id") or not (payload.get("url") or payload.get("path")):
+        raise RuntimeError("W&B run receipt is malformed")
+    return {
+        "path": str(path),
+        "sha256": sha256(path),
+        "id": payload["id"],
+        "run_path": payload.get("path"),
+        "url": payload.get("url"),
+        "mode": payload.get("mode"),
+        "dir": payload.get("dir"),
+    }
+
+
+def start_wandb_run(args, cfg, output, checkpoint):
+    if not args.require_wandb:
+        return None, None
+    params = {
+        "wandb": {
+            "enabled": True,
+            "project": args.wandb_project,
+            "job_type": "train",
+            "upload_checkpoints": False,
+            "upload_videos": False,
+            "tags": ["native-gpu", "b2-reengagement", cfg.schedule_id],
+        },
+        "ppo_settings": {
+            "model_checkpoint": checkpoint["sha256"],
+            "time_steps": cfg.total_transitions,
+            "batch_size": cfg.batch_size,
+            "n_epochs": cfg.n_epochs,
+            "learning_rate": cfg.learning_rate,
+        },
+        "environment_settings": {"n_envs": cfg.lanes},
+    }
+    run = tracking.init_run(
+        params,
+        phase_key=f"b2-cycle-{args.cycle_index:03d}",
+        kind="native-reengagement",
+        results_dir=str(output),
+        extra_config={
+            "schema_version": SCHEMA_VERSION,
+            "cycle_index": args.cycle_index,
+            "schedule": list(cfg.schedule),
+            "checkpoint_sha256": checkpoint["sha256"],
+            "expected_task_versions": dict(EXPECTED_TASK_VERSIONS),
+        },
+    )
+    receipt = wandb_run_receipt(output) if run is not None else None
+    if args.require_wandb and (run is None or receipt is None):
+        tracking.finish(exit_code=1)
+        raise RuntimeError("required W&B training run did not create a verifiable receipt")
+    return run, receipt
+
+
+def log_wandb_rollout(run, row):
+    if run is None:
+        return
+    update = row["actual_update"]
+    payload = {
+        "global_step": row["cumulative_timesteps"],
+        "rollout/index": row["rollout"],
+        "rollout/task_reengagement": int(row["task"] == "reengagement"),
+        "rollout/transitions": row["transitions"],
+        "timing/collection_seconds": row["collection_seconds"],
+        "timing/update_seconds": row["update_seconds"],
+        "timing/total_seconds": row["total_seconds"],
+        "throughput/training_steps_per_second": row["transitions"] / row["total_seconds"],
+        "episodes/completed": row["episode_count"],
+        "ppo/optimizer_steps": update["optimizer_steps"],
+        "ppo/attempted_epochs": update["attempted_epochs"],
+        "ppo/kl_early_stop": int(bool(update["kl_early_stop"])),
+    }
+    payload.update({name: value for name, value in row["metrics"].items() if isinstance(value, (int, float))})
+    run.log(payload, step=row["cumulative_timesteps"])
 
 
 def verify_input_checkpoint(args, cfg=None):
@@ -774,7 +858,6 @@ def run_block(args):
     device = base.require_cuda(cfg.device)
 
     os.environ["AI2_FROZEN_SOURCE_ROOT"] = str(Path(args.frozen_root).resolve())
-    os.environ["WANDB_MODE"] = "offline"
     throughput.seed_everything(cfg.seed)
     output.mkdir(parents=True, exist_ok=False)
     started = throughput.perf_counter_sequence()
@@ -783,8 +866,11 @@ def run_block(args):
     environments = {}
     logger = None
     model = None
+    wandb_run = None
+    wandb_closed = False
 
     try:
+        wandb_run, initial_wandb_receipt = start_wandb_run(args, cfg, output, checkpoint)
         throughput.reset_peak_memory(device)
         precision_state = configure_fp32_runtime()
         BaseCallback = receipt_callback_base()
@@ -811,6 +897,7 @@ def run_block(args):
             "cycle_index": args.cycle_index,
             "expected_start_timesteps": checkpoint["expected_start_timesteps"],
             "root_parent_checkpoint_sha256": PARENT_CHECKPOINT_SHA256,
+            "wandb_run_at_start": initial_wandb_receipt,
             "parent_lifetime_transitions": PARENT_LIFETIME_TRANSITIONS,
             "expected_task_versions": dict(EXPECTED_TASK_VERSIONS),
             "qualification_sha256": sha256(args.qualification),
@@ -929,6 +1016,7 @@ def run_block(args):
             }
             atomic_json(output / f"rollout-{index:03d}.json", row)
             model.logger.dump(step=model.num_timesteps)
+            log_wandb_rollout(wandb_run, row)
             rows.append(row)
             measured_window_end = throughput.perf_counter_sequence()
             print(json.dumps({
@@ -948,6 +1036,25 @@ def run_block(args):
             [{**row, "warmup": False} for row in rows],
             measured_window_seconds=measured_window_end - measured_window_start,
         )
+        tracking.log_summary(
+            cycle_index=args.cycle_index,
+            final_timesteps=model.num_timesteps,
+            checkpoint_sha256=final_checkpoint["sha256"],
+            measured_training_steps_per_second=summary["measured_training_steps_per_second"],
+            measured_collection_seconds=summary["measured_collection_seconds"],
+            measured_update_seconds=summary["measured_update_seconds"],
+        )
+        tracking.append_notes(
+            "Outcome: completed B2 cycle "
+            f"{args.cycle_index} with {cfg.total_transitions} learner transitions; "
+            f"final checkpoint {final_checkpoint['sha256']}. "
+            "Quality verdict remains pending authoritative original-game evaluation."
+        )
+        tracking.finish(exit_code=0)
+        wandb_closed = True
+        final_wandb_receipt = wandb_run_receipt(output)
+        if args.require_wandb and final_wandb_receipt is None:
+            raise RuntimeError("required W&B receipt disappeared before result sealing")
         result = {
             "schema_version": SCHEMA_VERSION,
             "status": "trained_not_evaluated",
@@ -971,6 +1078,7 @@ def run_block(args):
             "checkpoint_sha256": final_checkpoint["sha256"],
             "actor_sha256": actor["sha256"],
             "resume_from_checkpoint_sha256": args.checkpoint_sha256 if args.resume else None,
+            "wandb": final_wandb_receipt,
             "wall_seconds_including_setup_logging_final_saves": throughput.perf_counter_sequence() - started,
             "finished_unix": time.time(),
             "next_required_action": "retrieve, hash-verify and evaluate this checkpoint in the original Python game",
@@ -982,6 +1090,10 @@ def run_block(args):
         base.write_inventory(output, block_id=output.name)
         return result
     except BaseException as error:
+        if not wandb_closed:
+            tracking.append_notes(f"Outcome: B2 cycle {args.cycle_index} failed: {type(error).__name__}: {error}")
+            tracking.finish(exit_code=1)
+            wandb_closed = True
         if logger is not None:
             logger.close()
             logger = None
@@ -996,6 +1108,8 @@ def run_block(args):
             )
         raise
     finally:
+        if not wandb_closed:
+            tracking.finish(exit_code=1)
         if logger is not None:
             logger.close()
         _close_all(environments)
@@ -1020,6 +1134,8 @@ def parse_args(argv=None):
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--cycle-index", type=int, default=1)
     parser.add_argument("--resume-parent-result", type=Path)
+    parser.add_argument("--require-wandb", action="store_true")
+    parser.add_argument("--wandb-project", default="utmist-ai2")
     args = parser.parse_args(argv)
     if not args.resume and args.checkpoint_sha256 != PARENT_CHECKPOINT_SHA256:
         parser.error("fresh B2 blocks require the canonical B_projected-050m checkpoint SHA256")

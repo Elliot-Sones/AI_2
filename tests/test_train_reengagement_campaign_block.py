@@ -410,6 +410,41 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
                 model, cfg, requested_rollout_task="reengagement", expected_start_timesteps=expected_counter
             )
 
+    def test_required_wandb_must_create_a_hashable_run_receipt_before_training(self):
+        m = self.subject()
+        cfg = m.ReengagementCampaignConfig()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self.args(root)
+            args.require_wandb = True
+            args.wandb_project = "utmist-ai2"
+            checkpoint = {"sha256": m.PARENT_CHECKPOINT_SHA256}
+            with patch.object(m.tracking, "init_run", return_value=None), \
+                 self.assertRaisesRegex(RuntimeError, "W&B"):
+                m.start_wandb_run(args, cfg, root / "out", checkpoint)
+
+            receipt = root / "out" / "wandb_run.json"
+
+            def initialize(*call_args, **call_kwargs):
+                receipt.parent.mkdir(parents=True, exist_ok=True)
+                receipt.write_text(json.dumps({
+                    "id": "run-1",
+                    "path": "entity/utmist-ai2/run-1",
+                    "url": "https://wandb.ai/entity/utmist-ai2/runs/run-1",
+                    "mode": "online",
+                }))
+                return SimpleNamespace(log=lambda *a, **k: None)
+
+            with patch.object(m.tracking, "init_run", side_effect=initialize) as init_run:
+                run, run_receipt = m.start_wandb_run(args, cfg, root / "out", checkpoint)
+            self.assertIsNotNone(run)
+            self.assertEqual(run_receipt["path"], str(receipt))
+            self.assertRegex(run_receipt["sha256"], r"^[0-9a-f]{64}$")
+            params = init_run.call_args.args[0]
+            self.assertEqual(params["wandb"]["project"], "utmist-ai2")
+            self.assertEqual(init_run.call_args.kwargs["phase_key"], "b2-cycle-001")
+            self.assertEqual(init_run.call_args.kwargs["extra_config"]["checkpoint_sha256"], m.PARENT_CHECKPOINT_SHA256)
+
     def test_source_hash_inventory_includes_direct_trainer_imports_and_fails_missing(self):
         m = self.subject()
         with TemporaryDirectory() as directory:
@@ -617,6 +652,8 @@ class ReengagementCampaignBlockTests(unittest.TestCase):
             resume=resume,
             cycle_index=selected_cycle,
             resume_parent_result=resume_parent_result if resume else None,
+            require_wandb=False,
+            wandb_project="utmist-ai2",
         )
 
     def common_patches(self, m, cfg, reengagement_env, navigation_env, model, *, checkpoint_sha=None):
