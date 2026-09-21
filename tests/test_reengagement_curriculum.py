@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import random
 
@@ -9,11 +10,46 @@ import pytest
 import reengagement_curriculum as rc
 
 
-FROZEN = Path("/Users/elliot18/Projects/ml-research/AI_2/baselines/fullgame-20260908/oracle")
+def resolve_frozen_source_root() -> Path:
+    override = os.environ.get("AI2_FROZEN_SOURCE_ROOT")
+    root = Path(override).expanduser() if override else Path(__file__).resolve().parents[1] / "baselines/fullgame-20260908/oracle"
+    root = root.resolve()
+    source = root / "UTMIST-AI2-main/environment/environment.py"
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"AI2 frozen original-game fixture not found at {root}. "
+            "Set AI2_FROZEN_SOURCE_ROOT to the frozen oracle checkout root."
+        )
+    return root
+
+
+FROZEN = resolve_frozen_source_root()
 
 
 def zero_action() -> np.ndarray:
     return np.zeros(10, dtype=np.float32)
+
+
+def test_frozen_fixture_defaults_to_reviewed_worktree_when_no_override(monkeypatch):
+    monkeypatch.delenv("AI2_FROZEN_SOURCE_ROOT", raising=False)
+    expected = Path(__file__).resolve().parents[1] / "baselines/fullgame-20260908/oracle"
+
+    if (expected / "UTMIST-AI2-main/environment/environment.py").is_file():
+        assert resolve_frozen_source_root() == expected
+    else:
+        with pytest.raises(FileNotFoundError, match="AI2 frozen original-game fixture not found") as exc:
+            resolve_frozen_source_root()
+        assert str(expected) in str(exc.value)
+
+
+def test_frozen_fixture_uses_explicit_override_and_fails_clearly_for_missing_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI2_FROZEN_SOURCE_ROOT", str(FROZEN))
+    assert resolve_frozen_source_root() == FROZEN
+
+    missing = tmp_path / "missing-oracle"
+    monkeypatch.setenv("AI2_FROZEN_SOURCE_ROOT", str(missing))
+    with pytest.raises(FileNotFoundError, match="AI2 frozen original-game fixture not found"):
+        resolve_frozen_source_root()
 
 
 def player_snapshot(slot: int, *, x=0.0, y=0.35, stocks=3, damage=0.0, damage_done=0.0,
@@ -39,7 +75,13 @@ def player_snapshot(slot: int, *, x=0.0, y=0.35, stocks=3, damage=0.0, damage_do
     }
 
 
-def controlled_env(*, tick=1, events=None, pre=None, post=None):
+def state_machine_boundary_harness(*, tick=1, events=None, pre=None, post=None):
+    """Build a minimal ReengagementEnv shell for state-machine boundary tests.
+
+    This bypasses the frozen original game and must not be used for integration
+    claims about physics, collision, controller timing, or fixture provenance.
+    """
+
     env = object.__new__(rc.ReengagementEnv)
     env.player_slot = 0
     env.direction = 1
@@ -373,6 +415,10 @@ def test_scripted_hit_resolve_pursue_hit_resolve_succeeds(slot, direction):
     assert diag["pursuit_tick"] is not None
     assert diag["second_hit_tick"] is not None
     assert diag["distinct_hit_ids"][0] != diag["distinct_hit_ids"][1]
+    assert diag["first_hit_tick"] < diag["relocation_tick"] < diag["pursuit_tick"] < diag["second_hit_tick"]
+    assert diag["second_hit_tick"] <= diag["ticks"]
+    assert diag["min_clearance"] >= 0.2
+    assert diag["failure_category"] == "success"
 
 
 @pytest.mark.parametrize(
@@ -451,7 +497,7 @@ def test_invalid_damage_evidence_requires_nonzero_id_valid_type_and_correct_attr
         damage_event(target_slot=0),
     ]
     for event in invalid_events:
-        env = controlled_env(events=[event])
+        env = state_machine_boundary_harness(events=[event])
         with pytest.raises(RuntimeError, match="invalid damage evidence"):
             rc.ReengagementEnv._step(env, zero_action())
 
@@ -459,7 +505,7 @@ def test_invalid_damage_evidence_requires_nonzero_id_valid_type_and_correct_attr
 def test_simultaneous_stock_loss_prioritizes_own_loss_and_adds_hit_penalty_and_tick():
     pre = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=3)]
     post = [player_snapshot(0, stocks=2), player_snapshot(1, stocks=2)]
-    env = controlled_env(pre=pre, post=post, events=[damage_event(attack_id="terminal-hit")])
+    env = state_machine_boundary_harness(pre=pre, post=post, events=[damage_event(attack_id="terminal-hit")])
 
     _, reward, terminated, truncated, info = rc.ReengagementEnv._step(env, zero_action())
 
@@ -490,7 +536,7 @@ def test_step_restores_global_rng_state_for_python_and_numpy():
 
 def test_pursuit_on_elapsed_tick_60_credits_before_deadline():
     post = [player_snapshot(0, x=1.0), player_snapshot(1, x=3.0)]
-    env = controlled_env(tick=160, post=post)
+    env = state_machine_boundary_harness(tick=160, post=post)
     env.encounter = 2
     env.relocation_tick = 100
     env.relocation_gap = 4.0
@@ -508,7 +554,7 @@ def test_pursuit_on_elapsed_tick_60_credits_before_deadline():
 
 
 def test_absent_pursuit_ends_exactly_on_elapsed_tick_60():
-    env = controlled_env(tick=160)
+    env = state_machine_boundary_harness(tick=160)
     env.encounter = 2
     env.relocation_tick = 100
     env.relocation_gap = 4.0
@@ -528,7 +574,7 @@ def test_absent_pursuit_ends_exactly_on_elapsed_tick_60():
 
 def test_distinct_second_hit_on_elapsed_tick_90_credits_before_deadline_and_can_succeed():
     post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
-    env = controlled_env(tick=190, post=post, events=[damage_event(attack_id="second-hit")])
+    env = state_machine_boundary_harness(tick=190, post=post, events=[damage_event(attack_id="second-hit")])
     env.encounter = 2
     env.first_hit_tick = 20
     env.hit_ids = ["first-hit"]
@@ -553,7 +599,7 @@ def test_distinct_second_hit_on_elapsed_tick_90_credits_before_deadline_and_can_
 
 def test_replayed_second_hit_damage_frame_is_ignored_while_resolution_completes_safely():
     post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
-    env = controlled_env(tick=191, post=post, events=[damage_event(attack_id="second-hit")])
+    env = state_machine_boundary_harness(tick=191, post=post, events=[damage_event(attack_id="second-hit")])
     env.encounter = 2
     env.first_hit_tick = 20
     env.second_hit_tick = 190
@@ -580,7 +626,7 @@ def test_replayed_second_hit_damage_frame_is_ignored_while_resolution_completes_
 
 
 def test_absent_second_hit_ends_on_elapsed_tick_90_and_rejects_tick_91():
-    env = controlled_env(tick=190)
+    env = state_machine_boundary_harness(tick=190)
     env.encounter = 2
     env.first_hit_tick = 20
     env.hit_ids = ["first-hit"]
@@ -606,7 +652,7 @@ def test_absent_second_hit_ends_on_elapsed_tick_90_and_rejects_tick_91():
 
 def test_total_tick_300_processes_eligible_second_hit_success_before_total_deadline():
     post = [player_snapshot(0, x=2.0), player_snapshot(1, x=3.0)]
-    env = controlled_env(tick=300, post=post, events=[damage_event(attack_id="second-hit")])
+    env = state_machine_boundary_harness(tick=300, post=post, events=[damage_event(attack_id="second-hit")])
     env.encounter = 2
     env.first_hit_tick = 20
     env.hit_ids = ["first-hit"]
@@ -703,7 +749,7 @@ def test_representative_failure_categories(controller, expected):
 
 def test_started_missed_request_without_contact_takes_precedence_over_request_only():
     attack_started = {"type": "attack_started", "player_slot": 0, "attack_id": "miss", "attack_type": "DLIGHT"}
-    env = controlled_env(tick=300, events=[attack_started])
+    env = state_machine_boundary_harness(tick=300, events=[attack_started])
     env.light_request_ticks = 1
     action = zero_action()
     action[7] = 1
@@ -711,7 +757,7 @@ def test_started_missed_request_without_contact_takes_precedence_over_request_on
     assert terminated is True
     assert info["episode_diagnostics"]["failure_category"] == "started_missed"
 
-    env = controlled_env(tick=300)
+    env = state_machine_boundary_harness(tick=300)
     env.light_request_ticks = 1
     action = zero_action()
     action[7] = 1
@@ -725,7 +771,7 @@ def test_bad_support_category_is_reported_from_terminal_diagnostics():
         player_snapshot(0, fully_supported=False, clearance=-0.1),
         player_snapshot(1, fully_supported=True, clearance=1.0),
     ]
-    env = controlled_env(tick=10, post=post)
+    env = state_machine_boundary_harness(tick=10, post=post)
     env.hit_attack_id = "first-hit"
     _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
     assert terminated is True
@@ -735,12 +781,12 @@ def test_bad_support_category_is_reported_from_terminal_diagnostics():
 def test_opponent_stock_loss_and_deadline_categories_are_reported():
     pre = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=3)]
     post = [player_snapshot(0, stocks=3), player_snapshot(1, stocks=2)]
-    env = controlled_env(pre=pre, post=post)
+    env = state_machine_boundary_harness(pre=pre, post=post)
     _, _, terminated, _, info = rc.ReengagementEnv._step(env, zero_action())
     assert terminated is True
     assert info["episode_diagnostics"]["failure_category"] == "opponent_stock_loss"
 
-    env = controlled_env(tick=160)
+    env = state_machine_boundary_harness(tick=160)
     env.encounter = 2
     env.relocation_tick = 100
     env.relocation_gap = 4.0
