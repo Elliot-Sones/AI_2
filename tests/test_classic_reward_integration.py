@@ -119,7 +119,7 @@ def import_real_stack():
         import numpy as np
         import torch
         from stable_baselines3.common.vec_env import SubprocVecEnv
-        import train
+        import ai2.training.train as train
         from environment.agent import SelfPlayWarehouseBrawl
         from environment.environment import WarehouseBrawl
     except Exception as exc:  # pragma: no cover - local lightweight env path

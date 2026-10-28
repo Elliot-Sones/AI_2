@@ -225,7 +225,7 @@ def compare_result_to_oracle(result, wrapper, reward, terminated, truncated, inf
 
 class NativeNavigationContractTests(unittest.TestCase):
     def setUp(self):
-        import native_navigation_contract as nav
+        import ai2.simulation.native_navigation_contract as nav
 
         self.nav = nav
         self.config = nav.NavigationConfig(
@@ -626,7 +626,7 @@ class NativeNavigationContractTests(unittest.TestCase):
                 cpu.step(overflow_config, self.state(), self.post())
 
     def test_native_c_and_cuda_wrappers_share_header_rule_core(self):
-        root = Path(self.nav.__file__).resolve().parent
+        root = Path(__file__).resolve().parents[1]
         header = (root / "native" / "navigation_contract.h").read_text()
         cpu_source = (root / "native" / "navigation_contract.c").read_text()
         cuda_source = (root / "native" / "navigation_contract.cu").read_text()

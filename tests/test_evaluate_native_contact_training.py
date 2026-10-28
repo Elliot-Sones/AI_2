@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 class ContactEvaluationTests(unittest.TestCase):
     def subject(self):
-        self.assertIsNotNone(importlib.util.find_spec('evaluate_native_contact_training'),
+        self.assertIsNotNone(importlib.util.find_spec('ai2.evaluation.evaluate_native_contact_training'),
                              'original-game native-policy evaluation wrapper is missing')
-        import evaluate_native_contact_training
+        import ai2.evaluation.evaluate_native_contact_training as evaluate_native_contact_training
         return evaluate_native_contact_training
 
     def test_candidate_must_be_preserved_and_match_immutable_inventory(self):

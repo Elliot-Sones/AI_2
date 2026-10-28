@@ -1,4 +1,6 @@
 """Tiny saved-artifact fixtures; no GPU, training, network, or third-party imports."""
+
+from ai2.paths import source_path
 import builtins
 import contextlib
 import hashlib
@@ -11,7 +13,7 @@ import unittest
 from unittest import mock
 
 
-MODULE = Path(__file__).resolve().parents[1] / "summarize_native_capacity.py"
+MODULE = source_path(Path(__file__).resolve().parents[1], "summarize_native_capacity.py")
 ARCHES = [(512, 512, 256), (1024, 1024, 1024), (1536, 1536, 1536)]
 PARAMS = [1053973, 4736021, 10249749]
 PANELS = [f"{phase}-{mode}" for phase in ("0a", "0b") for mode in ("deterministic", "sampled")]

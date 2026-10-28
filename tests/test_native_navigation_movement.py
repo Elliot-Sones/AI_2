@@ -383,7 +383,7 @@ def decoded(*, held=(), pressed=(), released=(), raw_horizontal=0, raw_vertical=
 
 class MovementTest(unittest.TestCase):
     def setUp(self):
-        import native_navigation_movement as movement
+        import ai2.simulation.native_navigation_movement as movement
 
         self.m = movement
         self.cfg = movement.default_config()

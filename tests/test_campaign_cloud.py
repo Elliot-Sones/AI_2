@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 import json
 import math
@@ -11,7 +13,7 @@ import unittest
 
 class CampaignCloudTests(unittest.TestCase):
     def test_retained_instance_guard_keeps_limits_and_refuses_overlap(self):
-        path = Path(__file__).resolve().parents[1] / "campaign_cloud.py"
+        path = source_path(Path(__file__).resolve().parents[1], "campaign_cloud.py")
         self.assertTrue(path.exists(), "campaign adapter is missing")
         spec = importlib.util.spec_from_file_location("campaign_cloud", path)
         module = importlib.util.module_from_spec(spec)
@@ -497,7 +499,7 @@ class CampaignCloudTests(unittest.TestCase):
 
 
 def load_module():
-    path = Path(__file__).resolve().parents[1] / "campaign_cloud.py"
+    path = source_path(Path(__file__).resolve().parents[1], "campaign_cloud.py")
     spec = importlib.util.spec_from_file_location("campaign_cloud", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["campaign_cloud"] = module

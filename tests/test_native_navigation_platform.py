@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import os
 import subprocess
@@ -77,7 +79,7 @@ def first_comparable_e0_platform_transition():
 
 class NativeNavigationPlatformTest(unittest.TestCase):
     def test_scalar_reducer_matches_actual_frozen_stage_method_for_boundary_fixtures(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         fixtures = [
             ((0.0, 1.0), (1.0, 0.0), (-1.0, 2.0), True),
@@ -106,7 +108,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                 self.assertAlmostEqual(actual.velocity[1], expected_velocity[1], places=7)
 
     def test_scalar_and_c_reference_preserve_double_precision_threshold_edges(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_compile_cpu_reference():
             self.skipTest("no C compiler available for ctypes CPU reference")
@@ -143,7 +145,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                     self.assertAlmostEqual(native.velocity[1], expected_velocity[1], places=12)
 
     def test_random_scalar_parity_uses_actual_frozen_source_not_formula_copy(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         positions, waypoint1, waypoint2, directions = nav.generate_fixture_arrays(64, seed=77)
         for index in range(64):
@@ -161,7 +163,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
             self.assertAlmostEqual(actual.velocity[1], expected_velocity[1], places=12)
 
     def test_compiled_cpu_reference_matches_scalar_reducer(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_compile_cpu_reference():
             self.skipTest("no C compiler available for ctypes CPU reference")
@@ -193,7 +195,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                     self.assertAlmostEqual(actual.velocity[1], expected.velocity[1], places=6)
 
     def test_compiled_c_reference_canonicalizes_nonzero_direction_uint8(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_compile_cpu_reference():
             self.skipTest("no C compiler available for ctypes CPU reference")
@@ -227,7 +229,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertAlmostEqual(velocity_y.value, expected.velocity[1], places=12)
 
     def test_batch_reducer_preserves_permutation_order(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         positions = [(0.0, 1.0), (-0.95, 1.95), (0.96, 0.04), (5.0, -3.0)]
         waypoint1 = [(1.0, 0.0)] * len(positions)
@@ -257,7 +259,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
             )
 
     def test_cuda_device_normalization_requires_explicit_index(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         self.assertEqual(nav.normalize_cuda_device("cuda", current_index=2), "cuda:2")
         self.assertEqual(nav.normalize_cuda_device("cuda:1", current_index=2), "cuda:1")
@@ -266,7 +268,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
             nav.normalize_cuda_device("cpu", current_index=0)
 
     def test_resident_timing_label_discloses_dispatch_and_allocation(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         self.assertIn("optional kinematic position", nav.__doc__)
         self.assertEqual(nav.RESIDENT_TIMING_LABEL, "resident_call_dispatch_alloc")
@@ -275,7 +277,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertNotIn("pure kernel", nav.RESIDENT_TIMING_LABEL)
 
     def test_gpu_report_validation_fails_closed_on_parity_failures(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         valid = {
             "resident_call_dispatch_alloc": {
@@ -303,7 +305,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                 nav.validate_cuda_benchmark_report(invalid, velocity_tolerance=1e-9)
 
     def test_replay_file_scalar_parity_uses_consecutive_e0_platform_states(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not E0_ADAPTIVE_NAV_TRACE.is_file():
             if "AI2_NATIVE_REPLAY_TRACE" in os.environ:
@@ -319,7 +321,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertIsNone(report["first_mismatch"])
 
     def test_replay_validation_fails_closed_on_no_checks_or_mismatch(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         valid = {
             "replay_file": "fixture.jsonl",
@@ -339,7 +341,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                 nav.validate_replay_parity_report(invalid, velocity_tolerance=1e-9)
 
     def test_kinematic_scalar_transition_matches_e0_trace_with_new_velocity_order(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         transition = first_comparable_e0_platform_transition()
         if transition is None:
@@ -375,7 +377,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         )
 
     def test_replay_file_kinematic_parity_checks_captured_positions(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not E0_ADAPTIVE_NAV_TRACE.is_file():
             if "AI2_NATIVE_REPLAY_TRACE" in os.environ:
@@ -390,7 +392,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertIsNone(report["first_mismatch"])
 
     def test_compiled_cpu_reference_matches_kinematic_scalar_transition(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_compile_cpu_reference():
             self.skipTest("no C compiler available for ctypes CPU reference")
@@ -418,7 +420,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertAlmostEqual(actual.position[1], expected.position[1], places=12)
 
     def test_cuda_step_rejects_unsafe_pointer_inputs_and_uses_input_device_stream(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         class FakeTensor:
             ndim = 2
@@ -509,7 +511,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_cuda_benchmark_memory_stats_use_requested_device(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         class FakeTensor:
             def __init__(self, data, *, dtype, device="cpu"):
@@ -629,7 +631,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertEqual(fake_torch.cuda.max_devices, ["cuda:1", "cuda:1"])
 
     def test_gpu_batch_matches_cpu_for_required_lane_counts_when_available(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_run_cuda_benchmark():
             self.skipTest("CUDA torch and nvcc are not available")
@@ -651,7 +653,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
                 self.assertEqual(transition_report["direction_mismatches"], 0)
 
     def test_cuda_canonicalizes_nonzero_direction_uint8_when_available(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         if not nav.can_run_cuda_benchmark():
             self.skipTest("CUDA torch and nvcc are not available")
@@ -671,13 +673,13 @@ class NativeNavigationPlatformTest(unittest.TestCase):
         self.assertTrue(torch.isfinite(velocities).all().item())
 
     def test_cli_writes_scalar_provenance_and_refuses_cpu_fallback_for_gpu_mode(self):
-        import native_navigation_platform as nav
+        import ai2.simulation.native_navigation_platform as nav
 
         with tempfile.TemporaryDirectory(prefix="ai2-nav-platform-cli-") as tmp:
             output = Path(tmp) / "platform.json"
             scalar_args = [
                 sys.executable,
-                str(ROOT / "native_navigation_platform.py"),
+                str(source_path(ROOT, "native_navigation_platform.py")),
                 "--output",
                 str(output),
                 "--mode",
@@ -723,7 +725,7 @@ class NativeNavigationPlatformTest(unittest.TestCase):
             gpu_result = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "native_navigation_platform.py"),
+                    str(source_path(ROOT, "native_navigation_platform.py")),
                     "--output",
                     str(gpu_output),
                     "--mode",

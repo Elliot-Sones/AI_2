@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import hashlib
 import tempfile
@@ -51,7 +53,7 @@ class CampaignLearningTests(unittest.TestCase):
         (output / "runtime_device.json").write_text(json.dumps({"policy_device": "cuda:0", "all_policy_parameters_cuda": True}), encoding="utf-8")
 
     def base_train_command(self, root: Path, *, output_name="train", checkpoint: Path | None = None, chunk_index=1):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         metadata = {
             "seed": 145,
@@ -69,7 +71,7 @@ class CampaignLearningTests(unittest.TestCase):
         return e6.CommandSpec("train", "train", root, [], root / output_name, 1, metadata)
 
     def test_campaign_matrix_uses_three_architectures_and_three_seeds(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         specs = e6.default_run_specs()
 
@@ -78,7 +80,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual({spec.seed for spec in specs}, {145, 146, 147})
 
     def test_train_commands_start_from_scratch_then_resume_additional_steps(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-plan-") as tmp:
             root = Path(tmp)
@@ -93,9 +95,9 @@ class CampaignLearningTests(unittest.TestCase):
 
             first = e6.build_train_command(
                 python="/venv/bin/python",
-                runner=scripts / "learning_runner.py",
+                runner=source_path(scripts, "learning_runner.py"),
                 train_job=train_job,
-                grouped_env_path=scripts / "grouped_vec_env.py",
+                grouped_env_path=source_path(scripts, "grouped_vec_env.py"),
                 source=source,
                 config=config,
                 spec=spec,
@@ -108,9 +110,9 @@ class CampaignLearningTests(unittest.TestCase):
             )
             second = e6.build_train_command(
                 python="/venv/bin/python",
-                runner=scripts / "learning_runner.py",
+                runner=source_path(scripts, "learning_runner.py"),
                 train_job=train_job,
-                grouped_env_path=scripts / "grouped_vec_env.py",
+                grouped_env_path=source_path(scripts, "grouped_vec_env.py"),
                 source=source,
                 config=config,
                 spec=spec,
@@ -129,7 +131,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(first.cwd, source.resolve())
 
     def test_config_writer_only_changes_policy_architecture(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-config-") as tmp:
             base = Path(tmp) / "control.yaml"
@@ -170,7 +172,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertNotIn("0.05", text)
 
     def test_config_dict_mutation_records_only_intended_effective_controls(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         original = {
             "policy_kwargs": {"net_arch": [512, 512, 256]},
@@ -192,13 +194,13 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(original["policy_kwargs"]["net_arch"], [512, 512, 256])
 
     def test_deadline_admission_refuses_when_timeout_plus_reserve_does_not_fit(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with self.assertRaisesRegex(RuntimeError, "insufficient deadline"):
             e6.assert_deadline_allows(now=1_000, deadline=1_500, timeout=300, reserve=300)
 
     def test_completed_output_is_not_overwritten(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-completed-") as tmp:
             output = Path(tmp) / "job"
@@ -210,7 +212,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.assert_not_completed_output(output)
 
     def test_dev_mastery_requires_near_phase0a_deterministic_and_sampled(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-eval-") as tmp:
             output = Path(tmp)
@@ -230,7 +232,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(verdict["phase"], "0a")
 
     def test_existing_variant_source_allows_same_generated_config_bytes(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-source-") as tmp:
             root = Path(tmp)
@@ -239,7 +241,7 @@ class CampaignLearningTests(unittest.TestCase):
             config = root / "generated.yaml"
             frozen.mkdir()
             variant.mkdir()
-            (frozen / "train.py").write_text("# frozen\n", encoding="utf-8")
+            (source_path(frozen, "train.py")).write_text("# frozen\n", encoding="utf-8")
             config.write_text("new: true\n", encoding="utf-8")
             (variant / "config.yaml").write_text("new: true\n", encoding="utf-8")
 
@@ -248,7 +250,7 @@ class CampaignLearningTests(unittest.TestCase):
             self.assertEqual((variant / "config.yaml").read_text(encoding="utf-8"), "new: true\n")
 
     def test_rounded_ppo_steps_are_recorded_and_validated(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         self.assertEqual(e6.rounded_rollout_steps(500_000, n_envs=128, n_steps=256), 524_288)
         with tempfile.TemporaryDirectory(prefix="e6-artifacts-") as tmp:
@@ -263,7 +265,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertTrue(evidence["initial_checkpoint"].endswith("initial.zip"))
 
     def test_train_artifact_validation_rejects_timeout_or_partial_steps(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-badtrain-") as tmp:
             command = self.base_train_command(Path(tmp))
@@ -273,7 +275,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.validate_train_artifacts(command)
 
     def test_train_validation_rejects_completed_result_with_error_text(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-result-error-") as tmp:
             command = self.base_train_command(Path(tmp))
@@ -283,7 +285,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.validate_train_artifacts(command)
 
     def test_train_validation_rejects_wrong_resume_checkpoint_path_and_changed_bytes(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-lineage-") as tmp:
             root = Path(tmp)
@@ -316,7 +318,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.validate_train_artifacts(command)
 
     def test_train_validation_rejects_bad_checkpoint_evidence_paths_and_controls(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-controlproof-") as tmp:
             root = Path(tmp)
@@ -350,7 +352,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.validate_train_artifacts(command)
 
     def test_mastery_requires_exact_counts_finite_success_and_low_falls(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-mastery-") as tmp:
             output = Path(tmp)
@@ -379,7 +381,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertFalse(bad["candidate_mastery"])
 
     def test_eval_artifact_validation_checks_metadata_and_four_outputs(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-evalmeta-") as tmp:
             root = Path(tmp)
@@ -413,7 +415,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(set(evidence["summaries"]), {"0a-deterministic", "0a-sampled", "0b-deterministic", "0b-sampled"})
 
     def test_eval_validation_rejects_checkpoint_sha_mismatch(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-evalsha-") as tmp:
             root = Path(tmp)
@@ -446,12 +448,12 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.validate_eval_artifacts(command)
 
     def test_plan_orders_all_arms_for_chunk_before_next_chunk(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-order-") as tmp:
             root = Path(tmp)
             for name in ("train_job.py", "evaluate_modes.py", "learning_runner.py", "grouped_vec_env.py", "control.yaml"):
-                (root / name).write_text("# file\n", encoding="utf-8")
+                (source_path(root, name)).write_text("# file\n", encoding="utf-8")
             source = root / "source"
             source.mkdir()
             args = type(
@@ -465,8 +467,8 @@ class CampaignLearningTests(unittest.TestCase):
                     "config": root / "control.yaml",
                     "train_job": root / "train_job.py",
                     "evaluate_modes": root / "evaluate_modes.py",
-                    "learning_runner": root / "learning_runner.py",
-                    "grouped_env_path": root / "grouped_vec_env.py",
+                    "learning_runner": source_path(root, "learning_runner.py"),
+                    "grouped_env_path": source_path(root, "grouped_vec_env.py"),
                     "python": "/venv/bin/python",
                     "n_envs": 128,
                     "n_steps": 256,
@@ -493,7 +495,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(train_labels[:9], train_labels[9:])
 
     def test_materialize_rejects_existing_config_with_different_bytes(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-materialize-") as tmp:
             root = Path(tmp)
@@ -501,7 +503,7 @@ class CampaignLearningTests(unittest.TestCase):
             source.mkdir()
             (source / "config.yaml").write_text("policy_kwargs:\n  net_arch:\n  - 512\nppo_settings:\n  nav_ent_coef: 0.05\n", encoding="utf-8")
             for name in ("train_job.py", "evaluate_modes.py", "learning_runner.py", "grouped_vec_env.py"):
-                (root / name).write_text("# file\n", encoding="utf-8")
+                (source_path(root, name)).write_text("# file\n", encoding="utf-8")
             args = type(
                 "Args",
                 (),
@@ -513,8 +515,8 @@ class CampaignLearningTests(unittest.TestCase):
                     "config": source / "config.yaml",
                     "train_job": root / "train_job.py",
                     "evaluate_modes": root / "evaluate_modes.py",
-                    "learning_runner": root / "learning_runner.py",
-                    "grouped_env_path": root / "grouped_vec_env.py",
+                    "learning_runner": source_path(root, "learning_runner.py"),
+                    "grouped_env_path": source_path(root, "grouped_vec_env.py"),
                     "python": "/venv/bin/python",
                     "n_envs": 64,
                     "n_steps": 512,
@@ -542,7 +544,7 @@ class CampaignLearningTests(unittest.TestCase):
                 e6.materialize_plan_inputs(args, plan)
 
     def test_materialize_preserves_unique_invocation_receipts_on_resume(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-receipts-") as tmp:
             root = Path(tmp)
@@ -550,7 +552,7 @@ class CampaignLearningTests(unittest.TestCase):
             source.mkdir()
             (source / "config.yaml").write_text("policy_kwargs:\n  net_arch:\n  - 512\nppo_settings:\n  nav_ent_coef: 0.05\n", encoding="utf-8")
             for name in ("train_job.py", "evaluate_modes.py", "learning_runner.py", "grouped_vec_env.py"):
-                (root / name).write_text("# file\n", encoding="utf-8")
+                (source_path(root, name)).write_text("# file\n", encoding="utf-8")
             args = type(
                 "Args",
                 (),
@@ -562,8 +564,8 @@ class CampaignLearningTests(unittest.TestCase):
                     "config": source / "config.yaml",
                     "train_job": root / "train_job.py",
                     "evaluate_modes": root / "evaluate_modes.py",
-                    "learning_runner": root / "learning_runner.py",
-                    "grouped_env_path": root / "grouped_vec_env.py",
+                    "learning_runner": source_path(root, "learning_runner.py"),
+                    "grouped_env_path": source_path(root, "grouped_vec_env.py"),
                     "python": "/venv/bin/python",
                     "n_envs": 64,
                     "n_steps": 512,
@@ -594,14 +596,14 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertTrue(all(payload.get("plan_sha256") for payload in receipt_payloads))
 
     def test_main_returns_nonzero_when_execute_result_fails(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-main-") as tmp:
             root = Path(tmp)
             source = root / "source"
             source.mkdir()
             for name in ("control.yaml", "train_job.py", "evaluate_modes.py", "learning_runner.py", "grouped_vec_env.py"):
-                (root / name).write_text("# file\n", encoding="utf-8")
+                (source_path(root, name)).write_text("# file\n", encoding="utf-8")
             with patch.object(e6, "execute_plan", return_value={"status": "failed", "results": []}), patch("builtins.print"):
                 code = e6.main(
                     [
@@ -616,9 +618,9 @@ class CampaignLearningTests(unittest.TestCase):
                         "--evaluate-modes",
                         str(root / "evaluate_modes.py"),
                         "--learning-runner",
-                        str(root / "learning_runner.py"),
+                        str(source_path(root, "learning_runner.py")),
                         "--grouped-env-path",
-                        str(root / "grouped_vec_env.py"),
+                        str(source_path(root, "grouped_vec_env.py")),
                         "--output",
                         str(root / "out"),
                         "--execute",
@@ -628,7 +630,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_execute_plan_treats_timeout_as_failed(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-timeout-") as tmp:
             root = Path(tmp)
@@ -655,7 +657,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["status"], "timeout")
 
     def test_execute_plan_records_validation_exception_as_failed(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-invalid-") as tmp:
             root = Path(tmp)
@@ -679,7 +681,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertIn("invalid artifact", result["results"][0]["error"])
 
     def test_run_command_refuses_new_launch_when_free_disk_below_floor(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-lowdisk-") as tmp:
             root = Path(tmp)
@@ -701,7 +703,7 @@ class CampaignLearningTests(unittest.TestCase):
         popen.assert_not_called()
 
     def test_run_command_honors_stop_request_before_new_launch(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-stop-") as tmp:
             root = Path(tmp)
@@ -723,7 +725,7 @@ class CampaignLearningTests(unittest.TestCase):
         popen.assert_not_called()
 
     def test_completed_train_skip_bypasses_disk_and_stop_launch_gates(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-skip-gates-") as tmp:
             root = Path(tmp)
@@ -738,7 +740,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(result["status"], "skipped_completed")
 
     def test_execute_plan_archives_previous_completed_manifest_before_resume_overwrite(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-history-") as tmp:
             root = Path(tmp)
@@ -782,7 +784,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(archived_bytes, previous_bytes)
 
     def test_archiving_existing_execution_manifest_is_idempotent_for_same_bytes(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-history-idempotent-") as tmp:
             root = Path(tmp)
@@ -799,7 +801,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertEqual(first_bytes, previous_bytes)
 
     def test_execute_plan_rejects_malformed_previous_manifest_before_overwrite(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-history-bad-") as tmp:
             root = Path(tmp)
@@ -825,7 +827,7 @@ class CampaignLearningTests(unittest.TestCase):
         self.assertFalse((root / "artifacts" / "execution_history").exists())
 
     def test_execute_plan_rejects_invalid_previous_manifest_schema_before_overwrite(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with tempfile.TemporaryDirectory(prefix="e6-history-invalid-") as tmp:
             root = Path(tmp)

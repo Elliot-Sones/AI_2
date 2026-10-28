@@ -44,13 +44,13 @@ def fake_classes():
 class ExperimentalProfilerTests(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("profile_native_ppo_optimizations"),
+            importlib.util.find_spec("tools.profiling.profile_native_ppo_optimizations"),
             "experimental PPO profiler is missing",
         )
-        self.module = importlib.import_module("profile_native_ppo_optimizations")
+        self.module = importlib.import_module('tools.profiling.profile_native_ppo_optimizations')
 
     def test_parser_passes_every_experimental_flag_and_short_defaults(self):
-        import experimental_native_lane_training as experiment
+        import ai2.training.experimental_native_lane_training as experiment
 
         flags = ["--" + name.replace("_", "-") for name in experiment.OptimizationOptions.__dataclass_fields__]
         args = self.module.build_parser().parse_args(["--output", "/tmp/profile-ppo-options", *flags])
@@ -126,7 +126,7 @@ class ExperimentalProfilerTests(unittest.TestCase):
         self.assertIs(policy.forward, original)
 
     def test_source_hashes_cover_all_experiment_and_native_inputs(self):
-        import experimental_native_lane_training as experiment
+        import ai2.training.experimental_native_lane_training as experiment
         hashes = self.module.source_hashes()
         for name in (*experiment.EXPERIMENT_FILES, "profile_native_ppo_optimizations.py",
                      "profile_native_lane_training.py", "native/navigation_lanes.cu"):
@@ -144,7 +144,7 @@ class ExperimentalProfilerTests(unittest.TestCase):
     def mocked_run(self, output, *, cuda_events=1, drift=False, failure=None,
                    distribution_change=False, cuda_available=True, profiler_failure=None):
         import torch
-        import experimental_native_lane_training as experiment
+        import ai2.training.experimental_native_lane_training as experiment
 
         module = self.module
 

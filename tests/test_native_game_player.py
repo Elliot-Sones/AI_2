@@ -144,7 +144,7 @@ def run_native_command(command, *, input=None):
 
 
 def compiled_pair(directory):
-    import native_navigation_episode as m
+    import ai2.simulation.native_navigation_episode as m
     output = Path(directory) / "player.so"
     run_native_command(["cc","-std=c99","-O2","-shared","-fPIC","-ffp-contract=off","-I",str(ROOT/"native"),
         str(ROOT/"native/game_player.c"),str(ROOT/"native/navigation_episode.c"),"-lm","-o",str(output)])

@@ -1,5 +1,7 @@
 """Tests for the instance-level GPU/CPU monitor run (offline, no network)."""
 
+from ai2.paths import source_path
+
 import json
 import os
 from pathlib import Path
@@ -20,7 +22,7 @@ class MonitorOnceTest(unittest.TestCase):
             record_path = os.path.join(tmp, "monitor_run.json")
             result = subprocess.run(
                 [
-                    sys.executable, str(ROOT / "monitor.py"),
+                    sys.executable, str(source_path(ROOT, "monitor.py")),
                     "--once", "--name", "test-monitor", "--project", "ai2-test",
                     "--group", "run-42", "--record", record_path,
                 ],

@@ -69,7 +69,7 @@ def assert_body_close(testcase, actual, expected, *, tolerance=1e-12):
 
 class NativeChipmunkBridgeTest(unittest.TestCase):
     def test_bridge_reports_exact_pymunk_chipmunk_identity_and_source_hashes(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
         pymunk = require_pymunk()
 
         info = bridge.installed_chipmunk_info()
@@ -90,7 +90,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
             pymunk.chipmunk_version = original
 
     def test_bridge_steps_two_independent_contact_worlds_like_scalar_pymunk(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         specs = [
             {"dynamic_position": (0.0, 0.44), "dynamic_velocity": (0.0, 2.0)},
@@ -119,7 +119,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
             assert_body_close(self, floor_state, world[2])
 
     def test_bridge_preserves_chipmunk_warm_start_over_200_steps(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         spec = {"dynamic_position": (0.3, 0.44), "dynamic_velocity": (2.0, 2.0)}
         expected = clone_world(spec)
@@ -136,7 +136,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
         assert_body_close(self, batch.read_body(0, 1), expected[2])
 
     def test_bridge_handles_finite_angles_without_axis_aligned_restriction(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         spec = {"dynamic_position": (0.0, 0.44), "dynamic_velocity": (0.0, 2.0), "angle": 0.125}
         expected = clone_world(spec)
@@ -150,7 +150,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
         assert_body_close(self, batch.read_body(0, 0), expected[1])
 
     def test_bridge_rejects_pymunk_deferred_queues_and_post_step_callbacks(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         world = clone_world({"dynamic_position": (0.0, 0.44), "dynamic_velocity": (0.0, 2.0)})
         space = world[0]
@@ -188,7 +188,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
             batch.step_all(DT)
 
     def test_bridge_revalidates_cached_pointer_identity_and_rejects_negative_indices(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         world = clone_world({"dynamic_position": (0.0, 0.44), "dynamic_velocity": (0.0, 2.0)})
         batch = bridge.BridgeBatch.from_worlds([bridge.BridgeWorld(space=world[0], bodies=[world[1]], keepalive=world)])
@@ -214,7 +214,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
             world[0]._space = original_space_ptr
 
     def test_bridge_can_set_and_get_body_state_without_reinitializing_world(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         world = clone_world({"dynamic_position": (0.0, 0.44), "dynamic_velocity": (0.0, 2.0)})
         batch = bridge.BridgeBatch.from_worlds([bridge.BridgeWorld(space=world[0], bodies=[world[1]], keepalive=world)])
@@ -230,7 +230,7 @@ class NativeChipmunkBridgeTest(unittest.TestCase):
         self.assertEqual(world[1].position, (3.0, 4.0))
 
     def test_compiled_bridge_loads_without_linking_to_new_chipmunk_dependency(self):
-        import native_chipmunk_bridge as bridge
+        import ai2.simulation.native_chipmunk_bridge as bridge
 
         if not bridge.can_compile_bridge():
             self.skipTest("no C compiler available")

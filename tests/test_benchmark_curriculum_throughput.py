@@ -12,10 +12,10 @@ from unittest.mock import patch
 class CurriculumThroughputHarnessTests(unittest.TestCase):
     def subject(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("benchmark_curriculum_throughput"),
+            importlib.util.find_spec("ai2.training.benchmark_curriculum_throughput"),
             "curriculum throughput qualification harness has not been implemented",
         )
-        import benchmark_curriculum_throughput
+        import ai2.training.benchmark_curriculum_throughput as benchmark_curriculum_throughput
 
         return benchmark_curriculum_throughput
 

@@ -1,6 +1,8 @@
 """CPU-only planning, provenance, and sequential supervision checks."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import importlib
 import json
 from pathlib import Path
@@ -21,8 +23,8 @@ class Clock:
 
 class CampaignNativePPOAblationTests(unittest.TestCase):
     def setUp(self):
-        self.assertTrue((ROOT / "campaign_native_ppo_ablations.py").is_file(), "ablation launcher must exist")
-        self.suite = importlib.import_module("campaign_native_ppo_ablations")
+        self.assertTrue((source_path(ROOT, "campaign_native_ppo_ablations.py")).is_file(), "ablation launcher must exist")
+        self.suite = importlib.import_module('ai2.runtime.campaign_native_ppo_ablations')
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -30,7 +32,7 @@ class CampaignNativePPOAblationTests(unittest.TestCase):
 
     def args(self, mode="screen", *, run=False, extra=()):
         source = self.root / "source"
-        for path in (source / "train.py", source / "UTMIST-AI2-main/environment/environment.py",
+        for path in (source_path(source, "train.py"), source / "UTMIST-AI2-main/environment/environment.py",
                      self.root / "train_job.py", self.root / "control.yaml", self.root / "checkpoint.zip"):
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
@@ -43,7 +45,7 @@ class CampaignNativePPOAblationTests(unittest.TestCase):
         return self.suite.validate_args(self.suite.build_parser().parse_args(argv))
 
     def receipt(self, args):
-        import qualify_native_lanes
+        import tools.validation.qualify_native_lanes as qualify_native_lanes
 
         value = {"schema": "ai2.native_lanes.parity.v1", "status": "passed", "exit_code": 0, "skipped": 0,
                  **qualify_native_lanes.source_manifest()}
@@ -93,7 +95,7 @@ class CampaignNativePPOAblationTests(unittest.TestCase):
                 self.assertTrue(all(job.cycles == (100 if size == 256 else 20) and job.warmup == 2 for job in selected))
 
     def test_commands_roundtrip_through_driver_and_flags_are_independent(self):
-        import experimental_native_lane_training as driver
+        import ai2.training.experimental_native_lane_training as driver
 
         args = self.args()
         expected = {
@@ -148,9 +150,12 @@ class CampaignNativePPOAblationTests(unittest.TestCase):
         manifest = json.loads((args.output / "source_manifest.json").read_text())
         self.assertEqual(manifest["checkpoint"]["sha256"], self.suite.campaign_suite.sha256_file(args.checkpoint))
         self.assertIn("ppo_update_optimizations.py", manifest)
+        self.assertIn("ai2/paths.py", manifest)
+        self.assertIn("ai2/training/ppo_update_optimizations.py", manifest)
         plan = json.loads((args.output / "native_ppo_ablations_plan.json").read_text())
         self.assertEqual(len(plan["jobs"]), 14)
         self.assertEqual(plan["policy_device"], "cuda")
+        self.assertEqual(plan["source_layout_version"], 2)
         self.assertTrue(all(record["env"]["WANDB_MODE"] == "offline" for record in plan["jobs"]))
 
     def test_run_rejects_missing_receipt_and_missing_required_source(self):
@@ -162,7 +167,7 @@ class CampaignNativePPOAblationTests(unittest.TestCase):
         args.output = self.root / "missing-source"
         args.run = False
         args.parity_receipt = None
-        (args.source / "train.py").unlink()
+        (source_path(args.source, "train.py")).unlink()
         self.assertEqual(self.run_suite(args, runner), 2)
         self.assertIn("required input missing", self.report(args)["error"])
 

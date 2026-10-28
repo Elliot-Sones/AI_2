@@ -171,13 +171,13 @@ class FakeTrainJobForLogger:
 
 class BenchmarkDiagnosticsTest(unittest.TestCase):
     def test_union_intervals_merges_overlaps_without_double_counting(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         self.assertEqual(diag.union_intervals([(0, 5), (3, 9), (12, 15), (15, 20)]), 17)
         self.assertEqual(diag.union_intervals([]), 0.0)
 
     def test_trace_gpu_summary_uses_union_not_sum_of_overlapping_kernels(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         trace = {
             "traceEvents": [
@@ -198,7 +198,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertEqual(summary["gpu_active_fraction_of_trace_span"], 0.5)
 
     def test_phase_summary_reports_finite_workload_and_provenance(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         phases = [
             {"label": "fixed_action_env", "steps": 1000, "seconds": 2.0},
@@ -214,7 +214,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertEqual(payload["provenance"], provenance)
 
     def test_fixed_update_ceiling_collects_once_then_trains_from_copied_snapshot(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         collector = FakeUpdateAgent()
         collected = diag.collect_rollout_snapshot_from_agent(
@@ -262,7 +262,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertTrue(control_result["state_changed_after_train"])
 
     def test_direct_update_prepares_logger_before_training(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         agent = FakeUpdateAgent()
         train_job = FakeTrainJobForLogger()
@@ -273,7 +273,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertEqual(train_job.logger_dirs[0].name, "arm")
 
     def test_direct_update_clears_cache_when_train_raises(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         class RaisingAgent(FakeUpdateAgent):
             def train(self):
@@ -303,7 +303,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertTrue(agent.rollout_buffer.cache_cleared)
 
     def test_pair_parity_marks_matching_control_and_cache_finals(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         control = {"label": "control", "initial_state_fingerprint": "initial", "final_state_fingerprint": "abc", "state_changed_after_train": True}
         cache = {"label": "cache", "initial_state_fingerprint": "initial", "final_state_fingerprint": "abc", "state_changed_after_train": True}
@@ -316,7 +316,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertEqual(cache["pair_index"], 3)
 
     def test_pair_parity_rejects_matching_noop_or_missing_update_evidence(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         for evidence in (
             {"initial_state_fingerprint": "same", "final_state_fingerprint": "same", "state_changed_after_train": False},
@@ -328,7 +328,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
                 diag.assert_and_record_pair_parity(dict(evidence), dict(evidence), pair_index=0)
 
     def test_pair_parity_fails_closed_on_mismatched_finals(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         with self.assertRaises(RuntimeError):
             diag.assert_and_record_pair_parity(
@@ -338,7 +338,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
             )
 
     def test_rollout_snapshot_fails_closed_when_collection_stops_early(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         class StoppedAgent(FakeUpdateAgent):
             def collect_rollouts(self, env, callback, rollout_buffer, n_rollout_steps):
@@ -356,7 +356,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
             )
 
     def test_timed_patch_counts_only_enabled_region_and_restores(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         leaf = FakeLeafEnv()
         stats = diag.ComponentStats()
@@ -373,7 +373,7 @@ class BenchmarkDiagnosticsTest(unittest.TestCase):
         self.assertEqual(stats.by_label["game_step"].count, 1)
 
     def test_ppo_diagnostic_reports_measured_phase_only_with_full_update_counts(self):
-        import benchmark_diagnostics as diag
+        import tools.benchmarks.benchmark_diagnostics as diag
 
         leaf = FakeLeafEnv()
         vec_env = FakeVecEnv(leaf)

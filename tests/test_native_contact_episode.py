@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import importlib.util
 import os
 from pathlib import Path
@@ -30,7 +32,7 @@ FROZEN = Path(
 class NativeContactTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from native_contact_episode import compile_reference
+        from ai2.simulation.native_contact_episode import compile_reference
 
         # Pin one source build before the game imports Torch/OpenMP. Compiling
         # after that import can abort a forked compiler on macOS, and concurrent
@@ -49,15 +51,15 @@ class NativeContactTests(unittest.TestCase):
 
     def native(self):
         self.assertTrue(
-            (ROOT / "native_contact_episode.py").is_file(),
+            (source_path(ROOT, "native_contact_episode.py")).is_file(),
             "native contact task must exist",
         )
-        from native_contact_episode import ContactReference
+        from ai2.simulation.native_contact_episode import ContactReference
 
         return ContactReference(self.native_library)
 
     def reset_pair(self, native, seed, slot, direction):
-        from navigation_episode_capture import DrawRecorder
+        from ai2.evaluation.navigation_episode_capture import DrawRecorder
 
         recorder = DrawRecorder()
         recorder.install()
@@ -234,7 +236,7 @@ class NativeContactTests(unittest.TestCase):
 
     def test_invalid_actions_and_scenarios_rejected_before_mutation(self):
         import ctypes as C
-        from native_contact_episode import Scenario, StepResult
+        from ai2.simulation.native_contact_episode import Scenario, StepResult
 
         native = self.native()
         native.reset_generated(native.scenario(17))
@@ -315,7 +317,7 @@ class NativeContactTests(unittest.TestCase):
 
     def test_corrupt_contact_bookkeeping_rejected_before_mutation(self):
         import ctypes as C
-        from native_contact_episode import StepResult
+        from ai2.simulation.native_contact_episode import StepResult
 
         native = self.native()
         mutations = [
@@ -391,7 +393,7 @@ class NativeContactTests(unittest.TestCase):
             self.assertEqual(bytes(first.state), bytes(second.state))
 
     def test_scenario_helper_rejects_noninteger_identity_fields(self):
-        from native_contact_episode import scenario_from_seed
+        from ai2.simulation.native_contact_episode import scenario_from_seed
 
         for kwargs in (
             {"seed": -1},

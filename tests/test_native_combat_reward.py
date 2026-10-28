@@ -232,7 +232,7 @@ class NativeCombatRewardTests(unittest.TestCase):
             check=True,
         )
         cls.lib = C.CDLL(str(cls.library))
-        import native_game_episode as game
+        import ai2.simulation.native_game_episode as game
 
         cls.GameState = game.State
         cls.RawResult = game.Result

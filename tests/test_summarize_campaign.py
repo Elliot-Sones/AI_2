@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 import zipfile
 
-import summarize_campaign as summary
+import tools.analysis.summarize_campaign as summary
 
 
 def write_json(path: Path, payload: dict) -> None:

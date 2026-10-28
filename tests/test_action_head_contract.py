@@ -20,7 +20,7 @@ if HAS_POLICY_DEPS:
 @unittest.skipUnless(HAS_POLICY_DEPS, "torch/gymnasium are not installed in this local contract environment")
 class ActionHeadContractTests(unittest.TestCase):
     def setUp(self):
-        import curriculum_ppo as module
+        import ai2.training.curriculum_ppo as module
 
         self.module = module
         self.obs_space = spaces.Box(-10, 10, shape=(256,), dtype=np.float32)

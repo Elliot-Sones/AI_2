@@ -1,4 +1,6 @@
 """Local fixtures for bounded, literal-link session11 preservation."""
+
+from ai2.paths import source_path
 import hashlib
 import importlib.util
 import json
@@ -9,7 +11,7 @@ import unittest
 from unittest import mock
 
 
-MODULE = Path(__file__).resolve().parents[1] / "session11_capture_external_logs.py"
+MODULE = source_path(Path(__file__).resolve().parents[1], "session11_capture_external_logs.py")
 
 
 class CaptureTests(unittest.TestCase):

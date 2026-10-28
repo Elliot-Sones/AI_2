@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 import hashlib
 import json
@@ -9,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "campaign_suite.py"
+MODULE_PATH = source_path(ROOT, "campaign_suite.py")
 
 
 def load_suite():
@@ -122,7 +124,7 @@ class CampaignSuiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             output = tmp_path / "suite"
-            grouped_env = write_text(tmp_path / "grouped_vec_env.py", "runner")
+            grouped_env = write_text(source_path(tmp_path, "grouped_vec_env.py"), "runner")
             frozen_env = write_text(tmp_path / "source" / "UTMIST-AI2-main" / "environment" / "environment.py", "environment")
             args = suite.build_parser().parse_args(
                 [
@@ -160,7 +162,7 @@ class CampaignSuiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             output = tmp_path / "suite"
-            grouped_env = write_text(tmp_path / "grouped_vec_env.py", "runner-v1")
+            grouped_env = write_text(source_path(tmp_path, "grouped_vec_env.py"), "runner-v1")
             frozen_env = write_text(tmp_path / "source" / "UTMIST-AI2-main" / "environment" / "environment.py", "environment-v1")
             args = suite.validate_args(
                 suite.build_parser().parse_args(
@@ -231,7 +233,7 @@ class CampaignSuiteTests(unittest.TestCase):
             checkpoint = write_text(tmp_path / "selected.zip", "checkpoint")
             frozen_env = write_text(tmp_path / "source" / "UTMIST-AI2-main" / "environment" / "environment.py", "environment")
             output = tmp_path / "suite"
-            write_grouped_parity_marker(output, tmp_path / "grouped_vec_env.py", frozen_env)
+            write_grouped_parity_marker(output, source_path(tmp_path, "grouped_vec_env.py"), frozen_env)
             args = suite.build_parser().parse_args(
                 [
                     "--mode",
@@ -249,11 +251,11 @@ class CampaignSuiteTests(unittest.TestCase):
                     "--checkpoint",
                     str(checkpoint),
                     "--harness",
-                    str(tmp_path / "benchmark_campaign.py"),
+                    str(source_path(tmp_path, "benchmark_campaign.py")),
                     "--rollout-cache-path",
-                    str(tmp_path / "rollout_cache.py"),
+                    str(source_path(tmp_path, "rollout_cache.py")),
                     "--grouped-env-path",
-                    str(tmp_path / "grouped_vec_env.py"),
+                    str(source_path(tmp_path, "grouped_vec_env.py")),
                 ]
             )
 
@@ -360,11 +362,11 @@ class CampaignSuiteTests(unittest.TestCase):
                     "--checkpoint",
                     str(checkpoint),
                     "--harness",
-                    str(tmp_path / "benchmark_campaign.py"),
+                    str(source_path(tmp_path, "benchmark_campaign.py")),
                     "--rollout-cache-path",
-                    str(tmp_path / "rollout_cache.py"),
+                    str(source_path(tmp_path, "rollout_cache.py")),
                     "--grouped-env-path",
-                    str(tmp_path / "grouped_vec_env.py"),
+                    str(source_path(tmp_path, "grouped_vec_env.py")),
                 ]
             )
 

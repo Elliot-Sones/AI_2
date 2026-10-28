@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import subprocess
 import sys
@@ -15,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BenchmarkTransportTest(unittest.TestCase):
     def test_counts_and_reset_boundary_for_direct_runner(self):
-        import benchmark_transport as transport
+        import tools.benchmarks.benchmark_transport as transport
 
         with tempfile.TemporaryDirectory(prefix="ai2-transport-test-") as output:
             result = transport.run_transport_repeat(
@@ -51,7 +53,7 @@ class BenchmarkTransportTest(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "benchmark_transport.py"),
+                    str(source_path(ROOT, "benchmark_transport.py")),
                     "--n-envs",
                     "1",
                     "--steps",
@@ -89,7 +91,7 @@ class BenchmarkTransportTest(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "benchmark_transport.py"),
+                    str(source_path(ROOT, "benchmark_transport.py")),
                     "--n-envs",
                     "2",
                     "--steps",
@@ -123,7 +125,7 @@ class BenchmarkTransportTest(unittest.TestCase):
         self.assertEqual(repeat["stacked_obs_shape"], [128])
 
     def test_warmup_reset_boundary_excluded_from_measured_counts(self):
-        import benchmark_transport as transport
+        import tools.benchmarks.benchmark_transport as transport
 
         with tempfile.TemporaryDirectory(prefix="ai2-transport-warmup-") as output:
             result = transport.run_transport_repeat(
@@ -143,7 +145,7 @@ class BenchmarkTransportTest(unittest.TestCase):
         self.assertEqual(result["cheap_env_measured_terminal_resets"], 0)
 
     def test_parallel_reset_boundary_uses_per_env_vector_steps(self):
-        import benchmark_transport as transport
+        import tools.benchmarks.benchmark_transport as transport
 
         with tempfile.TemporaryDirectory(prefix="ai2-transport-parallel-reset-") as output:
             result = transport.run_transport_repeat(

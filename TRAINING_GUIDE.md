@@ -24,22 +24,31 @@ The training system uses **PPO (Proximal Policy Optimization)** from Stable Base
 
 ### File Structure
 
-```
+```text
 AI_2/
-├── train.py             # Main training script
-├── config.yaml          # All configuration in one place
-├── setup_vast.sh        # Vast.ai GPU setup script
-├── watch_games.py       # Watch/record trained agent
-├── eval_10_games.py     # Evaluate against opponents
-├── play_vs_agent.py     # Play against your agent
-├── images/              # Visualizations
-└── results/
-    └── ppo_utmist/
-        ├── model/       # Saved models & checkpoints
-        ├── videos/      # Demo videos
-        ├── tb/          # TensorBoard logs (combat)
-        └── tb_nav/      # TensorBoard logs (navigation)
+├── ai2/training/train.py    # Classic training implementation
+├── ai2/evaluation/         # Evaluation and reference comparisons
+├── ai2/simulation/         # Simulation adapters and native bindings
+├── ai2/runtime/            # Campaign orchestration
+├── tools/visualization/    # Watch/record agents and play against them
+├── tools/                  # Benchmarks, profiling, validation and analysis
+├── baselines/              # Existing experiment data and historical scripts
+├── train.py                # Compatibility entry point
+├── curriculum_ppo.py       # Saved-checkpoint import compatibility
+├── config.yaml             # Classic training configuration
+├── setup_vast.sh           # Vast.ai GPU setup script
+└── results/ppo_utmist/
+    ├── model/              # Saved models and checkpoints
+    ├── videos/             # Training demo videos
+    ├── tb/                 # TensorBoard logs (combat)
+    └── tb_nav/             # TensorBoard logs (navigation)
 ```
+
+This guide describes the classic training workflow. Run commands from the
+repository root. The [Python layout guide](docs/python-layout.md) also covers
+native training, evaluation, benchmarks and validation. The
+[file map](docs/python-file-map.json) records every former root Python file.
+
 
 ---
 
@@ -154,10 +163,10 @@ opponent_history:
 
 ```bash
 # Train current phase (from config)
-python train.py
+python -m ai2.training.train
 
 # Use custom config file
-python train.py --cfgFile my_config.yaml
+python -m ai2.training.train --cfgFile my_config.yaml
 ```
 
 ### Switching Phases
@@ -278,17 +287,21 @@ rewards:
 
 ### Manual Recording
 
-Use `watch_games.py` for more control:
+Use `tools.visualization.watch_games` for more control. Select a checkpoint with
+`--model`; navigation playback uses `tools.visualization.watch_navigation`.
 
 ```bash
 # Watch 1 game vs RandomAgent
-python watch_games.py
+python -m tools.visualization.watch_games \
+  --model ./results/ppo_utmist/model/phase4_final.zip
 
 # 5 games vs BasedAgent
-python watch_games.py --opponent based --games 5
+python -m tools.visualization.watch_games \
+  --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 5
 
-# No video (faster evaluation)
-python watch_games.py --opponent based --games 10 --no-video
+# Report results without video
+python -m tools.visualization.watch_games \
+  --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 10 --no-video
 ```
 
 ---
@@ -323,11 +336,13 @@ python watch_games.py --opponent based --games 10 --no-video
 # Monitor training with TensorBoard
 tensorboard --logdir ./results/ppo_utmist/tb
 
-# Quick evaluation
-python eval_10_games.py --model ./results/ppo_utmist/model/phase4_final.zip
+# Check a classic combat model against a selected opponent
+python -m tools.visualization.watch_games \
+  --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 10 --no-video
 
-# Watch specific model
-python watch_games.py --model ./results/ppo_utmist/model/nav_0a_final.zip --opponent constant
+# Watch a navigation model
+python -m tools.visualization.watch_navigation \
+  --model ./results/ppo_utmist/model/nav_0a_final.zip --phase 0a
 ```
 
 ---
@@ -338,7 +353,7 @@ python watch_games.py --model ./results/ppo_utmist/model/nav_0a_final.zip --oppo
 
 ```bash
 # Edit config: set phase to "0a"
-python train.py
+python -m ai2.training.train
 # Press Ctrl+C when satisfied
 # Edit config: set phase to "0b", set model_checkpoint to "nav_0a_interrupted" or "nav_0a_final"
 # Repeat for 0c, 0d, 0e
@@ -349,7 +364,7 @@ python train.py
 ```bash
 # Edit config: set phase to 1
 # Optionally set model_checkpoint to nav_0e_final to transfer navigation skills
-python train.py
+python -m ai2.training.train
 # Let it run for full time_steps or interrupt when satisfied
 # Progress through phases 2, 3, 4
 ```
@@ -357,6 +372,16 @@ python train.py
 ### Final Evaluation
 
 ```bash
-python eval_10_games.py --model ./results/ppo_utmist/model/phase4_final.zip
-python watch_games.py --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 5
+# Inspect this exact classic checkpoint against each built-in opponent
+for opponent in random based constant clockwork; do
+  python -m tools.visualization.watch_games \
+    --model ./results/ppo_utmist/model/phase4_final.zip \
+    --opponent "$opponent" --games 10 --no-video
+done
 ```
+
+The fixed full-game bank is a separate evaluator:
+`python -m ai2.evaluation.evaluate_fullgame_bank --help`. It requires 256-value
+observations and rejects classic checkpoints expanded by opponent history.
+The removed `eval_10_games.py` had a hardcoded checkpoint and did not support its
+previously documented `--model` flag; use explicit model selection above.

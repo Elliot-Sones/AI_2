@@ -12,10 +12,10 @@ from unittest.mock import patch
 class ContactCampaignBlockTests(unittest.TestCase):
     def subject(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("train_contact_campaign_block"),
+            importlib.util.find_spec("ai2.training.train_contact_campaign_block"),
             "contact campaign block runner has not been implemented",
         )
-        import train_contact_campaign_block
+        import ai2.training.train_contact_campaign_block as train_contact_campaign_block
 
         return train_contact_campaign_block
 

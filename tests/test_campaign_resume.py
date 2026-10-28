@@ -1,6 +1,9 @@
 """Pure local resume-contract tests for the native contact checkpoint adapter."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+import ai2.training
+
 import copy
 import hashlib
 import importlib.util
@@ -18,7 +21,7 @@ def load_subject():
     root = Path(__file__).resolve().parents[1]
     saved = {}
     fake_curriculum = ModuleType("curriculum_ppo")
-    fake_curriculum.__file__ = str(root / "curriculum_ppo.py")
+    fake_curriculum.__file__ = str(source_path(root, "curriculum_ppo.py"))
     fake_curriculum.ACTION_EXPERIMENT_ARMS = {
         "G_keep": {"action_head": "gaussian", "action_init_strategy": "keep"},
         "B_projected": {"action_head": "bernoulli_10", "action_init_strategy": "projected"},
@@ -90,11 +93,11 @@ def load_subject():
     fake_tensor_rollout.TensorRolloutBuffer = object
 
     replacements = {
-        "curriculum_ppo": fake_curriculum,
+        "ai2.training.curriculum_ppo": fake_curriculum,
         "torch": fake_torch,
-        "ppo_update_optimizations": fake_optimizations,
-        "tensor_ppo": fake_tensor_ppo,
-        "tensor_rollout_buffer": fake_tensor_rollout,
+        "ai2.training.ppo_update_optimizations": fake_optimizations,
+        "ai2.training.tensor_ppo": fake_tensor_ppo,
+        "ai2.training.tensor_rollout_buffer": fake_tensor_rollout,
     }
     for name, module in replacements.items():
         saved[name] = sys.modules.get(name)
@@ -102,10 +105,11 @@ def load_subject():
     name = "native_curriculum_ppo_campaign_resume_subject"
     saved[name] = sys.modules.get(name)
     try:
-        spec = importlib.util.spec_from_file_location(name, root / "native_curriculum_ppo.py")
+        spec = importlib.util.spec_from_file_location(name, source_path(root, "native_curriculum_ppo.py"))
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
-        spec.loader.exec_module(module)
+        with patch.object(ai2.training, "curriculum_ppo", fake_curriculum, create=True):
+            spec.loader.exec_module(module)
         module._test_stubs = SimpleNamespace(
             CurriculumPPO=CurriculumPPO,
             CurriculumPolicy=CurriculumPolicy,
@@ -502,7 +506,7 @@ class CampaignResumeCudaTests(unittest.TestCase):
         self.torch = torch
         self.module = __import__("native_curriculum_ppo")
         self.assertTrue(self.module.curriculum_source_metadata()["supported"])
-        from ppo_update_optimizations import sb3_train_source_metadata
+        from ai2.training.ppo_update_optimizations import sb3_train_source_metadata
         self.assertTrue(sb3_train_source_metadata()["supported"])
         self.addCleanup(self.restore_rng, self.rng_state())
 
@@ -515,8 +519,8 @@ class CampaignResumeCudaTests(unittest.TestCase):
         self.torch.cuda.set_rng_state_all(state[1])
 
     def environment(self, seed):
-        from native_contact_lane_vec_env import build_contact_env
-        from tensor_ppo import TensorVecEnv
+        from ai2.simulation.native_contact_lane_vec_env import build_contact_env
+        from ai2.training.tensor_ppo import TensorVecEnv
         raw = build_contact_env(64, device="cuda", seed=seed, episodes_per_lane=2048,
                                 record_capacity=64*512)
         self.addCleanup(raw.close)

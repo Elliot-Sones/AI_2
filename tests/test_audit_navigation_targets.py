@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import audit_navigation_targets as audit
+import tools.validation.audit_navigation_targets as audit
 
 
 class NavigationTargetGeometryAuditTests(unittest.TestCase):

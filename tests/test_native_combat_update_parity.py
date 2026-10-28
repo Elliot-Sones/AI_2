@@ -34,8 +34,8 @@ class NativeCombatUpdateParityTests(unittest.TestCase):
         if not torch.cuda.is_available():
             self.skipTest('CUDA unavailable; no local policy construction or training')
         self.torch = torch
-        import benchmark_native_combat_training as benchmark
-        from ppo_update_optimizations import sb3_train_source_metadata
+        import ai2.training.benchmark_native_combat_training as benchmark
+        from ai2.training.ppo_update_optimizations import sb3_train_source_metadata
         metadata = sb3_train_source_metadata()
         self.assertTrue(metadata['supported'], f'CUDA parity requires pinned SB3 train source: {metadata}')
         self.benchmark = benchmark
@@ -63,7 +63,7 @@ class NativeCombatUpdateParityTests(unittest.TestCase):
         self.torch.cuda.set_rng_state_all(state[3])
 
     def make_model(self, mode, *, checkpoint=None, horizon=None):
-        import native_game_lane_vec_env as native
+        import ai2.simulation.native_game_lane_vec_env as native
         from stable_baselines3.common.logger import configure
         config = replace(self.config, update_mode=mode)
         ppo_class = self.benchmark.make_benchmark_ppo_class(config)
@@ -116,7 +116,7 @@ class NativeCombatUpdateParityTests(unittest.TestCase):
         callback.locals, callback.globals, callback.model = {}, {}, None
 
     def replay_saved_rollout(self, source, target, evidence):
-        from tensor_rollout_buffer import TensorRolloutBuffer
+        from ai2.training.tensor_rollout_buffer import TensorRolloutBuffer
         self.assertIs(type(source), TensorRolloutBuffer)
         self.assertIs(type(target), TensorRolloutBuffer)
         self.assertTrue(source.full and source._computed_returns_and_advantage)
@@ -201,7 +201,7 @@ class NativeCombatUpdateParityTests(unittest.TestCase):
                             for name, value in reference.policy.state_dict().items()))
 
     def test_actual_timeout_autoreset_rollouts_replay_and_update_exactly(self):
-        import native_game_lane_vec_env as native
+        import ai2.simulation.native_game_lane_vec_env as native
         torch, horizon = self.torch, 3
         # Declared test fixture only: native context creation receives a short
         # horizon. No gameplay state, collected tick, reward, or PPO setting is edited.

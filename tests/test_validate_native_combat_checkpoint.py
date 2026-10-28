@@ -55,9 +55,9 @@ def benchmark(checkpoint):
 
 class ValidatorTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec('validate_native_combat_checkpoint'),
+        self.assertIsNotNone(importlib.util.find_spec('tools.validation.validate_native_combat_checkpoint'),
                              'checkpoint validator has not been implemented')
-        self.mod = importlib.import_module('validate_native_combat_checkpoint')
+        self.mod = importlib.import_module('tools.validation.validate_native_combat_checkpoint')
 
     def test_config_is_cuda_only_bounded_and_distinct(self):
         config = self.mod.ValidationConfig()
@@ -135,7 +135,7 @@ class ValidatorTests(unittest.TestCase):
         policy.assert_not_called()
 
     def test_direct_loader_checks_cuda_before_deserialization_and_loads_standard_ppo(self):
-        from native_lane_vec_env import frozen_spaces
+        from ai2.simulation.native_lane_vec_env import frozen_spaces
         obs_space, act_space = frozen_spaces()
         policy = SimpleNamespace(squash_output=False)
         ppo = SimpleNamespace(load=Mock(return_value=SimpleNamespace(policy=policy,

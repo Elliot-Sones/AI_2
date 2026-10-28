@@ -54,7 +54,7 @@ class FakeJobCallback:
 
 class NativeLaneTrainingDriverTests(unittest.TestCase):
     def setUp(self):
-        self.module = importlib.import_module("benchmark_native_lane_training")
+        self.module = importlib.import_module('ai2.training.benchmark_native_lane_training')
 
     def test_control_does_not_patch_the_importer(self):
         args = types.SimpleNamespace(native_lanes=False)
@@ -109,8 +109,8 @@ class NativeLaneTrainingDriverTests(unittest.TestCase):
             self.module.validate_params({"opponent_history": {"enabled": True}}, nav)
 
     def test_context_builds_lanes_from_probe_and_restores_on_failure(self):
-        lanes_module = importlib.import_module("native_lane_vec_env")
-        tensor_module = importlib.import_module("tensor_ppo")
+        lanes_module = importlib.import_module('ai2.simulation.native_lane_vec_env')
+        tensor_module = importlib.import_module('ai2.training.tensor_ppo')
         built = []
         wrapped = []
         probe_info = {"wrapper_cfg": {"min_dist": 2.0}, "collision_bias": 0.5, "observation_space": "obs", "action_space": "act", "frame_stack": 4}
@@ -173,10 +173,10 @@ class NativeLaneTrainingDriverTests(unittest.TestCase):
             self.assertEqual(record["policy_device"], "cuda")
 
     def test_cpu_lane_context_keeps_tensor_ppo_and_wraps_host_simulation(self):
-        lanes_module = importlib.import_module("native_lane_vec_env")
-        tensor_module = importlib.import_module("tensor_ppo")
-        self.assertIsNotNone(importlib.util.find_spec("native_lane_cpu_adapter"), "CPU-native CUDA bridge is missing")
-        adapter_module = importlib.import_module("native_lane_cpu_adapter")
+        lanes_module = importlib.import_module('ai2.simulation.native_lane_vec_env')
+        tensor_module = importlib.import_module('ai2.training.tensor_ppo')
+        self.assertIsNotNone(importlib.util.find_spec("ai2.simulation.native_lane_cpu_adapter"), "CPU-native CUDA bridge is missing")
+        adapter_module = importlib.import_module('ai2.simulation.native_lane_cpu_adapter')
         probe_info = {"wrapper_cfg": {"min_dist": 2.0}, "collision_bias": 0.5, "observation_space": "obs", "action_space": "act"}
         job = types.SimpleNamespace(build_env=object(), PPO=object())
         originals = job.build_env, job.PPO

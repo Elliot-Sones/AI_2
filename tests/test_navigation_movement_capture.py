@@ -163,7 +163,7 @@ def fake_player(*, state_name="StandingState", platform_overlap=True):
 
 class MovementCaptureTests(unittest.TestCase):
     def setUp(self):
-        import navigation_movement_capture as capture
+        import ai2.evaluation.navigation_movement_capture as capture
 
         self.capture = capture
 
@@ -278,7 +278,7 @@ class MovementCaptureTests(unittest.TestCase):
     def test_compare_with_native_reports_first_field_difference(self):
         player = fake_player()
         before = self.capture.capture_player_movement(player, tick=0, player_label="players/0")
-        import native_navigation_movement as movement
+        import ai2.simulation.native_navigation_movement as movement
 
         expected = movement.step_movement(
             movement.default_config(),
@@ -302,7 +302,7 @@ class MovementCaptureTests(unittest.TestCase):
     def test_compare_with_native_ignores_bank_slot_metadata_not_in_native_abi(self):
         player = fake_player()
         before = self.capture.capture_player_movement(player, tick=0, player_label="players/0")
-        import native_navigation_movement as movement
+        import ai2.simulation.native_navigation_movement as movement
 
         expected = movement.step_movement(
             movement.default_config(),
@@ -324,7 +324,7 @@ class MovementCaptureTests(unittest.TestCase):
     def test_compare_with_native_still_rejects_actual_bank_field_difference(self):
         player = fake_player()
         before = self.capture.capture_player_movement(player, tick=0, player_label="players/0")
-        import native_navigation_movement as movement
+        import ai2.simulation.native_navigation_movement as movement
 
         expected = movement.step_movement(
             movement.default_config(),
@@ -345,7 +345,7 @@ class MovementCaptureTests(unittest.TestCase):
     def test_compare_records_with_native_reports_counts_and_failures(self):
         player = fake_player()
         before = self.capture.capture_player_movement(player, tick=0, player_label="players/0")
-        import native_navigation_movement as movement
+        import ai2.simulation.native_navigation_movement as movement
 
         expected = movement.step_movement(
             movement.default_config(),
@@ -507,7 +507,7 @@ class RealRuntimeMovementCaptureTests(unittest.TestCase):
             import pymunk  # noqa: F401
         except ImportError:
             self.skipTest("Pymunk runtime unavailable")
-        import navigation_movement_capture as capture
+        import ai2.evaluation.navigation_movement_capture as capture
 
         self.capture = capture
 

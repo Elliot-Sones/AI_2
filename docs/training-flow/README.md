@@ -28,3 +28,9 @@ UI verification also exercises timeline clicks, keyboard/pointer scrubbing,
 play/pause, all 25 stage selections, expandable calculations and 360/736/1440 px
 layouts in Chromium. Screenshots are under `output/playwright/` when captured.
 The illustrative hardware highlights are not GPU-utilization measurements.
+
+Python entry points now live under `ai2/` and `tools/`; see the
+[Python layout and command guide](../python-layout.md) and
+[file migration map](../python-file-map.json). The timing artifact above remains
+in the existing `baselines/` folder. This explainer describes that captured run;
+the source reorganization does not turn it into a new performance measurement.

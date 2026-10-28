@@ -25,13 +25,13 @@ class NativeLaneCPUAdapterTests(unittest.TestCase):
         if shutil.which("cc") is None:
             raise unittest.SkipTest("C compiler unavailable")
         cls.torch = torch
-        cls.lanes = importlib.import_module("native_lane_vec_env")
+        cls.lanes = importlib.import_module('ai2.simulation.native_lane_vec_env')
         cls.tmp = tempfile.TemporaryDirectory(prefix="ai2-native-cpu-bridge-")
         cls.addClassCleanup(cls.tmp.cleanup)
 
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("native_lane_cpu_adapter"), "CPU-native CUDA bridge is missing")
-        self.module = importlib.import_module("native_lane_cpu_adapter")
+        self.assertIsNotNone(importlib.util.find_spec("ai2.simulation.native_lane_cpu_adapter"), "CPU-native CUDA bridge is missing")
+        self.module = importlib.import_module('ai2.simulation.native_lane_cpu_adapter')
 
     def make_env(self, n=3, *, time_limit=3):
         cfg = {**self.lanes.PHASE_0B, "time_limit": time_limit}
@@ -145,7 +145,7 @@ class NativeLaneCPUAdapterTests(unittest.TestCase):
         torch = self.torch
         if not torch.cuda.is_available():
             self.skipTest("CUDA unavailable; local fixtures do not validate real GPU transfers")
-        from tensor_ppo import TensorVecEnv
+        from ai2.training.tensor_ppo import TensorVecEnv
 
         env, reference = self.make_env(), self.make_env()
         adapter = self.module.NativeLaneCPUAdapter(env, device="cuda")

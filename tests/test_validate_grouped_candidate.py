@@ -7,7 +7,7 @@ import unittest
 
 class CandidateReceiptTests(unittest.TestCase):
     def module(self):
-        return importlib.import_module("validate_grouped_candidate")
+        return importlib.import_module('tools.validation.validate_grouped_candidate')
 
     def test_failures_errors_skips_and_empty_run_reject(self):
         module = self.module()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import os
 from pathlib import Path
@@ -11,7 +13,7 @@ import unittest
 
 class RetentionCudaQualificationTests(unittest.TestCase):
     def subject(self):
-        import run_retention_cuda_qualification as qualification
+        import tools.validation.run_retention_cuda_qualification as qualification
 
         return qualification
 
@@ -95,11 +97,11 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             nav_module = self.nav_module(nav_calls, events=events)
             retention_module = self.retention_module(smoke_calls, events=events)
             modules = {
-                "qualify_navigation_curriculum": nav_module,
-                "train_retention_campaign_block": retention_module,
-                "native_curriculum_ppo": ModuleType("native_curriculum_ppo"),
+                "tools.validation.qualify_navigation_curriculum": nav_module,
+                "ai2.training.train_retention_campaign_block": retention_module,
+                "ai2.training.native_curriculum_ppo": ModuleType("ai2.training.native_curriculum_ppo"),
             }
-            modules["native_curriculum_ppo"].NativeCurriculumPPO = type(
+            modules["ai2.training.native_curriculum_ppo"].NativeCurriculumPPO = type(
                 "NativeCurriculumPPO", (), {"set_task_environment": lambda self, task, env, calibration=False: None}
             )
 
@@ -462,11 +464,11 @@ class RetentionCudaQualificationTests(unittest.TestCase):
             nav_module = self.nav_module([])
             retention_module = self.retention_module([], smoke_result={"status": "failed", "error": "bad smoke"})
             modules = {
-                "qualify_navigation_curriculum": nav_module,
-                "train_retention_campaign_block": retention_module,
-                "native_curriculum_ppo": ModuleType("native_curriculum_ppo"),
+                "tools.validation.qualify_navigation_curriculum": nav_module,
+                "ai2.training.train_retention_campaign_block": retention_module,
+                "ai2.training.native_curriculum_ppo": ModuleType("ai2.training.native_curriculum_ppo"),
             }
-            modules["native_curriculum_ppo"].NativeCurriculumPPO = type(
+            modules["ai2.training.native_curriculum_ppo"].NativeCurriculumPPO = type(
                 "NativeCurriculumPPO", (), {"set_task_environment": lambda self, task, env, calibration=False: None}
             )
             code = q.main([
@@ -485,36 +487,36 @@ class RetentionCudaQualificationTests(unittest.TestCase):
 
     def test_missing_planned_interfaces_fail_closed(self):
         q = self.subject()
-        ppo_module = ModuleType("native_curriculum_ppo")
-        retention_module = ModuleType("train_retention_campaign_block")
+        ppo_module = ModuleType("ai2.training.native_curriculum_ppo")
+        retention_module = ModuleType("ai2.training.train_retention_campaign_block")
         with self.assertRaisesRegex(q.QualificationError, "set_task_environment"):
             q.require_planned_interfaces(lambda name: {
-                "native_curriculum_ppo": ppo_module,
-                "train_retention_campaign_block": retention_module,
+                "ai2.training.native_curriculum_ppo": ppo_module,
+                "ai2.training.train_retention_campaign_block": retention_module,
             }[name])
 
     def source_tree(self, root: Path) -> Path:
         source = root / "source"
         source.mkdir()
         for name in q_required_source_files():
-            path = source / name
+            path = source_path(source, name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{name}\n")
         return source
 
     def modules_for_success(self):
         modules = {
-            "qualify_navigation_curriculum": self.nav_module([]),
-            "train_retention_campaign_block": self.retention_module([]),
-            "native_curriculum_ppo": ModuleType("native_curriculum_ppo"),
+            "tools.validation.qualify_navigation_curriculum": self.nav_module([]),
+            "ai2.training.train_retention_campaign_block": self.retention_module([]),
+            "ai2.training.native_curriculum_ppo": ModuleType("ai2.training.native_curriculum_ppo"),
         }
-        modules["native_curriculum_ppo"].NativeCurriculumPPO = type(
+        modules["ai2.training.native_curriculum_ppo"].NativeCurriculumPPO = type(
             "NativeCurriculumPPO", (), {"set_task_environment": lambda self, task, env, calibration=False: None}
         )
         return modules
 
     def nav_module(self, calls, *, events=None, python_cases=2, cuda_cases=4, cuda_status="passed"):
-        module = ModuleType("qualify_navigation_curriculum")
+        module = ModuleType("tools.validation.qualify_navigation_curriculum")
 
         def main(argv):
             calls.append(list(argv))
@@ -564,7 +566,7 @@ class RetentionCudaQualificationTests(unittest.TestCase):
         }
 
     def retention_module(self, calls, smoke_result=None, events=None):
-        module = ModuleType("train_retention_campaign_block")
+        module = ModuleType("ai2.training.train_retention_campaign_block")
 
         def run_qualification_smoke(**kwargs):
             calls.append(kwargs)

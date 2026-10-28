@@ -56,7 +56,7 @@ except Exception:  # pragma: no cover - dependency-light hosts skip.
 class NativeNavigationGeometryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        import native_navigation_geometry as geom
+        import ai2.simulation.native_navigation_geometry as geom
 
         cls.geom = geom
         cls.helper = geom.load_c_helper()

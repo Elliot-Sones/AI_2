@@ -42,6 +42,9 @@ results/ppo_utmist/*
 !results/ppo_utmist/model/
 results/ppo_utmist/model/*
 !results/ppo_utmist/model/*.zip
+baselines/*
+research/update-profile-20260913/
+.native-build/
 
 # Logs
 *.log

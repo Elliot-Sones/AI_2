@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import importlib
 from pathlib import Path
 import random
@@ -27,14 +29,14 @@ def _deps(*, require_cuda=True):
 
 class TensorPPOStaticTests(unittest.TestCase):
     def test_module_exports_api_without_runtime_dependencies(self):
-        module = importlib.import_module("tensor_ppo")
+        module = importlib.import_module('ai2.training.tensor_ppo')
 
         self.assertTrue(hasattr(module, "TensorPPO"))
         self.assertTrue(hasattr(module, "TensorStep"))
         self.assertTrue(hasattr(module, "TensorVecEnv"))
 
     def test_source_preserves_sb3_train_and_rejects_cpu_step_fallbacks(self):
-        source = (Path(__file__).resolve().parents[1] / "tensor_ppo.py").read_text()
+        source = (source_path(Path(__file__).resolve().parents[1], "tensor_ppo.py")).read_text()
 
         self.assertIn("super().train()", source)
         self.assertIn("_TensorRolloutStatsProxy", source)
@@ -46,7 +48,7 @@ class TensorPPOStaticTests(unittest.TestCase):
 class TensorPPODependencyTests(unittest.TestCase):
     def test_tensor_vec_env_rejects_unsupported_spaces_and_cpu_methods(self):
         torch, spaces, _PPO, _BaseCallback, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_ppo")
+        module = importlib.import_module('ai2.training.tensor_ppo')
 
         class Env:
             num_envs = 2
@@ -83,7 +85,7 @@ class TensorPPODependencyTests(unittest.TestCase):
 
     def test_tensor_vec_env_shim_forwards_sb3_seed_to_underlying_env(self):
         torch, spaces, _PPO, _BaseCallback, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_ppo")
+        module = importlib.import_module('ai2.training.tensor_ppo')
 
         class Env:
             num_envs = 3
@@ -113,7 +115,7 @@ class TensorPPODependencyTests(unittest.TestCase):
 
     def test_tensor_vec_env_validates_optional_host_timeout_hints(self):
         torch, spaces, _PPO, _BaseCallback, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_ppo")
+        module = importlib.import_module('ai2.training.tensor_ppo')
 
         class Env:
             num_envs = 3
@@ -157,7 +159,7 @@ class TensorPPODeferredTimeoutTests(unittest.TestCase):
 
     def setUp(self):
         self.torch, self.spaces, _PPO, _Callback, _VecEnv = _deps(require_cuda=False)
-        self.module = importlib.import_module("tensor_ppo")
+        self.module = importlib.import_module('ai2.training.tensor_ppo')
         self.device = self.torch.device("cpu")
 
     def make_fixture(self, *, deferred=True, timeouts=True, stop_after=None, batch_size=3):
@@ -453,8 +455,8 @@ class TensorPPOCudaTests(unittest.TestCase):
         self.PPO = PPO
         self.BaseCallback = BaseCallback
         self.DummyVecEnv = DummyVecEnv
-        self.module = importlib.import_module("tensor_ppo")
-        self.buffer_module = importlib.import_module("tensor_rollout_buffer")
+        self.module = importlib.import_module('ai2.training.tensor_ppo')
+        self.buffer_module = importlib.import_module('ai2.training.tensor_rollout_buffer')
         self.device = torch.device("cuda", torch.cuda.current_device())
 
     def make_env(self, *, n_envs=4, obs_dim=3):
@@ -1073,7 +1075,7 @@ class TensorPPOCudaTests(unittest.TestCase):
                 return np.zeros((256,), dtype=np.float32), 0.0, False, False, {}
 
         vec_env = self.DummyVecEnv([lambda: StockEnv() for _ in range(4)])
-        cpu_adapter = importlib.import_module("tensor_cpu_vec_env").CPUGameTensorAdapter(vec_env, device=self.device)
+        cpu_adapter = importlib.import_module('ai2.simulation.tensor_cpu_vec_env').CPUGameTensorAdapter(vec_env, device=self.device)
         tensor_env = self.module.TensorVecEnv(cpu_adapter, device=self.device)
         model = self.module.TensorPPO(
             "MlpPolicy",

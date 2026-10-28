@@ -17,7 +17,7 @@ def _dependencies():
     if not torch.cuda.is_available():
         raise unittest.SkipTest("CUDA unavailable; MLP graph capture is GPU-only")
     try:
-        import cuda_mlp_graph
+        import ai2.training.cuda_mlp_graph as cuda_mlp_graph
     except ImportError as exc:
         raise AssertionError("cuda_mlp_graph module must exist") from exc
     return torch, MlpExtractor, cuda_mlp_graph
@@ -25,7 +25,7 @@ def _dependencies():
 
 class CudaMlpGraphInterfaceTests(unittest.TestCase):
     def test_context_manager_interface_is_available(self):
-        module = importlib.import_module("cuda_mlp_graph")
+        module = importlib.import_module('ai2.training.cuda_mlp_graph')
 
         helper = module.graph_mlp_extractor
         signature = inspect.signature(helper)

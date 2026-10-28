@@ -1,4 +1,6 @@
 """Contract-only local tests. No local policy construction or CPU training."""
+
+from ai2.paths import source_path
 from dataclasses import replace
 import contextlib
 import importlib.util
@@ -15,9 +17,9 @@ import numpy as np
 
 class ContactRunnerTests(unittest.TestCase):
     def subject(self):
-        self.assertIsNotNone(importlib.util.find_spec('benchmark_native_contact_training'),
+        self.assertIsNotNone(importlib.util.find_spec('ai2.training.benchmark_native_contact_training'),
                              'native contact benchmark runner has not been implemented')
-        import benchmark_native_contact_training
+        import ai2.training.benchmark_native_contact_training as benchmark_native_contact_training
         return benchmark_native_contact_training
 
     def test_geometry_keeps_one_learner_per_game_and_only_batch_changes(self):
@@ -107,10 +109,10 @@ class ContactRunnerTests(unittest.TestCase):
             root = Path(directory)
             (root / 'UTMIST-AI2-main/environment').mkdir(parents=True)
             (root / 'UTMIST-AI2-main/environment/environment.py').touch()
-            (root / 'train.py').touch()
-            (root / 'tracking.py').touch()
+            (source_path(root, 'train.py')).touch()
+            (source_path(root, 'tracking.py')).touch()
             for name in m.REFERENCE_FILES:
-                (root / name).touch()
+                (source_path(root, name)).touch()
             sources = m.qualification_sources(root, root)
             self.assertIn('native/navigation_spaces.json', sources)
             self.assertEqual(sources['native/navigation_spaces.json'],
@@ -233,8 +235,8 @@ class ContactRunnerTests(unittest.TestCase):
             self.skipTest('torch is not installed in this local contract environment')
         m = self.subject()
         import torch
-        import native_curriculum_ppo
-        import tensor_ppo
+        import ai2.training.native_curriculum_ppo as native_curriculum_ppo
+        import ai2.training.tensor_ppo as tensor_ppo
         from types import ModuleType
         lane_module = ModuleType('native_contact_lane_vec_env')
         cfg = m.ContactBenchmarkConfig(rollouts=2)
@@ -289,7 +291,7 @@ class ContactRunnerTests(unittest.TestCase):
                  patch.object(m, 'require_checkpoint_preservation', return_value={'verified': True}), \
                  patch.object(m, 'require_qualification', return_value={}), \
                  patch.object(m, 'require_cuda', return_value=torch.device('cuda:0')), \
-                 patch.dict('sys.modules', native_contact_lane_vec_env=lane_module), \
+                 patch.dict('sys.modules', {'ai2.simulation.native_contact_lane_vec_env': lane_module}), \
                  patch.object(native_curriculum_ppo.NativeCurriculumPPO, 'load_contact_checkpoint', return_value=model), \
                  patch.object(tensor_ppo, 'TensorVecEnv', side_effect=lambda env, **kwargs: env), \
                  patch.object(torch.cuda, 'synchronize'), patch.object(torch.cuda, 'get_device_name', return_value='mock'), \

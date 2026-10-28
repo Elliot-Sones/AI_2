@@ -11,7 +11,7 @@ import numpy as np
 try:
     import gymnasium as gym
     from gymnasium import spaces
-    from grouped_vec_env import GroupedSubprocVecEnv as OriginalGroupedSubprocVecEnv
+    from ai2.simulation.grouped_vec_env import GroupedSubprocVecEnv as OriginalGroupedSubprocVecEnv
 except ModuleNotFoundError as exc:  # pragma: no cover - light local Python skips runtime tests.
     gym = None
     _IMPORT_ERROR = exc
@@ -19,7 +19,7 @@ else:
     _IMPORT_ERROR = None
 
 if _IMPORT_ERROR is None:
-    from shared_action_vec_env import (
+    from ai2.simulation.shared_action_vec_env import (
         ACTION_DIMENSION,
         GroupedSubprocVecEnv,
         SharedBatchedRngGroupedSubprocVecEnv,

@@ -22,7 +22,7 @@ class _BufferTestCase(unittest.TestCase):
             raise unittest.SkipTest(str(exc)) from exc
         self.torch = torch
         self.spaces = spaces
-        self.module = importlib.import_module("tensor_rollout_buffer")
+        self.module = importlib.import_module('ai2.training.tensor_rollout_buffer')
 
     def new_buffer(self, *, mode="rollout", compile_gae=False, device="cpu", size=4):
         cls = self.module.TensorRolloutBuffer

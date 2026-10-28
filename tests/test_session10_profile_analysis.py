@@ -40,9 +40,9 @@ def trace_fixture():
 
 class Session10TraceAnalysisTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("session10_profile_analysis"),
+        self.assertIsNotNone(importlib.util.find_spec("tools.analysis.session10_profile_analysis"),
                              "session10 trace analyzer is missing")
-        self.module = importlib.import_module("session10_profile_analysis")
+        self.module = importlib.import_module('tools.analysis.session10_profile_analysis')
 
     def analyze(self, trace=None, warmup=1):
         return self.module.analyze_trace(trace or trace_fixture(), warmup_cycles=warmup)

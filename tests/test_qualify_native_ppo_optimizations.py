@@ -13,8 +13,8 @@ import numpy as np
 
 class NativePPOQualificationTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("qualify_native_ppo_optimizations"))
-        self.q = importlib.import_module("qualify_native_ppo_optimizations")
+        self.assertIsNotNone(importlib.util.find_spec("tools.validation.qualify_native_ppo_optimizations"))
+        self.q = importlib.import_module('tools.validation.qualify_native_ppo_optimizations')
 
     def fixture(self):
         return {

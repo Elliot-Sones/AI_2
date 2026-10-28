@@ -18,7 +18,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-nav = importlib.import_module('native_navigation_episode')
+nav = importlib.import_module('ai2.simulation.native_navigation_episode')
 INT32 = C.c_int32
 D = C.c_double
 

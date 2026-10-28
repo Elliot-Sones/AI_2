@@ -94,6 +94,37 @@ class AutoLoadedObservationHelper:
         return lambda: [float(player.agent_id), 1.0]
 
 
+class ObservationModuleSwap:
+    """Install a fake observation module in both places an import can find it.
+
+    `import ai2.simulation.native_live_observation as x` reads the package
+    attribute before sys.modules, so swapping only sys.modules leaves the real
+    module in use once anything has imported it.
+    """
+
+    NAME = "ai2.simulation.native_live_observation"
+
+    def __init__(self, fake):
+        import ai2.simulation as package
+
+        self.package = package
+        self.fake = fake
+        self.old_module = sys.modules.get(self.NAME)
+        self.old_attr = package.__dict__.get("native_live_observation")
+        sys.modules[self.NAME] = fake
+        package.native_live_observation = fake
+
+    def restore(self):
+        if self.old_module is None:
+            sys.modules.pop(self.NAME, None)
+        else:
+            sys.modules[self.NAME] = self.old_module
+        if self.old_attr is None:
+            self.package.__dict__.pop("native_live_observation", None)
+        else:
+            self.package.native_live_observation = self.old_attr
+
+
 class RecordingObservationModule(types.ModuleType):
     def __init__(self):
         super().__init__("native_live_observation")
@@ -221,7 +252,7 @@ class NativeGamePatchTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pymunk = require_pymunk()
-        import native_navigation_geometry as geom
+        import ai2.simulation.native_navigation_geometry as geom
 
         cls.geometry_helper = geom.load_c_helper()
         cls.oracle_method = load_frozen_is_on_floor()
@@ -281,7 +312,7 @@ class NativeGamePatchTest(unittest.TestCase):
         return bool(types.MethodType(type(self).oracle_method, player)())
 
     def test_patch_module_is_importable_and_reports_non_space_step_scope(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         info = patch.describe_native_game_patch()
         self.assertEqual(info["space_step"], "original Pymunk Space.step is not patched")
@@ -298,7 +329,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIn("CPU exact-solver bridge", info["chipmunk_bridge"]["bridge_scope"])
 
     def test_is_on_floor_uses_prepared_binding_cache_and_refreshes_on_identity_change(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         helper = CountingGeometryHelper()
@@ -317,7 +348,7 @@ class NativeGamePatchTest(unittest.TestCase):
             self.assertEqual(helper.bindings[1][1].calls, 1)
 
     def test_patch_matches_actual_frozen_is_on_floor_ast_on_real_pymunk_shapes(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         cases = [
@@ -349,7 +380,7 @@ class NativeGamePatchTest(unittest.TestCase):
                 self.assertEqual(player.is_on_floor(), self.oracle(player), case)
 
     def test_patch_restores_class_hook_exactly_and_restores_after_exception(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         original = Player.is_on_floor
@@ -366,7 +397,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_patch_does_not_replace_pymunk_space_step(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         original_space_step = self.pymunk.Space.step
         Player = make_player_class()
@@ -375,7 +406,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(self.pymunk.Space.step, original_space_step)
 
     def test_strict_native_helper_failure_raises_with_context_by_default(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, _, _ = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -387,7 +418,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIn("native helper unavailable", receipt["last_native_error"])
 
     def test_explicit_fallback_counts_and_returns_original_method_without_gameplay_change(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, _, _ = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -402,7 +433,7 @@ class NativeGamePatchTest(unittest.TestCase):
             self.assertEqual(active.receipt()["native_failures"], 1)
 
     def test_source_hash_mismatch_fails_before_mutating_class(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         original = Player.is_on_floor
@@ -417,7 +448,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_optional_env_installer_is_noop_unless_enabled(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         module = types.SimpleNamespace(Player=Player, __file__=str(self.frozen_env))
@@ -436,7 +467,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_environment_module_installer_hashes_module_file_when_enabled(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         module = types.SimpleNamespace(Player=Player)
@@ -469,7 +500,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_install_native_game_patch_requires_source_path_and_stores_strong_reference_on_env(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, _, engine = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -498,7 +529,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertFalse(hasattr(engine, "_ai2_native_game_patch"))
 
     def test_install_native_game_patch_is_idempotent_for_reset_hooks(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, _, engine = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -534,7 +565,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_multiple_envs_sharing_same_player_class_do_not_stack_and_refcount_restore(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player1, _, engine1 = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -565,7 +596,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_restore_does_not_overwrite_foreign_hook_and_source_mismatch_rejected(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         original = Player.is_on_floor
@@ -592,8 +623,8 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(Player.is_on_floor, original)
 
     def test_native_input_default_off_and_opt_in_matches_actual_frozen_input_handler(self):
-        import native_game_patch as patch
-        import native_live_input
+        import ai2.simulation.native_game_patch as patch
+        import ai2.simulation.native_live_input as native_live_input
 
         Player = make_player_class()
         InputHandler = load_input_handler_from_frozen_ast()
@@ -633,7 +664,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(InputHandler.update, original_update)
 
     def test_native_input_strict_failure_and_explicit_fallback_are_counted(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         InputHandler = load_input_handler_from_frozen_ast()
@@ -657,7 +688,7 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(InputHandler.update, original_update)
 
     def test_observation_default_off_and_explicit_helper_patch_restore(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, objects, engine = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))
@@ -690,11 +721,10 @@ class NativeGamePatchTest(unittest.TestCase):
         self.assertIs(player.get_obs, original_get_obs)
 
     def test_enable_observation_auto_loads_helper_and_hooks_reset_before_first_observe_all(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
-        old_observation_module = sys.modules.get("native_live_observation")
-        fake_observation_module = RecordingObservationModule()
-        sys.modules["native_live_observation"] = fake_observation_module
+        observation_swap = ObservationModuleSwap(RecordingObservationModule())
+        fake_observation_module = observation_swap.fake
         module_name = "ai2_fake_frozen_env_for_native_patch"
         env_module = make_environment_module_with_player(module_name, self.frozen_env)
         reset_method, observe_all_method = load_reset_and_observe_all_from_frozen_ast()
@@ -748,18 +778,14 @@ class NativeGamePatchTest(unittest.TestCase):
             self.assertIs(getattr(engine.reset, "__func__", None), getattr(original_reset, "__func__", None))
             self.assertEqual(fake_observation_module.restore_calls, [[100, 101], [0, 1]])
         finally:
-            if old_observation_module is None:
-                sys.modules.pop("native_live_observation", None)
-            else:
-                sys.modules["native_live_observation"] = old_observation_module
+            observation_swap.restore()
             sys.modules.pop(module_name, None)
 
     def test_reset_hook_restores_only_own_wrapper_and_does_not_stack(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
-        old_observation_module = sys.modules.get("native_live_observation")
-        fake_observation_module = RecordingObservationModule()
-        sys.modules["native_live_observation"] = fake_observation_module
+        observation_swap = ObservationModuleSwap(RecordingObservationModule())
+        fake_observation_module = observation_swap.fake
         module_name = "ai2_fake_frozen_env_for_native_patch_refcount"
         env_module = make_environment_module_with_player(module_name, self.frozen_env)
 
@@ -807,14 +833,11 @@ class NativeGamePatchTest(unittest.TestCase):
             self.assertIs(getattr(engine2.reset, "__self__", None), getattr(original2, "__self__", None))
             self.assertIs(getattr(engine2.reset, "__func__", None), getattr(original2, "__func__", None))
         finally:
-            if old_observation_module is None:
-                sys.modules.pop("native_live_observation", None)
-            else:
-                sys.modules["native_live_observation"] = old_observation_module
+            observation_swap.restore()
             sys.modules.pop(module_name, None)
 
     def test_observation_requires_explicit_helper_when_enabled(self):
-        import native_game_patch as patch
+        import ai2.simulation.native_game_patch as patch
 
         Player = make_player_class()
         player, objects, engine = self.make_world(player_cls=Player, player_pos=(4.5, 1.0))

@@ -21,9 +21,9 @@ def corrected_config():
 
 class CurriculumQualificationTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("qualify_navigation_curriculum"),
+        self.assertIsNotNone(importlib.util.find_spec("tools.validation.qualify_navigation_curriculum"),
                              "curriculum qualification command must exist")
-        self.q = importlib.import_module("qualify_navigation_curriculum")
+        self.q = importlib.import_module('tools.validation.qualify_navigation_curriculum')
 
     def test_phase_selection_preserves_both_navigation_configs(self):
         original = corrected_config()

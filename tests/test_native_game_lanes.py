@@ -12,8 +12,8 @@ from pathlib import Path
 
 import numpy as np
 
-import native_game_episode as game
-import native_navigation_episode as nav
+import ai2.simulation.native_game_episode as game
+import ai2.simulation.native_navigation_episode as nav
 
 ROOT = Path(__file__).resolve().parents[1]
 INT32, U, B, F, D, V = C.c_int32, C.c_uint64, C.c_uint8, C.c_float, C.c_double, C.c_void_p

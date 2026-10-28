@@ -8,7 +8,7 @@ import pytest
 
 
 def subject():
-    import continue_reengagement_campaign
+    import ai2.runtime.continue_reengagement_campaign as continue_reengagement_campaign
 
     return continue_reengagement_campaign
 

@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib
 import random
 import shutil
@@ -27,7 +29,7 @@ class RecordCampaignNavigationTests(unittest.TestCase):
 
     def import_module(self):
         sys.modules.pop("record_campaign_navigation", None)
-        return importlib.import_module("record_campaign_navigation")
+        return importlib.import_module('tools.visualization.record_campaign_navigation')
 
     def test_module_import_does_not_require_numpy(self):
         sys.modules.pop("record_campaign_navigation", None)
@@ -35,7 +37,7 @@ class RecordCampaignNavigationTests(unittest.TestCase):
         had_numpy = "numpy" in sys.modules
         sys.modules["numpy"] = None
         try:
-            module = importlib.import_module("record_campaign_navigation")
+            module = importlib.import_module('tools.visualization.record_campaign_navigation')
         finally:
             sys.modules.pop("record_campaign_navigation", None)
             if had_numpy:
@@ -278,7 +280,7 @@ class RecordCampaignNavigationTests(unittest.TestCase):
             checkpoint.write_text("checkpoint")
             video.write_text("video")
             (repo / "config.yaml").write_text("phase: 0b\n")
-            (repo / "train.py").write_text("train\n")
+            (source_path(repo, "train.py")).write_text("train\n")
 
             proof = self.module.build_proof(
                 repo=repo,

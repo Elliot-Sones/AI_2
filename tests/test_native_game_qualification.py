@@ -1,6 +1,8 @@
 """Small actual-reference checks; comprehensive scenarios are generated, not run."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import hashlib
 import importlib
 import io
@@ -12,15 +14,15 @@ import sys
 import tempfile
 import unittest
 
-from native_attack_tables import DEFAULT_SOURCE
+from ai2.simulation.native_attack_tables import DEFAULT_SOURCE
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class QualificationTests(unittest.TestCase):
     def module(self):
-        self.assertTrue((ROOT / "native_game_qualification.py").is_file(), "qualification implementation missing")
-        return importlib.import_module("native_game_qualification")
+        self.assertTrue((source_path(ROOT, "native_game_qualification.py")).is_file(), "qualification implementation missing")
+        return importlib.import_module('ai2.evaluation.native_game_qualification')
 
     def test_presets_reproduce_inputs_and_do_not_claim_observed_coverage(self):
         m = self.module()
@@ -47,9 +49,9 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual({case["family"] for case in cases}, {"dodge_overlap", "ordered_simultaneous", "max_charge"})
         self.assertLessEqual(sum(len(case["actions"]) for case in cases), 700)
         self.assertEqual(len(m.build_cases("integration", seed=17)), 12)
-        from combat_episode_capture import capture_raw
-        from combat_episode_parity import compare_capture
-        from native_game_snapshot import GameParityAdapter
+        from ai2.evaluation.combat_episode_capture import capture_raw
+        from ai2.evaluation.combat_episode_parity import compare_capture
+        from ai2.evaluation.native_game_snapshot import GameParityAdapter
         observed = []
         for case in cases:
             with self.subTest(case=case["case_id"]):
@@ -92,9 +94,9 @@ class QualificationTests(unittest.TestCase):
         boundary = [case for case in m.build_cases("comprehensive", seed=17) if case["family"] == "terminal_timeout"]
         self.assertEqual(len(boundary), 1, "simultaneous terminal/timeout fixture missing")
         self.assertEqual(len(m.build_cases("terminal_timeout", seed=17)), 1)
-        from combat_episode_capture import capture_raw
-        from combat_episode_parity import compare_capture
-        from native_game_snapshot import GameParityAdapter
+        from ai2.evaluation.combat_episode_capture import capture_raw
+        from ai2.evaluation.combat_episode_parity import compare_capture
+        from ai2.evaluation.native_game_snapshot import GameParityAdapter
         case = boundary[0]
         document = capture_raw(DEFAULT_SOURCE.parent.parent, seed=case["seed"],
                                actions=case["actions"], scenario=case["scenario"])
@@ -128,7 +130,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_actual_native_negative_control_stops_and_preserves_first_case(self):
         m = self.module()
-        from native_game_snapshot import GameParityAdapter
+        from ai2.evaluation.native_game_snapshot import GameParityAdapter
 
         class CorruptReward(GameParityAdapter):
             def step(self, actions, draws):
@@ -152,7 +154,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_cli_lists_without_loading_adapter_and_reports_success(self):
         m = self.module()
-        command = [sys.executable, str(ROOT / "native_game_qualification.py"), "--preset", "smoke", "--seed", "17"]
+        command = [sys.executable, str(source_path(ROOT, "native_game_qualification.py")), "--preset", "smoke", "--seed", "17"]
         listed = subprocess.run([*command, "--list"], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertEqual(json.loads(listed.stdout)["requested_ticks"], 9)

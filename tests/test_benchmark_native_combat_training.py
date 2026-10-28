@@ -1,4 +1,6 @@
 """Driver tests perform no policy inference or training on the local CPU."""
+
+from ai2.paths import source_path
 from contextlib import redirect_stdout
 from dataclasses import asdict
 import hashlib
@@ -15,7 +17,7 @@ import weakref
 from unittest.mock import Mock, call, patch
 
 import numpy as np
-from training_benchmark_contract import validate_receipt
+from tools.validation.training_benchmark_contract import validate_receipt
 
 
 FROZEN = Path(os.environ.get('AI2_FROZEN_SOURCE_ROOT', '/Users/elliot18/Projects/ml-research/AI_2-learning-validation-20260905/baselines/navigation-repair-20260905/payload/variants/corrected'))
@@ -24,7 +26,7 @@ VALID_SEMANTICS_HASH = 'e659a10eed28048afd16823b32ded9eabe872d7c3438f0cdabd89525
 
 class ConfigAndMeasurementTests(unittest.TestCase):
     def setUp(self):
-        self.mod = importlib.import_module('benchmark_native_combat_training')
+        self.mod = importlib.import_module('ai2.training.benchmark_native_combat_training')
 
     def test_config_counts_games_and_player_transitions_separately(self):
         config = self.mod.BenchmarkConfig(games=3, n_steps=8, batch_size=16,
@@ -59,18 +61,18 @@ class ConfigAndMeasurementTests(unittest.TestCase):
         self.assertEqual((output, frozen), (Path('/tmp/combat-cli'), FROZEN))
 
     def test_update_selection_preserves_original_class_and_routes_actual_buffer(self):
-        from tensor_ppo import TensorPPO
-        from ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256
+        from ai2.training.tensor_ppo import TensorPPO
+        from ai2.training.ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256
         self.assertTrue(hasattr(self.mod, 'make_benchmark_ppo_class'))
         self.assertIs(self.mod.make_benchmark_ppo_class(self.mod.BenchmarkConfig()), TensorPPO)
         supported = dict(version=SB3_VERSION, train_sha256=SB3_TRAIN_SHA256, supported=True)
         # Isolate the routing boundary: no constructor, forward pass, or update executes locally.
-        with patch('ppo_update_optimizations.sb3_train_source_metadata', return_value=supported):
+        with patch('ai2.training.ppo_update_optimizations.sb3_train_source_metadata', return_value=supported):
             selected = self.mod.make_benchmark_ppo_class(self.mod.BenchmarkConfig(update_mode='deferred_metrics'))
         self.assertTrue(issubclass(selected, TensorPPO))
         model = object.__new__(selected)
         buffer = model.rollout_buffer = object()
-        with patch('ppo_update_optimizations.deferred_metrics_train') as update, \
+        with patch('ai2.training.ppo_update_optimizations.deferred_metrics_train') as update, \
              patch.object(TensorPPO, 'train', side_effect=AssertionError('stats proxy must not be installed')):
             selected.train(model)
         update.assert_called_once_with(model, loss_function=None)
@@ -80,7 +82,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
         self.assertTrue(hasattr(self.mod, 'make_benchmark_ppo_class'))
         config = self.mod.BenchmarkConfig(update_mode='deferred_metrics')
         unsupported = dict(version='unsupported-test-version', train_sha256='bad-source', supported=False)
-        with patch('ppo_update_optimizations.sb3_train_source_metadata', return_value=unsupported), \
+        with patch('ai2.training.ppo_update_optimizations.sb3_train_source_metadata', return_value=unsupported), \
              patch.object(self.mod, 'build_backend') as build:
             with self.assertRaisesRegex(RuntimeError, 'unsupported-test-version'):
                 self.mod.run_backend('native_cuda', config, Path('/tmp/no-run'), FROZEN, 'cuda:0')
@@ -89,7 +91,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
     def test_provenance_records_update_implementation_and_source_guard(self):
         if not FROZEN.is_dir():
             self.skipTest('frozen original game not installed')
-        from ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256, sb3_train_source_metadata
+        from ai2.training.ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256, sb3_train_source_metadata
         actual_source = sb3_train_source_metadata()
         for mode in ('sb3', 'deferred_metrics'):
             with self.subTest(mode=mode), patch('torch.cuda.get_device_name', return_value='metadata-only test'):
@@ -102,7 +104,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                     expected_version=SB3_VERSION, expected_train_sha256=SB3_TRAIN_SHA256, **actual_source))
                 for name in ('ppo_update_optimizations.py', 'experimental_native_lane_training.py',
                              'tensor_ppo.py', 'tensor_rollout_buffer.py'):
-                    digest = hashlib.sha256((self.mod.ROOT/name).read_bytes()).hexdigest()
+                    digest = hashlib.sha256((source_path(self.mod.ROOT, name)).read_bytes()).hexdigest()
                     self.assertEqual(result['sources'][name], digest)
                 self.assertTrue(result['cpu_model'].strip())
                 self.assertNotEqual(result['cpu_model'], result['system'])
@@ -221,7 +223,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
     def assert_mocked_driver(self, update_mode):
         import torch
         from stable_baselines3.common.logger import configure
-        from ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256
+        from ai2.training.ppo_update_optimizations import SB3_VERSION, SB3_TRAIN_SHA256
         config = self.mod.BenchmarkConfig(games=1, n_steps=2, batch_size=4,
                                           warmup_rollouts=1, measured_rollouts=2, update_mode=update_mode)
         creations = []
@@ -329,10 +331,10 @@ class ConfigAndMeasurementTests(unittest.TestCase):
                  patch.object(self.mod, '_make_callback', return_value=callback), \
                  patch.object(self.mod, 'policy_receipt', side_effect=receipts), \
                  patch.object(self.mod, '_write_json', side_effect=tracked_write_json), \
-                 patch('tensor_ppo.TensorPPO', FakeModel), patch.object(torch.cuda, 'synchronize'), \
-                 patch('ppo_update_optimizations.sb3_train_source_metadata', return_value=dict(
+                 patch('ai2.training.tensor_ppo.TensorPPO', FakeModel), patch.object(torch.cuda, 'synchronize'), \
+                 patch('ai2.training.ppo_update_optimizations.sb3_train_source_metadata', return_value=dict(
                      version=SB3_VERSION, train_sha256=SB3_TRAIN_SHA256, supported=True)), \
-                 patch('ppo_update_optimizations.deferred_metrics_train', new=deferred_control_flow), \
+                 patch('ai2.training.ppo_update_optimizations.deferred_metrics_train', new=deferred_control_flow), \
                  patch('stable_baselines3.common.logger.configure', side_effect=tracked_logger), \
                  redirect_stdout(io.StringIO()):
                 result = self.mod.run_benchmark(config, Path(temporary)/'run', FROZEN)
@@ -386,7 +388,7 @@ class ConfigAndMeasurementTests(unittest.TestCase):
 
 class OriginalAdapterTests(unittest.TestCase):
     def setUp(self):
-        self.mod = importlib.import_module('benchmark_native_combat_training')
+        self.mod = importlib.import_module('ai2.training.benchmark_native_combat_training')
 
     def test_original_reset_step_and_rng_isolation(self):
         if not FROZEN.is_dir():

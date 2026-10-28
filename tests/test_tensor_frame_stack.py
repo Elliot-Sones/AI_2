@@ -19,10 +19,10 @@ def _deps():
 
 class TensorFrameStackTests(unittest.TestCase):
     def test_import_is_dependency_light(self):
-        self.assertTrue(hasattr(importlib.import_module("tensor_frame_stack"), "TensorFrameStack"))
+        self.assertTrue(hasattr(importlib.import_module('ai2.training.tensor_frame_stack'), "TensorFrameStack"))
 
     def test_source_limits_cpu_sync_to_explicit_check_valid_boundary(self):
-        source = Path("tensor_frame_stack.py").read_text()
+        source = Path(importlib.import_module("ai2.training.tensor_frame_stack").__file__).read_text()
         reset_body = source.split("    def reset(")[1].split("    def update(")[0]
         update_body = source.split("    def update(")[1].split("    def check_valid(")[0]
 
@@ -32,7 +32,7 @@ class TensorFrameStackTests(unittest.TestCase):
 
     def assert_matches_sb3(self, n_envs, *, ticks):
         torch, Box, StackedObservations = _deps()
-        native = importlib.import_module("tensor_frame_stack")
+        native = importlib.import_module('ai2.training.tensor_frame_stack')
         rng = np.random.default_rng(981 + n_envs)
         space = Box(-np.inf, np.inf, shape=(64,), dtype=np.float32)
         reference = StackedObservations(n_envs, 4, space)
@@ -66,7 +66,7 @@ class TensorFrameStackTests(unittest.TestCase):
 
     def test_alias_and_terminal_snapshot_contract(self):
         torch, _Box, _StackedObservations = _deps()
-        native = importlib.import_module("tensor_frame_stack")
+        native = importlib.import_module('ai2.training.tensor_frame_stack')
         candidate = native.TensorFrameStack(2, device="cuda")
         obs0 = torch.arange(128, dtype=torch.float32, device="cuda").reshape(2, 64)
         reset_out = candidate.reset(obs0)
@@ -86,7 +86,7 @@ class TensorFrameStackTests(unittest.TestCase):
 
     def test_producer_stream_inputs_are_valid_when_update_stream_waits(self):
         torch, _Box, _StackedObservations = _deps()
-        native = importlib.import_module("tensor_frame_stack")
+        native = importlib.import_module('ai2.training.tensor_frame_stack')
         candidate = native.TensorFrameStack(4, device="cuda")
         candidate.reset(torch.zeros((4, 64), dtype=torch.float32, device="cuda"))
         producer = torch.cuda.Stream()
@@ -106,7 +106,7 @@ class TensorFrameStackTests(unittest.TestCase):
 
     def test_malformed_inputs_and_constructor_bounds_fail_closed(self):
         torch, _Box, _StackedObservations = _deps()
-        native = importlib.import_module("tensor_frame_stack")
+        native = importlib.import_module('ai2.training.tensor_frame_stack')
         for n_envs in (0, 4097, True, 1.5):
             with self.subTest(n_envs=n_envs):
                 with self.assertRaises(ValueError):
@@ -135,7 +135,7 @@ class TensorFrameStackTests(unittest.TestCase):
 
     def test_nonfinite_data_accumulates_until_explicit_check_valid_and_reset_clears(self):
         torch, _Box, _StackedObservations = _deps()
-        native = importlib.import_module("tensor_frame_stack")
+        native = importlib.import_module('ai2.training.tensor_frame_stack')
         candidate = native.TensorFrameStack(2, device="cuda")
         obs = torch.zeros((2, 64), dtype=torch.float32, device="cuda")
         obs[0, 0] = float("nan")

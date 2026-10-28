@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 class NativeCombatRewardGateTests(unittest.TestCase):
     def test_local_gate_runs_cpu_oracle_and_skips_only_cuda_when_allowed(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         with gate.temporary_output_dir("gate-test-") as output_dir:
             result = gate.run_gate(output_dir=output_dir, allow_cuda_skip=True)
@@ -57,7 +57,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
                 self.assertTrue(all(row["cuda"] is not None for row in rows))
 
     def test_semantic_expectations_are_asserted_for_every_scenario(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         with gate.temporary_output_dir("gate-test-") as output_dir:
             gate.run_gate(output_dir=output_dir, allow_cuda_skip=True)
@@ -121,7 +121,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
         self.assertEqual(invalid["before_hash"], invalid["after_hash"])
 
     def test_runtime_semantic_validation_rejects_wrong_labels(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         with gate.temporary_output_dir("gate-test-") as output_dir:
             gate.run_gate(output_dir=output_dir, allow_cuda_skip=True)
@@ -137,7 +137,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
             gate.validate_semantics("attack_contact_damage", corrupted)
 
     def test_event_rows_report_matched_mismatched_and_not_run_explicitly(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         cpu = {"scenario_id": 0, "total": [1.0, 1.0]}
         matched = gate._event_rows([cpu], [dict(cpu)])[0]
@@ -157,7 +157,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
         self.assertIsNone(not_run["cuda"])
 
     def test_output_preflight_rejects_existing_files_before_compile(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         with gate.temporary_output_dir("gate-test-") as output_dir:
             output_dir.mkdir(exist_ok=True)
@@ -168,7 +168,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
                 run_backend.assert_not_called()
 
     def test_output_preflight_rejects_symlinked_output_dir_before_compile(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         with gate.temporary_output_dir("gate-test-") as root:
             real = root / "real"
@@ -181,7 +181,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
                 run_backend.assert_not_called()
 
     def test_abi_validation_rejects_size_or_offset_mismatch(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         abi = gate.expected_abi()
         gate.validate_abi(dict(abi))
@@ -192,7 +192,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
             gate.validate_abi(broken)
 
     def test_mismatch_report_names_exact_field_and_values(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         left = {"total": [1.0, 0.0], "nested": {"value": 3}}
         right = {"total": [1.0, 2.0], "nested": {"value": 3}}
@@ -204,7 +204,7 @@ class NativeCombatRewardGateTests(unittest.TestCase):
         self.assertEqual(mismatch["cuda"], 2.0)
 
     def test_require_cuda_fails_closed_without_cuda(self):
-        import native_combat_reward_gate as gate
+        import ai2.simulation.native_combat_reward_gate as gate
 
         if gate.cuda_available():
             self.skipTest("CUDA available on this host")

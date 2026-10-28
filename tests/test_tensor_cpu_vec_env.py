@@ -25,8 +25,8 @@ def _deps(*, require_cuda=True):
 
 class TensorCPUGameAdapterStaticTests(unittest.TestCase):
     def test_module_import_is_dependency_light_and_labels_hybrid_bridge(self):
-        module = importlib.import_module("tensor_cpu_vec_env")
-        source = Path("tensor_cpu_vec_env.py").read_text()
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
+        source = Path(importlib.import_module("ai2.simulation.tensor_cpu_vec_env").__file__).read_text()
 
         self.assertTrue(hasattr(module, "CPUGameTensorAdapter"))
         self.assertIn("hybrid CPU-game", source)
@@ -35,7 +35,7 @@ class TensorCPUGameAdapterStaticTests(unittest.TestCase):
 class TensorCPUGameAdapterDependencyTests(unittest.TestCase):
     def test_rejects_cpu_device_without_cuda_allocation(self):
         torch, spaces, _PPO, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_cpu_vec_env")
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
 
         class Env:
             num_envs = 2
@@ -47,7 +47,7 @@ class TensorCPUGameAdapterDependencyTests(unittest.TestCase):
 
     def test_rejects_wrong_existing_vecenv_contract(self):
         torch, spaces, _PPO, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_cpu_vec_env")
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
 
         class Env:
             num_envs = 2
@@ -59,7 +59,7 @@ class TensorCPUGameAdapterDependencyTests(unittest.TestCase):
 
     def test_reset_seed_sequence_uses_sb3_base_seed_contract(self):
         torch, spaces, _PPO, _DummyVecEnv = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_cpu_vec_env")
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
 
         class Env:
             num_envs = 3
@@ -93,7 +93,7 @@ class TensorCPUGameAdapterDependencyTests(unittest.TestCase):
         self.assertEqual(env.seed_calls, [10])
 
     def test_host_timeout_indices_contract_is_numpy_int64_copy(self):
-        module = importlib.import_module("tensor_cpu_vec_env")
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
         adapter = module.CPUGameTensorAdapter.__new__(module.CPUGameTensorAdapter)
         adapter._last_timeout_indices = np.asarray([2, 5], dtype=np.int64)
 
@@ -103,7 +103,7 @@ class TensorCPUGameAdapterDependencyTests(unittest.TestCase):
         np.testing.assert_array_equal(adapter.host_timeout_indices(), np.asarray([2, 5], dtype=np.int64))
 
     def test_no_timeout_step_preserves_host_terminal_info_without_cuda_terminal_upload(self):
-        module = importlib.import_module("tensor_cpu_vec_env")
+        module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
 
         class FakeAction:
             is_cuda = True
@@ -174,8 +174,8 @@ class TensorCPUGameAdapterCudaTests(unittest.TestCase):
         self.spaces = spaces
         self.PPO = PPO
         self.DummyVecEnv = DummyVecEnv
-        self.adapter_module = importlib.import_module("tensor_cpu_vec_env")
-        self.tensor_ppo_module = importlib.import_module("tensor_ppo")
+        self.adapter_module = importlib.import_module('ai2.simulation.tensor_cpu_vec_env')
+        self.tensor_ppo_module = importlib.import_module('ai2.training.tensor_ppo')
         self.device = torch.device("cuda", torch.cuda.current_device())
 
     def make_vec_env(self, *, n_envs=4):

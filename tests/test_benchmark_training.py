@@ -1,5 +1,7 @@
 """Integration checks for benchmark accounting, using the unchanged simulator."""
 
+from ai2.paths import source_path
+
 import json
 from pathlib import Path
 import subprocess
@@ -19,7 +21,7 @@ class BenchmarkAccountingTest(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "benchmark_training.py"),
+                    str(source_path(ROOT, "benchmark_training.py")),
                     "--mode", "all",
                     "--steps", "64",
                     "--warmup-steps", "8",

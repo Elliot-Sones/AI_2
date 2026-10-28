@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import random
 import sys
 import tempfile
@@ -12,7 +14,7 @@ from unittest import mock
 
 import numpy as np
 
-import isolated_rng_vec_env as iso
+import ai2.simulation.isolated_rng_vec_env as iso
 
 try:
     import gymnasium as gym
@@ -103,7 +105,7 @@ class IsolatedRngProxyTest(unittest.TestCase):
     def test_discover_frozen_rng_modules_uses_loaded_game_and_train_aliases(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            train_path = root / "train.py"
+            train_path = source_path(root, "train.py")
             env_path = root / "UTMIST-AI2-main" / "environment" / "environment.py"
             env_path.parent.mkdir(parents=True)
             train_path.write_text("train", encoding="utf-8")
@@ -158,7 +160,7 @@ class IsolatedRngProxyTest(unittest.TestCase):
     def test_verify_frozen_sources_pins_loaded_paths_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            train_path = root / "train.py"
+            train_path = source_path(root, "train.py")
             env_path = root / "UTMIST-AI2-main" / "environment" / "environment.py"
             env_path.parent.mkdir(parents=True)
             train_path.write_text("train", encoding="utf-8")
@@ -192,7 +194,7 @@ class IsolatedRngProxyTest(unittest.TestCase):
     def test_verify_frozen_sources_rejects_loaded_module_from_other_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            train_path = root / "train.py"
+            train_path = source_path(root, "train.py")
             env_path = root / "UTMIST-AI2-main" / "environment" / "environment.py"
             other_train = root / "other_train.py"
             env_path.parent.mkdir(parents=True)
@@ -361,7 +363,7 @@ if gym is not None:
 class IsolatedRngGroupedWorkerTest(unittest.TestCase):
     @unittest.skipIf(gym is None, "gymnasium unavailable")
     def test_grouped_worker_uses_lane_rng_objects_for_reset_step_and_autoreset(self):
-        from isolated_rng_vec_env import GroupedSubprocVecEnv
+        from ai2.simulation.isolated_rng_vec_env import GroupedSubprocVecEnv
 
         env_fns = [make_toy_proxy_rng_env(index) for index in range(2)]
         grouped = GroupedSubprocVecEnv(env_fns, group_size=2, start_method="spawn", rng_scope="test")

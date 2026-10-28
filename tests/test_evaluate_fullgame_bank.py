@@ -131,7 +131,7 @@ def missing_real_game_dependencies():
 
 class EvaluateFullGameBankTests(unittest.TestCase):
     def test_bank_has_unique_case_ids_and_seeds(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         bank = ev.build_default_bank()
         ids = [case.case_id for case in bank]
@@ -144,7 +144,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertTrue(any("mirror" in case.mirroring for case in bank if case.player_slot == 1))
 
     def test_frame_stack_reset_matches_zero_prefill_reference(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         obs = np.arange(64, dtype=np.float32)
         expected = np.concatenate([np.zeros(64, dtype=np.float32)] * 3 + [obs])
@@ -154,7 +154,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         np.testing.assert_array_equal(stack.step(next_obs), np.concatenate([np.zeros(64, dtype=np.float32)] * 2 + [obs, next_obs]))
 
     def test_repeatable_evaluation_labels_modes_and_decodes_actions(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         action = np.array([0.2, 0, 0, 0.7, 0, 0, 0, 0.51, 0, 0], dtype=np.float32)
         sampled = np.array([0, 0, 0, 0, 0, 0, 0, 0.49, 0.75, 0], dtype=np.float32)
@@ -195,7 +195,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual(policy.calls[0][0], (256,))
 
     def test_manifest_cases_record_effective_episode_max_override(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         case = ev.EvaluationCase("case_a", seed=11, opponent="Constant", max_ticks=2700)
 
@@ -216,7 +216,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual(written_manifest["cases"][0]["max_ticks"], 180)
 
     def test_slot_one_case_sends_policy_action_to_slot_one(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class SlotRecordingEnv(FakeEnv):
             def step(self, action):
@@ -238,7 +238,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertEqual(float(env.slot1_action[3]), 1.0)
 
     def test_rng_state_is_restored_even_when_env_construction_fails(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         try:
             import torch
@@ -277,7 +277,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertTrue(bool(torch.equal(torch.random.get_rng_state(), torch_state)))
 
     def test_terminal_cause_and_diagnosis_are_derived_from_trace(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             result = ev.run_evaluation(
@@ -295,7 +295,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual(result["summary"]["losses"], 1)
 
     def test_requested_attack_without_hit_is_diagnosed(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             episode_dir = Path(d) / "out"
@@ -311,7 +311,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertIn("attack_started_but_no_hit", episode["diagnoses"])
 
     def test_nonfinite_policy_output_fails_before_env_step_and_output_commit(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         env = FakeEnv()
         with tempfile.TemporaryDirectory() as d:
@@ -329,7 +329,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertFalse((out / "trace.jsonl").exists())
 
     def test_output_refuses_nonempty_directory_and_records_video_metadata(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "out"
@@ -346,7 +346,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                 )
 
     def test_video_request_records_episode_frames_and_hashes_manifest_video(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "out"
@@ -375,7 +375,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual((out / video_rel).read_bytes(), b"fake mp4 bytes")
 
     def test_default_video_capture_streams_frames_to_recorder(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         opened_recorders = []
 
@@ -416,7 +416,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertTrue(opened_recorders[0].closed)
 
     def test_video_request_fails_closed_when_default_capture_cannot_render(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class NoRenderEnv(FakeEnv):
             render = None
@@ -436,7 +436,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
     def test_video_capture_must_create_nonempty_artifact(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(ev.VideoUnavailableError):
@@ -452,7 +452,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
                 )
 
     def test_unknown_video_subset_key_fails_before_env_work(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         env = FakeEnv()
         with tempfile.TemporaryDirectory() as d:
@@ -471,7 +471,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
     def test_policy_adapters_validate_action_shape(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class BadModel:
             def predict(self, obs, deterministic):
@@ -482,7 +482,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             adapter.predict(np.zeros(256, dtype=np.float32), deterministic=True)
 
     def test_sb3_adapter_rejects_unsupported_observation_width(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class ClassicHistoryModel:
             observation_space = type("ObsSpace", (), {"shape": (2656,)})()
@@ -494,7 +494,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             ev.SB3PolicyAdapter(ClassicHistoryModel(), action_head="gaussian")
 
     def test_actor_adapter_accepts_export_like_actor_with_256_obs(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class ExportLikeActor:
             action_head = "bernoulli_10"
@@ -511,7 +511,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertEqual(action[7], 1)
 
     def test_grounded_snapshot_uses_callable_is_on_floor(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         class CallableGroundPlayer(FakePlayer):
             grounded = True
@@ -523,7 +523,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertFalse(ev._player_snapshot(player)["grounded"])
 
     def test_explicit_checkpoint_path_must_exist_before_env_work(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         env = FakeEnv()
         with tempfile.TemporaryDirectory() as d:
@@ -540,7 +540,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertEqual(env.step_count, 0)
 
     def test_unsupported_opponent_fails_closed_before_output_commit(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "out"
@@ -555,7 +555,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
             self.assertFalse(out.exists())
 
     def test_real_environment_no_render_smoke_is_opt_in(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         if os.environ.get("AI2_RUN_REAL_EVAL_SMOKE") != "1":
             self.skipTest("opt-in real game smoke")
@@ -591,7 +591,7 @@ class EvaluateFullGameBankTests(unittest.TestCase):
         self.assertEqual(os.getcwd(), original_cwd)
 
     def test_real_environment_video_smoke_is_opt_in(self):
-        import evaluate_fullgame_bank as ev
+        import ai2.evaluation.evaluate_fullgame_bank as ev
 
         if os.environ.get("AI2_RUN_REAL_EVAL_VIDEO_SMOKE") != "1":
             self.skipTest("opt-in real game video smoke")

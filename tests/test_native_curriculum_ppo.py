@@ -19,11 +19,11 @@ import numpy as np
 
 class NativeTaskTensorRolloutBufferTests(unittest.TestCase):
     def module(self):
-        self.assertIsNotNone(importlib.util.find_spec('native_curriculum_ppo'),
+        self.assertIsNotNone(importlib.util.find_spec('ai2.training.native_curriculum_ppo'),
                              'the CUDA curriculum adapter is not implemented')
         if importlib.util.find_spec('torch') is None:
             self.skipTest('torch is not installed in this local contract environment')
-        return importlib.import_module('native_curriculum_ppo')
+        return importlib.import_module('ai2.training.native_curriculum_ppo')
 
     def make_buffer(self, *, action_head='gaussian', buffer_size=2, n_envs=3):
         module = self.module()
@@ -190,17 +190,24 @@ class NativeTaskTensorRolloutBufferTests(unittest.TestCase):
 
 class NativeCurriculumContractTests(unittest.TestCase):
     def module(self):
-        self.assertIsNotNone(importlib.util.find_spec('native_curriculum_ppo'),
+        self.assertIsNotNone(importlib.util.find_spec('ai2.training.native_curriculum_ppo'),
                              'the CUDA curriculum adapter is not implemented')
         if importlib.util.find_spec('torch') is None:
             self.skipTest('torch is not installed in this local contract environment')
-        return importlib.import_module('native_curriculum_ppo')
+        return importlib.import_module('ai2.training.native_curriculum_ppo')
 
     def test_frozen_curriculum_source_is_unchanged(self):
         module = self.module()
         self.assertEqual(module.curriculum_source_metadata()['sha256'],
                          '380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40')
         self.assertTrue(module.curriculum_source_metadata()['supported'])
+
+    def test_frozen_curriculum_hash_is_for_implementation_not_checkpoint_shim(self):
+        module = self.module()
+        root = Path(__file__).resolve().parents[1]
+        metadata = module.curriculum_source_metadata()
+        self.assertEqual(Path(metadata['path']), root / 'ai2/training/curriculum_ppo.py')
+        self.assertNotEqual(metadata['sha256'], hashlib.sha256((root / 'curriculum_ppo.py').read_bytes()).hexdigest())
 
     def test_experiment_settings_retain_curriculum_not_raw_combat_defaults(self):
         module = self.module()
@@ -550,9 +557,9 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         if not torch.cuda.is_available():
             self.skipTest('CUDA unavailable; no CPU policy construction, inference or training')
         self.torch = torch
-        self.module = importlib.import_module('native_curriculum_ppo')
+        self.module = importlib.import_module('ai2.training.native_curriculum_ppo')
         self.assertTrue(self.module.curriculum_source_metadata()['supported'])
-        from ppo_update_optimizations import sb3_train_source_metadata
+        from ai2.training.ppo_update_optimizations import sb3_train_source_metadata
         self.assertTrue(sb3_train_source_metadata()['supported'])
         self.addCleanup(self.restore_rng, self.rng_state())
 
@@ -574,7 +581,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         """Tensor fixture tests collector contracts, not native game fidelity."""
         from gymnasium import spaces
 
-        from tensor_ppo import TensorStep, TensorVecEnv
+        from ai2.training.tensor_ppo import TensorStep, TensorVecEnv
         torch, module = self.torch, self.module
         mask = module.TASK_MASKS[task]
         version = module.TASK_VERSIONS[task]
@@ -811,7 +818,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertEqual(model.num_timesteps, 10059776)
 
     def test_source_conversion_does_not_reseed_the_fixed_scenario_schedule(self):
-        from curriculum_ppo import CurriculumPPO
+        from ai2.training.curriculum_ppo import CurriculumPPO
         env = self.environment()
         source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
             policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=17)
@@ -822,7 +829,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertEqual(model.seed, source.seed)
 
     def test_source_conversion_reapplies_requested_task_after_parameter_restore(self):
-        from curriculum_ppo import CurriculumPPO
+        from ai2.training.curriculum_ppo import CurriculumPPO
         combat_env = self.environment('combat')
         source = CurriculumPPO(env=combat_env.as_sb3_vec_env(), device='cuda', calibration=False,
             policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=29)
@@ -861,7 +868,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         model._policy_contract()
 
     def test_bernoulli_conversion_provenance_survives_metadata_copy_and_uses_fresh_optimizer(self):
-        from curriculum_ppo import CurriculumPPO
+        from ai2.training.curriculum_ppo import CurriculumPPO
         env = self.environment()
         source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
             policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=19)
@@ -876,7 +883,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
         self.assertFalse(model.policy.optimizer.state_dict()['state'])
 
     def test_no_arg_from_curriculum_preserves_nondefault_action_arm_and_optimizer_claims(self):
-        from curriculum_ppo import CurriculumPPO
+        from ai2.training.curriculum_ppo import CurriculumPPO
         env = self.environment()
         source = CurriculumPPO(env=env.as_sb3_vec_env(), device='cuda', calibration=False,
             action_head='bernoulli_10', action_ab_arm='B_neutral',
@@ -902,7 +909,7 @@ class NativeCurriculumCudaTests(unittest.TestCase):
     def test_original_curriculum_update_matches_native_from_the_same_saved_rollout(self):
         from stable_baselines3.common.logger import configure
 
-        from curriculum_ppo import CurriculumPPO
+        from ai2.training.curriculum_ppo import CurriculumPPO
         candidate = self.model('deferred_metrics')
         reference = CurriculumPPO(env=self.environment().as_sb3_vec_env(), device='cuda',
             calibration=False, policy_kwargs={'net_arch': {'pi': [8], 'vf': [8]}}, seed=741)
@@ -981,9 +988,9 @@ class NativeCurriculumCudaTests(unittest.TestCase):
             self.skipTest('Set AI2_CONTACT_CHECKPOINT to qualify the real canonical contact policy')
         from stable_baselines3.common.logger import configure
 
-        from curriculum_ppo import CurriculumPPO, TaskRolloutBuffer
-        from native_contact_lane_vec_env import build_contact_env
-        from tensor_ppo import TensorVecEnv
+        from ai2.training.curriculum_ppo import CurriculumPPO, TaskRolloutBuffer
+        from ai2.simulation.native_contact_lane_vec_env import build_contact_env
+        from ai2.training.tensor_ppo import TensorVecEnv
 
         module, torch = self.module, self.torch
         module.verify_checkpoint(checkpoint, module.CALIBRATED_CHECKPOINT_SHA256)

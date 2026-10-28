@@ -7,6 +7,8 @@ device.  Those are skipped, not passed, otherwise.
 """
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import ctypes
 import importlib
 import os
@@ -61,8 +63,8 @@ class LaneCpuTests(unittest.TestCase):
         _compiler_or_skip()
         cls.torch = _torch()
         cls.tmp = Path(tempfile.mkdtemp(prefix="ai2-lanes-"))
-        cls.m = importlib.import_module("native_lane_vec_env")
-        cls.episode = importlib.import_module("native_navigation_episode")
+        cls.m = importlib.import_module('ai2.simulation.native_lane_vec_env')
+        cls.episode = importlib.import_module('ai2.simulation.native_navigation_episode')
         cls.library = cls.m.compile_lanes_cpu(cls.tmp)
 
     @classmethod
@@ -251,7 +253,7 @@ class FrozenGameLaneTests(unittest.TestCase):
         _frozen_or_skip()
         cls.torch = _torch()
         cls.tmp = Path(tempfile.mkdtemp(prefix="ai2-lanes-frozen-"))
-        cls.m = importlib.import_module("native_lane_vec_env")
+        cls.m = importlib.import_module('ai2.simulation.native_lane_vec_env')
         cls.library = cls.m.compile_lanes_cpu(cls.tmp)
 
     @classmethod
@@ -259,9 +261,9 @@ class FrozenGameLaneTests(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def _build_game(self, seed: int):
-        replay = importlib.import_module("benchmark_replay")
-        validator = importlib.import_module("validate_native_navigation")
-        env, _params, _phase = replay.build_navigation_env(FROZEN, FROZEN / "control.yaml", FROZEN / "train.py", seed, frame_stack=4)
+        replay = importlib.import_module('ai2.evaluation.benchmark_replay')
+        validator = importlib.import_module('tools.validation.validate_native_navigation')
+        env, _params, _phase = replay.build_navigation_env(FROZEN, FROZEN / "control.yaml", source_path(FROZEN, "train.py"), seed, frame_stack=4)
         wrapper = validator.find_frozen_opponent_wrapper(env)
         return env, wrapper
 
@@ -278,8 +280,8 @@ class FrozenGameLaneTests(unittest.TestCase):
 
     def _run_pipeline(self, seed: int, controller: str, steps: int, min_episodes: int) -> dict:
         torch = self.torch
-        capture_mod = importlib.import_module("navigation_episode_capture")
-        validator = importlib.import_module("validate_native_navigation")
+        capture_mod = importlib.import_module('ai2.evaluation.navigation_episode_capture')
+        validator = importlib.import_module('tools.validation.validate_native_navigation')
         original_cwd = Path.cwd()
         recorder = capture_mod.DrawRecorder()
         env = lane_env = None
@@ -383,7 +385,7 @@ class CudaLaneTests(unittest.TestCase):
         if shutil.which("nvcc") is None:
             raise unittest.SkipTest("nvcc unavailable")
         cls.tmp = Path(tempfile.mkdtemp(prefix="ai2-lanes-cuda-"))
-        cls.m = importlib.import_module("native_lane_vec_env")
+        cls.m = importlib.import_module('ai2.simulation.native_lane_vec_env')
 
     @classmethod
     def tearDownClass(cls):

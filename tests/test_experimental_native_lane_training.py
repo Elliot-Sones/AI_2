@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def module():
-    return importlib.import_module("experimental_native_lane_training")
+    return importlib.import_module('ai2.training.experimental_native_lane_training')
 
 
 def test_defaults_are_unchanged_baseline():
@@ -57,6 +57,6 @@ def test_source_provenance_includes_every_experiment_input():
 
 
 def test_plain_baseline_class_is_original_tensor_ppo():
-    from tensor_ppo import TensorPPO
+    from ai2.training.tensor_ppo import TensorPPO
     assert module().make_ppo_class(module().OptimizationOptions()) is TensorPPO
 

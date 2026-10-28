@@ -40,9 +40,9 @@ class NativeGameCollectorCudaTests(unittest.TestCase):
         self.device = torch.device('cuda', torch.cuda.current_device())
 
     def _verify_collector(self, *, substitute_reset_terminal=False):
-        import native_game_lane_vec_env as native
+        import ai2.simulation.native_game_lane_vec_env as native
         from stable_baselines3.common.callbacks import BaseCallback
-        from tensor_ppo import TensorPPO, TensorStep, TensorVecEnv
+        from ai2.training.tensor_ppo import TensorPPO, TensorStep, TensorVecEnv
 
         torch, device = self.torch, self.device
         games, horizon, steps, seed = 2, 3, 7, 17

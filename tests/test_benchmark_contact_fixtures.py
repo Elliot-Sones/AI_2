@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import benchmark_contact_fixtures as fixtures
-import benchmark_replay as replay
+import tools.benchmarks.benchmark_contact_fixtures as fixtures
+import ai2.evaluation.benchmark_replay as replay
 
 
 class ContactFixtureEvidenceTests(unittest.TestCase):

@@ -16,9 +16,9 @@ class _AdamStepTestCase(unittest.TestCase):
         self.torch = torch
 
     def normalize(self, optimizer):
-        spec = importlib.util.find_spec("ppo_optimizer_counters")
+        spec = importlib.util.find_spec("ai2.training.ppo_optimizer_counters")
         self.assertIsNotNone(spec, "Adam step-device normalization is missing")
-        module = importlib.import_module("ppo_optimizer_counters")
+        module = importlib.import_module('ai2.training.ppo_optimizer_counters')
         return module.normalize_adam_step_devices(optimizer)
 
     def initialized_optimizer(self, *, device="cpu", optimizer_type=None, **kwargs):

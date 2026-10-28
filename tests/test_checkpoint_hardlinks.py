@@ -5,7 +5,7 @@ import tempfile
 import time
 import unittest
 
-import checkpoint_hardlinks
+import tools.analysis.checkpoint_hardlinks as checkpoint_hardlinks
 
 
 class CheckpointHardlinkTests(unittest.TestCase):

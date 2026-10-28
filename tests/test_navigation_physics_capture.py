@@ -87,7 +87,7 @@ class _FakeGame:
 
 class PhysicsCaptureTests(unittest.TestCase):
     def setUp(self):
-        self.module = importlib.import_module("navigation_physics_capture")
+        self.module = importlib.import_module('ai2.evaluation.navigation_physics_capture')
 
     def test_records_rotation_and_finite_inertia_without_rounding(self):
         row = self.module.capture_body(body(angle=1e-12), "player")
@@ -216,7 +216,7 @@ class RealPymunkCaptureTests(unittest.TestCase):
         except ImportError:
             self.skipTest("Pymunk runtime unavailable")
         self.pm = pymunk
-        self.module = importlib.import_module("navigation_physics_capture")
+        self.module = importlib.import_module('ai2.evaluation.navigation_physics_capture')
 
     def world(self):
         pm = self.pm

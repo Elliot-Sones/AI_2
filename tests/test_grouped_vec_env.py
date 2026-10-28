@@ -10,7 +10,7 @@ import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-from grouped_vec_env import GroupedSubprocVecEnv
+from ai2.simulation.grouped_vec_env import GroupedSubprocVecEnv
 
 
 class ToyGroupedEnv(gym.Env):

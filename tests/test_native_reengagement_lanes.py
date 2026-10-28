@@ -5,6 +5,8 @@ standalone B2 episode core. These tests cover the host reference path locally
 and run the same contract on CUDA when a real device and nvcc are available.
 """
 
+from ai2.paths import source_path
+
 import ctypes as C
 import importlib
 import json
@@ -22,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ReengagementTransportPresenceTests(unittest.TestCase):
     def test_reengagement_lane_public_module_exists(self):
         self.assertTrue(
-            (ROOT / "native_reengagement_lane_vec_env.py").is_file(),
+            (source_path(ROOT, "native_reengagement_lane_vec_env.py")).is_file(),
             "B2 re-engagement lane transport is not implemented",
         )
 
@@ -32,10 +34,10 @@ class ReengagementLaneTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        path = ROOT / "native_reengagement_lane_vec_env.py"
+        path = source_path(ROOT, "native_reengagement_lane_vec_env.py")
         assert path.is_file(), "B2 re-engagement lane transport is not implemented"
-        cls.transport = importlib.import_module("native_reengagement_lane_vec_env")
-        cls.core = importlib.import_module("native_reengagement_episode")
+        cls.transport = importlib.import_module('ai2.simulation.native_reengagement_lane_vec_env')
+        cls.core = importlib.import_module('ai2.simulation.native_reengagement_episode')
 
     def make_env(self, lanes=2, **kwargs):
         kwargs.setdefault("episodes_per_lane", 4)

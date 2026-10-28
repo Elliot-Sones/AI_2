@@ -190,7 +190,7 @@ bash setup_vast.sh
 ```bash
 # 1. Set the phase in config.yaml (start with "0a")
 # 2. Train
-python train.py
+python -m ai2.training.train
 
 # 3. Ctrl+C to stop — auto-saves model + records demo video
 # 4. Update config.yaml: set next phase + model_checkpoint
@@ -200,15 +200,23 @@ python train.py
 ### Evaluation
 
 ```bash
-# Run 10 games against each opponent
-python eval_10_games.py
+# Watch a classic checkpoint and report results against a chosen opponent
+python -m tools.visualization.watch_games \
+  --model ./results/ppo_utmist/model/phase4_final.zip --opponent based --games 5
 
-# Watch agent play with video recording
-python watch_games.py --opponent based --games 5
+# Watch navigation targets
+python -m tools.visualization.watch_navigation \
+  --model ./results/ppo_utmist/model/nav_0a_final.zip --phase 0a
 
 # Play against the agent yourself
-python play_vs_agent.py
+python -m tools.visualization.play_vs_agent \
+  --model ./results/ppo_utmist/model/phase4_final.zip
 ```
+
+For the fixed full-game evaluation bank, use
+`python -m ai2.evaluation.evaluate_fullgame_bank --help`. That evaluator accepts
+256-value observations (four 64-value frames); classic checkpoints with opponent
+history need the compatible viewer above. Choose the exact checkpoint explicitly.
 
 ### Monitoring
 
@@ -220,21 +228,36 @@ tensorboard --logdir ./results/ppo_utmist/tb
 
 ## Project Structure
 
-```
+```text
 AI_2/
-├── train.py              Main training script — PPO, curriculum, self-play
-├── config.yaml           Centralized configuration (phases, rewards, hyperparameters)
-├── setup_vast.sh         Cloud GPU setup script (Vast.ai)
-├── eval_10_games.py      Automated evaluation against all opponents
-├── watch_games.py        Watch and record agent matches
-├── play_vs_agent.py      Human vs agent interactive play
-├── TRAINING_GUIDE.md     Detailed training documentation
-├── images/               Visualizations and analysis
-├── videos/               Demo recordings
-└── results/
-    └── ppo_utmist/
-        └── model/        Trained models (phase 1–4)
+├── ai2/
+│   ├── training/        PPO, curriculum, rollout code and training entry points
+│   ├── simulation/      Environment adapters and native bindings
+│   ├── evaluation/      Evaluators, captures and parity checks
+│   └── runtime/         Campaign orchestration and shared job helpers
+├── tools/
+│   ├── benchmarks/      Standalone benchmark commands
+│   ├── profiling/       Profiling commands
+│   ├── validation/      Qualification, correctness and source checks
+│   ├── analysis/        Reports, monitoring and checkpoint utilities
+│   └── visualization/   Playback, interactive play and position tools
+├── baselines/           Existing experiment records; historical scripts live beside them
+├── research/            Research experiments and analysis
+├── native/              Native implementation
+├── tests/               Regression tests
+├── docs/                Guides, training-flow explainer and Python migration map
+├── train.py             Compatibility entry point
+├── curriculum_ppo.py    Compatibility imports for saved checkpoints
+├── config.yaml          Classic training configuration
+├── setup_vast.sh        Cloud GPU setup script
+└── results/             Existing models, videos and logs
 ```
+
+Run Python module commands from the repository root. See the
+[Python layout and command guide](docs/python-layout.md) for entry points and the
+[complete file map](docs/python-file-map.json) for all 146 former root Python
+files. The existing `baselines/` folders hold their historical scripts in
+`scripts/`; model files, receipts and frozen source snapshots retain their paths.
 
 ---
 

@@ -3,7 +3,7 @@
 import unittest
 import ctypes as C
 import numpy as np
-from native_game_episode import GameReference, Result
+from ai2.simulation.native_game_episode import GameReference, Result
 
 
 class GameEpisodeTests(unittest.TestCase):

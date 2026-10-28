@@ -1,0 +1,1024 @@
+[
+  {
+    "original": "audit_navigation_targets.py",
+    "destination": "tools/validation/audit_navigation_targets.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "25e80ed7838f1710c3bffbb311fe04aca04bf0d2f1f67382ac49e2b1bafdeef1"
+  },
+  {
+    "original": "batched_rng_vec_env.py",
+    "destination": "ai2/simulation/batched_rng_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "a3afb058feb39e73b2a3fd2132c524870d92548559d71cd928d1967e4d24c589"
+  },
+  {
+    "original": "benchmark_campaign.py",
+    "destination": "ai2/runtime/benchmark_campaign.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "503e4e33cce914acbb11e6dded797abee9eb4fe5c0461041247214eadd4f6aff"
+  },
+  {
+    "original": "benchmark_contact_fixtures.py",
+    "destination": "tools/benchmarks/benchmark_contact_fixtures.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "4acd9d318de05dc5e6a66bdff564e5b3949f9614bce6ffaf639480844ce6251d"
+  },
+  {
+    "original": "benchmark_curriculum_throughput.py",
+    "destination": "ai2/training/benchmark_curriculum_throughput.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "92207c0c64b1226a8fdad8049551fa2ee55cb7e1dc4a5646eccaf75c975daa35"
+  },
+  {
+    "original": "benchmark_diagnostics.py",
+    "destination": "tools/benchmarks/benchmark_diagnostics.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "f27897465e485ec1de1f6ba4bfade0f516380f1fc3feadb045a6f63880dbe627"
+  },
+  {
+    "original": "benchmark_graph_rollout_parity.py",
+    "destination": "ai2/evaluation/benchmark_graph_rollout_parity.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "464c211f730e8dafb819deb426a5506f3804254c011fdb103dce27e9d176e5e9"
+  },
+  {
+    "original": "benchmark_native_combat_training.py",
+    "destination": "ai2/training/benchmark_native_combat_training.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "f1456c28e776a0868eea5e5f37faff78c07c97ad9e4f8a5a49bfa029b9fe1ea0"
+  },
+  {
+    "original": "benchmark_native_contact_training.py",
+    "destination": "ai2/training/benchmark_native_contact_training.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "169a081f0f95c9a3f71fa17aa38d70e6a22dcc8bb75a475e39de678bd34aa19d"
+  },
+  {
+    "original": "benchmark_native_lane_training.py",
+    "destination": "ai2/training/benchmark_native_lane_training.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "2a966f69ec56308f7ad287cd92a897fbb8fc8b1f77a6a771aada3e8942ff0a6c"
+  },
+  {
+    "original": "benchmark_policy_capacity.py",
+    "destination": "tools/benchmarks/benchmark_policy_capacity.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "bafb48aedfd4c28d11ed781194e8dcfa17b1038f3f6db926940f2c3069fd83aa"
+  },
+  {
+    "original": "benchmark_policy_compile.py",
+    "destination": "ai2/training/benchmark_policy_compile.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "e20ad49f73936dc53b9a1f791e12702508b0764f32fd5358df47472c808dbbd5"
+  },
+  {
+    "original": "benchmark_policy_compile_components.py",
+    "destination": "tools/benchmarks/benchmark_policy_compile_components.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "2ab3350717f37a7f0c4da2e119a3671442bd401a144d437e1c4d7f37bd7797c2"
+  },
+  {
+    "original": "benchmark_policy_cuda_graph.py",
+    "destination": "ai2/training/benchmark_policy_cuda_graph.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "17ed27ef88a200d9570eb6a13903d91ecbf4969e9af2c2871628c7c0dac39633"
+  },
+  {
+    "original": "benchmark_policy_rollout_parity.py",
+    "destination": "tools/benchmarks/benchmark_policy_rollout_parity.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "591aa74ffd789c665deb0ed3fd43096b17b2914ce8d7d12308047474931d40b6"
+  },
+  {
+    "original": "benchmark_replay.py",
+    "destination": "ai2/evaluation/benchmark_replay.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "9e178b58ac4859873ea0b50818cb80149a232c775a28755d391669a1ec778eff"
+  },
+  {
+    "original": "benchmark_tensor_rollout_parity.py",
+    "destination": "ai2/evaluation/benchmark_tensor_rollout_parity.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "2591f86e83102a71ac5c1826e705f91f7eefe75f5dba3c0fbabc99d822dee29c"
+  },
+  {
+    "original": "benchmark_tensor_training.py",
+    "destination": "tools/benchmarks/benchmark_tensor_training.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "c19d3ac11b56507443e9f8f07afd6635b48fafc885aa879302f342f1dde471f7"
+  },
+  {
+    "original": "benchmark_training.py",
+    "destination": "ai2/evaluation/benchmark_training.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "8b3420f7fd062606b77c072c530ee3c11d87ec558b123955e3bea4be5eede254"
+  },
+  {
+    "original": "benchmark_transport.py",
+    "destination": "tools/benchmarks/benchmark_transport.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "cd418e27176be9bbb9ea56414329636c8d8b86d32cf2886beab32b539a5d39a4"
+  },
+  {
+    "original": "benchmark_worker_profile.py",
+    "destination": "tools/benchmarks/benchmark_worker_profile.py",
+    "action": "move",
+    "reason": "Optional standalone diagnostic; retained as a discoverable tool",
+    "original_sha256": "477c2f6f7fd2416c46eb8d96a75d61399e1c58181ecee7115a2b2d9e3e0136e6"
+  },
+  {
+    "original": "campaign_candidate_pairs.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_candidate_pairs.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "e1d73282589d4cd2e1f2ddd3e150eed831e21589e495c08277e30d19c59cc960"
+  },
+  {
+    "original": "campaign_candidate_scaling.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_candidate_scaling.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "4576f7fc88e2f2c1844c5f5255ba321bc0d48971f5ecb72adf6ef265cab67ec4"
+  },
+  {
+    "original": "campaign_cloud.py",
+    "destination": "baselines/native-ppo-session10/scripts/campaign_cloud.py",
+    "action": "move",
+    "reason": "Historical session10 operation, kept with existing experiment",
+    "original_sha256": "5578e1952c23d689ff16af9204661d424c850597e47d5d91e8f43f4c203bd048"
+  },
+  {
+    "original": "campaign_corrected_scaling.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_corrected_scaling.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "56993a2707f35c4cdead6d2c87a6fffb60a865fbb343eb493533186d97d04ea2"
+  },
+  {
+    "original": "campaign_graph_pairs.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_graph_pairs.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "d2d9068fabdcef66e5f1c36d0af819131c5f6d84e2ef17178d84ac67f059c234"
+  },
+  {
+    "original": "campaign_grouped_pairs.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_grouped_pairs.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "274a0ec68b88dc8965abbb2845a626f6e9b348bf92a7626761edde7363659135"
+  },
+  {
+    "original": "campaign_initial_eval.py",
+    "destination": "baselines/throughput-scaling-20260906/scripts/campaign_initial_eval.py",
+    "action": "move",
+    "reason": "Historical throughput campaign, kept with existing experiment",
+    "original_sha256": "468cbd9ed61237be978af5e691b59b56fa3648754003c5f48be4bfdd7c6b5771"
+  },
+  {
+    "original": "campaign_learning.py",
+    "destination": "ai2/runtime/campaign_learning.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "4d0f964320e19825e9d97b413b2e93a2cc6f0a620f973b78644232236445202b"
+  },
+  {
+    "original": "campaign_native_lanes.py",
+    "destination": "ai2/runtime/campaign_native_lanes.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "56e886a2a5ed6ba54343ca246efe91b724c753614bae09026ec247871ed19ab2"
+  },
+  {
+    "original": "campaign_native_ppo_ablations.py",
+    "destination": "ai2/runtime/campaign_native_ppo_ablations.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "55737229f85cfaca74c4872912a745ed8615d42c0c4252be26ba0bae412540d3"
+  },
+  {
+    "original": "campaign_suite.py",
+    "destination": "ai2/runtime/campaign_suite.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "46a2af06e55487fae30e256608131ced8b95fec0316c8052540d474d513b3e42"
+  },
+  {
+    "original": "causal_retention_campaign.py",
+    "destination": "ai2/runtime/causal_retention_campaign.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "a26b5d034efe78b14a9a6aea87669f2f75667e049cd11de83443faa066aadf86"
+  },
+  {
+    "original": "checkpoint_hardlinks.py",
+    "destination": "tools/analysis/checkpoint_hardlinks.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "786ed19f91cd6d67f581a1d15c72f64eba3a5bc22b991a332e6d7793ca36feb4"
+  },
+  {
+    "original": "classic_real_semantic_smoke.py",
+    "destination": "tools/validation/classic_real_semantic_smoke.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "31135aab19459bbd784d04ab56f3e27c6c96081ce39a0d98e16fbd0f9703da8f"
+  },
+  {
+    "original": "combat_episode_capture.py",
+    "destination": "ai2/evaluation/combat_episode_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "0867acbbd9d201815a191fd8a266081f1f299071de4de7ca233d226b10377aa9"
+  },
+  {
+    "original": "combat_episode_parity.py",
+    "destination": "ai2/evaluation/combat_episode_parity.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "6146c05fd6072da63b5b3501ba3fdda93be3101978b5d340118e61ccad0c1121"
+  },
+  {
+    "original": "compare_training_checkpoints.py",
+    "destination": "ai2/evaluation/compare_training_checkpoints.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "7785f2b4023fc1ca6bd11df2cb6802177cc39625e8109abb312cd0acedebb733"
+  },
+  {
+    "original": "continue_contact_campaign.py",
+    "destination": "ai2/runtime/continue_contact_campaign.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "2a119ec7247d0f4f7d0fa9fac8a7d5750c36ad352877102f526a191224ca6b5d"
+  },
+  {
+    "original": "continue_reengagement_campaign.py",
+    "destination": "ai2/runtime/continue_reengagement_campaign.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "98e0dbead163910ff82ad8bd09c24690add8b6f3894a35aa7504950fc9b4f3ff"
+  },
+  {
+    "original": "continue_retention_campaign.py",
+    "destination": "ai2/runtime/continue_retention_campaign.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "a47ef3f601cc9c1ea3ae3ad630ccfdcac863ed32b1aa2c7ad3c01d36588c3ff7"
+  },
+  {
+    "original": "cuda_mlp_graph.py",
+    "destination": "ai2/training/cuda_mlp_graph.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "f12b6c24dc506fe5a5d7c5753dda7f06c4f2a4c591de27f5cc49f7570917456a"
+  },
+  {
+    "original": "curriculum_ppo.py",
+    "destination": "ai2/training/curriculum_ppo.py",
+    "action": "move_with_compatibility",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "380dcafe717366ea3c94fb82f028a329baab0db3b2833b5c9145218ef834eb40"
+  },
+  {
+    "original": "eval_10_games.py",
+    "destination": null,
+    "action": "retire",
+    "reason": "Retired unsafe or obsolete legacy entry point; tracked history retained",
+    "original_sha256": "de20285765085bf824a540fba00eaa5e170a21525c88318b5908bafff58b57d7"
+  },
+  {
+    "original": "evaluate_fullgame_bank.py",
+    "destination": "ai2/evaluation/evaluate_fullgame_bank.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "c999eea8dbcdcefabf5a7107ffbbd6d6e640b8a2cb9018cd423beaa38c7e7632"
+  },
+  {
+    "original": "evaluate_native_contact_training.py",
+    "destination": "ai2/evaluation/evaluate_native_contact_training.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "43126362d141ffdb46941f1607c3a1634367a97f9eefc7ff07a29a756eba6637"
+  },
+  {
+    "original": "evaluate_reengagement_curriculum.py",
+    "destination": "ai2/evaluation/evaluate_reengagement_curriculum.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "9e76277de14ad211ccbf76ea8c92180a9a819ff27d69071344c7e751281aad87"
+  },
+  {
+    "original": "evaluate_retention_campaign.py",
+    "destination": "ai2/evaluation/evaluate_retention_campaign.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "e175e2d1f86d495734b1d7f9273154626fb2a8481db802610716fea5620e61d1"
+  },
+  {
+    "original": "experimental_native_lane_training.py",
+    "destination": "ai2/training/experimental_native_lane_training.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "6fdd1d20eae8ccfc0194252f4c95e26e2d8c124462907f3e87e4a000e10323a5"
+  },
+  {
+    "original": "explore_positions.py",
+    "destination": "tools/visualization/explore_positions.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "86427fa27568f65cf9283d14455a4622c0cc82a95a4fb14817c749a412d5f74e"
+  },
+  {
+    "original": "fixed_action_trace_parity.py",
+    "destination": "tools/validation/fixed_action_trace_parity.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "14528da899cf866c2027cffb76f49793537cb4c1f0ef71960ca81e75b9abec22"
+  },
+  {
+    "original": "grouped_vec_env.py",
+    "destination": "ai2/simulation/grouped_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "3a6425f0bb3b73e36f548b4b7c9ca7b7d0c4a462f37b5b8bd028c229610b4d53"
+  },
+  {
+    "original": "isolated_rng_vec_env.py",
+    "destination": "ai2/simulation/isolated_rng_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "7c6b2c95411063009ab119dd5c7f7d5c2d02f342101e79e01eede535ce894ffb"
+  },
+  {
+    "original": "kl_diagnostics_runner.py",
+    "destination": "tools/analysis/kl_diagnostics_runner.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "5e7cdfde367944d17913a9e8f03949ecb1f228c5cedf99030e7de59eab07671c"
+  },
+  {
+    "original": "learning_runner.py",
+    "destination": "ai2/training/learning_runner.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "ef5197cac8afc98c7e18d12d952f96052b37069c4fca1bcdb2d3f5c2852ec690"
+  },
+  {
+    "original": "monitor.py",
+    "destination": "tools/analysis/monitor.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "47aa39f65125e44ea8c517b9bd6d46df464254852de0428fddfe6fc63182b672"
+  },
+  {
+    "original": "native_attack_tables.py",
+    "destination": "ai2/simulation/native_attack_tables.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "fb9622d9afeffeab86ba153a87d3d70c8a19921153d4d275f564f0d2b3136924"
+  },
+  {
+    "original": "native_batched_vec_env.py",
+    "destination": "ai2/simulation/native_batched_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "a33d94a51dfb6981a876666e029375b5f2058c6ac32bb69259032c621f094c17"
+  },
+  {
+    "original": "native_capacity_campaign.py",
+    "destination": "baselines/native-capacity-session11/scripts/native_capacity_campaign.py",
+    "action": "move",
+    "reason": "Historical session11 operation, kept with existing experiment",
+    "original_sha256": "518868f59db13cf4504add78e05041a11c535bd445e2e5a208f7e138a7ddf1f4"
+  },
+  {
+    "original": "native_chipmunk_bridge.py",
+    "destination": "ai2/simulation/native_chipmunk_bridge.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "ce3d3a98335e11281499ddfbb39205ab5e08867bac7a5b173d69f8aac7cad51c"
+  },
+  {
+    "original": "native_combat_reward_gate.py",
+    "destination": "ai2/simulation/native_combat_reward_gate.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "ae6e8ea24dff2044eb575819220db38a13c35944034f61ab6910f7b0bff0c4ed"
+  },
+  {
+    "original": "native_contact_episode.py",
+    "destination": "ai2/simulation/native_contact_episode.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "4403723cdac614381bd938ee700ca28aac320f07c212c8902d146a8e3b43b5ef"
+  },
+  {
+    "original": "native_contact_lane_vec_env.py",
+    "destination": "ai2/simulation/native_contact_lane_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "638f85426e3606c0b9e3659cd0caaad4f04b2e61e116fc76c1c4b9974cf18e98"
+  },
+  {
+    "original": "native_curriculum_ppo.py",
+    "destination": "ai2/training/native_curriculum_ppo.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "a26ab84adab951dcf7273fd025b3a52fec7ab1dda593a1a7d03056ef7bc947fb"
+  },
+  {
+    "original": "native_curriculum_runner.py",
+    "destination": "ai2/training/native_curriculum_runner.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "74ddb3b583a78ce95491c217cd585d5fb32eccb1785dc37bdb2863152f0d4e2c"
+  },
+  {
+    "original": "native_fullgame_action_table.py",
+    "destination": "ai2/evaluation/native_fullgame_action_table.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "c3aabff5322cb991c0dd00f2c53a5f2a59c2e531cc3fde969b26614e74c744fd"
+  },
+  {
+    "original": "native_game_episode.py",
+    "destination": "ai2/simulation/native_game_episode.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "328f54fc8590200de8938bd5ebed7a459e7149c1c37156004e5694f925fa6a9d"
+  },
+  {
+    "original": "native_game_lane_vec_env.py",
+    "destination": "ai2/simulation/native_game_lane_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "4c349e6def4e2566341de88026e6ac1b40f59709bc758ddb54e31a12aa24899f"
+  },
+  {
+    "original": "native_game_patch.py",
+    "destination": "ai2/simulation/native_game_patch.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "0af2266478c0610784e720d7b20e92e6b467eed1cf6e01531b68870c1fdbad00"
+  },
+  {
+    "original": "native_game_qualification.py",
+    "destination": "ai2/evaluation/native_game_qualification.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "c84cf87780ee454e98bdc8ae4c57e8121568f32c7dccae76633a79ecc475aa1c"
+  },
+  {
+    "original": "native_game_snapshot.py",
+    "destination": "ai2/evaluation/native_game_snapshot.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "39ab956898378b994550faebc631fc096236afd77095793a136b7e2553a66e6b"
+  },
+  {
+    "original": "native_grouped_vec_env.py",
+    "destination": "ai2/simulation/native_grouped_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "82115243f0018ac8a378e215bbd7ace2ec871f3321e817e74e9269142c856b4d"
+  },
+  {
+    "original": "native_isolated_vec_env.py",
+    "destination": "ai2/simulation/native_isolated_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "ad11932241636a487f8081071670c0fe5e05142255cf5e0022dcd7d2c4d3d840"
+  },
+  {
+    "original": "native_lane_cpu_adapter.py",
+    "destination": "ai2/simulation/native_lane_cpu_adapter.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "1d673564076bb540ce9fb1748bb564a35b910f11c5fb14d17d6e812a2f189874"
+  },
+  {
+    "original": "native_lane_vec_env.py",
+    "destination": "ai2/simulation/native_lane_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "ed1d426fedf075513b7cb871a7254120364ac870709e2a265f32e02f797b8f5d"
+  },
+  {
+    "original": "native_learning_runner.py",
+    "destination": "ai2/training/native_learning_runner.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "f5e22cfb7b9a930f4434473e34aa070f69035c57bd4ce46ecf61ed466741d66d"
+  },
+  {
+    "original": "native_live_input.py",
+    "destination": "ai2/simulation/native_live_input.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "568f4ce244fd937f5b20be7b48bdcccd23c4bf980c0bf72ef6d45351a69d5994"
+  },
+  {
+    "original": "native_live_observation.py",
+    "destination": "ai2/simulation/native_live_observation.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "3a1c4e257510c40d41c20fef51e122c879c0c5870e099b33a68a38554e898099"
+  },
+  {
+    "original": "native_navigation_contact.py",
+    "destination": "ai2/simulation/native_navigation_contact.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "c7dd64d78c2d7d6ac9ba20f99ee6735fedc9a09fed149889a4165a466fc4b2e4"
+  },
+  {
+    "original": "native_navigation_contract.py",
+    "destination": "ai2/simulation/native_navigation_contract.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "cb602d58509b6981df458584acaf7fc857649f1b66b5fd3da6bbe501d1e9d956"
+  },
+  {
+    "original": "native_navigation_curriculum_env.py",
+    "destination": "ai2/simulation/native_navigation_curriculum_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "730e5e9c9157e104596173185fb852d60d0204db08e49945551fb3601c40e5de"
+  },
+  {
+    "original": "native_navigation_episode.py",
+    "destination": "ai2/simulation/native_navigation_episode.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "f91c6378c024df152af4c1639543de6bc9d084719ae9ff7309da8452b63510e0"
+  },
+  {
+    "original": "native_navigation_geometry.py",
+    "destination": "ai2/simulation/native_navigation_geometry.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "b420a647d32b86f10bb41d587e5f225b542aa51609167da2a489571718345fe8"
+  },
+  {
+    "original": "native_navigation_movement.py",
+    "destination": "ai2/simulation/native_navigation_movement.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "33f02ac934f910e48ccdb4b595e5000f614fbc09f9b61891e8fbe0a56b010826"
+  },
+  {
+    "original": "native_navigation_observation.py",
+    "destination": "ai2/simulation/native_navigation_observation.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "5c3fa5b35b1e3856c96d454b9ad027333706f1674620835c2c421a8e646c5063"
+  },
+  {
+    "original": "native_navigation_physics.py",
+    "destination": "ai2/simulation/native_navigation_physics.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "e97c4e1bd765a61c33e56c37a2f8c68791d5abb74d135d5fe481e5990b19fa45"
+  },
+  {
+    "original": "native_navigation_platform.py",
+    "destination": "ai2/simulation/native_navigation_platform.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "a18ecbbc0737f08993fe02225982d6b2083d387f7857577f300331efdc7af9cc"
+  },
+  {
+    "original": "native_reengagement_episode.py",
+    "destination": "ai2/simulation/native_reengagement_episode.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "7720893aea90751e59c498bf5f4e9e0facaa9652986a17122aec4acddc4ed8e0"
+  },
+  {
+    "original": "native_reengagement_lane_vec_env.py",
+    "destination": "ai2/simulation/native_reengagement_lane_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "43e25043b3667421cfd8e796f8061a0329cc54d038f7f634dd4d6a37d0d057d0"
+  },
+  {
+    "original": "native_shared_batched_vec_env.py",
+    "destination": "ai2/simulation/native_shared_batched_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "54be8f567800db18dc428f5a011301b99dedbdb9b103df2fdf9a7e4d079df007"
+  },
+  {
+    "original": "navigation_contact_capture.py",
+    "destination": "ai2/evaluation/navigation_contact_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "1984e998cbf2aed120a8325e45d2088e7c41faf431d057413d0722bdf6aaf063"
+  },
+  {
+    "original": "navigation_contract_capture.py",
+    "destination": "ai2/evaluation/navigation_contract_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "fe0912dc3b42df968d3646e19ca0d292c4198ca779b0f0c19ee01ff1ea6cc0d7"
+  },
+  {
+    "original": "navigation_episode_capture.py",
+    "destination": "ai2/evaluation/navigation_episode_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "601ccb99faa26ac216017e48dcf7237ec0159165062e1a06d29a051024e06c2d"
+  },
+  {
+    "original": "navigation_movement_capture.py",
+    "destination": "ai2/evaluation/navigation_movement_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "7d72437e94397e00727ed483bda4e506ba6327a7dfafe2342a88c6504c9e5dbc"
+  },
+  {
+    "original": "navigation_physics_capture.py",
+    "destination": "ai2/evaluation/navigation_physics_capture.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "d59138f4aa90da59ce8cd1fa6e56a13ac856a7791d58d8c7749be7d330a480a2"
+  },
+  {
+    "original": "navigation_positions_header.py",
+    "destination": "tools/validation/navigation_positions_header.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "617f7306a32428766cf9572cd1da45e1867aae84988b881ebb52a575d9c76925"
+  },
+  {
+    "original": "play_vs_agent.py",
+    "destination": "tools/visualization/play_vs_agent.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "9557174966b96043267087b682ca3f57220d157dabf70be595837f8e845da3c2"
+  },
+  {
+    "original": "ppo_optimizer_counters.py",
+    "destination": "ai2/training/ppo_optimizer_counters.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "9520999702c6511fae55eb60195a521e6aae7ba5b0d8b13fcd1260acf1632aac"
+  },
+  {
+    "original": "ppo_update_optimizations.py",
+    "destination": "ai2/training/ppo_update_optimizations.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "b86bef2d340f2beb1c188069988e141236b22b24e474e546ab01b662a2155a91"
+  },
+  {
+    "original": "profile_native_combat_training.py",
+    "destination": "tools/profiling/profile_native_combat_training.py",
+    "action": "move",
+    "reason": "Profiling tool",
+    "original_sha256": "55862b36d6d56b2d996b4369231022cd8cac43ced0f6bfa9836c4f8d5a31dd3b"
+  },
+  {
+    "original": "profile_native_lane_training.py",
+    "destination": "tools/profiling/profile_native_lane_training.py",
+    "action": "move",
+    "reason": "Profiling tool",
+    "original_sha256": "a9c9dd768c120bfcfa1e2a349cd2885ec93bd3206d35cdb9f4e748b385f56226"
+  },
+  {
+    "original": "profile_native_ppo_optimizations.py",
+    "destination": "tools/profiling/profile_native_ppo_optimizations.py",
+    "action": "move",
+    "reason": "Profiling tool",
+    "original_sha256": "8fff1c534b06f3a9febfa6e159858c3f59f47b8cdf37aa10629881312beec2c4"
+  },
+  {
+    "original": "qualify_native_contact_training.py",
+    "destination": "tools/validation/qualify_native_contact_training.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "f711cd0a9d177083fb81bbcd0c0fab321509284531630563111504093e99d720"
+  },
+  {
+    "original": "qualify_native_lanes.py",
+    "destination": "tools/validation/qualify_native_lanes.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "263ae5b9b6a50f02d1914de4cbf8bd2aff713953d604ea6a6511720ac436efed"
+  },
+  {
+    "original": "qualify_native_ppo_optimizations.py",
+    "destination": "tools/validation/qualify_native_ppo_optimizations.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "05550dd8deb463ac5654bfdc11d62c4c89bff52cf78b735add4ec07d932135da"
+  },
+  {
+    "original": "qualify_native_reengagement.py",
+    "destination": "tools/validation/qualify_native_reengagement.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "a6e10b013250b6af67a52a2617b506f8deb0791193473dd4b796f3443c12f474"
+  },
+  {
+    "original": "qualify_navigation_curriculum.py",
+    "destination": "tools/validation/qualify_navigation_curriculum.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "aa053704583fdeaadb9cc7084b4d7633d84c4b8018f4a1dffb6f1997b20e442b"
+  },
+  {
+    "original": "record_campaign_navigation.py",
+    "destination": "tools/visualization/record_campaign_navigation.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "b27c73d5673ea502b4f00df23181d6419dec0341255e1f828924dfaac25b222e"
+  },
+  {
+    "original": "record_positions.py",
+    "destination": null,
+    "action": "retire",
+    "reason": "Retired unsafe or obsolete legacy entry point; tracked history retained",
+    "original_sha256": "12183b71fd46ecafd1caf0d7db723bb69bc969a5f58cdf0e14b117332cb8620e"
+  },
+  {
+    "original": "reengagement_curriculum.py",
+    "destination": "ai2/evaluation/reengagement_curriculum.py",
+    "action": "move",
+    "reason": "Shared evaluation, capture, or reference-comparison implementation",
+    "original_sha256": "73b4f72394e2937bd13f80ea24ba97425e7747b0654a1ac923659489d2319d1f"
+  },
+  {
+    "original": "rollout_cache.py",
+    "destination": "ai2/training/rollout_cache.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "374f8cd53919e3dda47d6a9530d28cea6b5877ae0bdb40d8b44765b017c77049"
+  },
+  {
+    "original": "rollout_policy_graph.py",
+    "destination": "ai2/training/rollout_policy_graph.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "2d0777aaa14087e309250d1362fcdc4823bf294cb7de08fbcec47bab09e9168a"
+  },
+  {
+    "original": "run_campaign_job.py",
+    "destination": "ai2/runtime/run_campaign_job.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "696fba1489567412bb8a01296d1b4e412ea913d45885b61bb1a92365027e9f1f"
+  },
+  {
+    "original": "run_retention_cuda_qualification.py",
+    "destination": "tools/validation/run_retention_cuda_qualification.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "45609802d4769d4e750fd1905efa77e0ef94b0e319b39bbb3e30eb3099d09c47"
+  },
+  {
+    "original": "session10_capture_external_logs.py",
+    "destination": "ai2/runtime/session10_capture_external_logs.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "20edf12d63b89d7c2ac9d4cda1807548f602d4127be9051b43f765a7fff6c1d0"
+  },
+  {
+    "original": "session10_cloud_start.py",
+    "destination": "baselines/native-ppo-session10/scripts/session10_cloud_start.py",
+    "action": "move",
+    "reason": "Historical session10 operation, kept with existing experiment",
+    "original_sha256": "fce5a04070a3e67cb0e2f660da9d20e6ddc44632c876ac2d1a347678a83788ff"
+  },
+  {
+    "original": "session10_evaluate_optimizations.py",
+    "destination": "baselines/native-ppo-session10/scripts/session10_evaluate_optimizations.py",
+    "action": "move",
+    "reason": "Historical session10 operation, kept with existing experiment",
+    "original_sha256": "7e63a834af075c95210fb482bd31c11f8f2d499e95d95cc095d3b616280cf4d5"
+  },
+  {
+    "original": "session10_monitor.py",
+    "destination": "baselines/native-ppo-session10/scripts/session10_monitor.py",
+    "action": "move",
+    "reason": "Historical session10 operation, kept with existing experiment",
+    "original_sha256": "7a660dc0a0e90a37795fa08b9fd8b65fc4d530e0b47bd60c9a7bbbbf2b581dc0"
+  },
+  {
+    "original": "session10_profile_analysis.py",
+    "destination": "tools/analysis/session10_profile_analysis.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "bc9dbfb8892b5516206886e03e50809ab1206389874c13f2efc795f067cef284"
+  },
+  {
+    "original": "session10_retrieval_handoff.py",
+    "destination": "baselines/native-ppo-session10/scripts/session10_retrieval_handoff.py",
+    "action": "move",
+    "reason": "Historical session10 operation, kept with existing experiment",
+    "original_sha256": "1a747ae6cbe85aadabee71a15a7fe159c33c32e66af6e9202202138c497e4fe6"
+  },
+  {
+    "original": "session10_summarize_ablations.py",
+    "destination": "tools/analysis/session10_summarize_ablations.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "c7c2c7b1c015067a9fd6ec9870655c86b4619e71e67ef5ad243738efc92a1111"
+  },
+  {
+    "original": "session11_capture_external_logs.py",
+    "destination": "baselines/native-capacity-session11/scripts/session11_capture_external_logs.py",
+    "action": "move",
+    "reason": "Historical session11 operation, kept with existing experiment",
+    "original_sha256": "99e056395c5b29e0c2a1fbdb77844d028f68faca6212f2d788a2f59cee6885ce"
+  },
+  {
+    "original": "session11_monitor.py",
+    "destination": "baselines/native-capacity-session11/scripts/session11_monitor.py",
+    "action": "move",
+    "reason": "Historical session11 operation, kept with existing experiment",
+    "original_sha256": "2e79a03b219a5c1b873ffca004ae2d4f999d253ab0cfcfd4ff61ff58272296a8"
+  },
+  {
+    "original": "shared_action_vec_env.py",
+    "destination": "ai2/simulation/shared_action_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "5d67288896adef1f0ff567472d8b64e1c7cbbb1dde73b6a5d98ea1f2a130c93f"
+  },
+  {
+    "original": "summarize_campaign.py",
+    "destination": "tools/analysis/summarize_campaign.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "96fae6e8efe8b0fffe8e793be0bf34fc8179a3197fa61f4769cbbd0ed1bf9113"
+  },
+  {
+    "original": "summarize_learning.py",
+    "destination": "tools/analysis/summarize_learning.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "9e40fff8c214d9c4d9a8be4a69278f9d64c91c9590ecaffc065cfeeacfbad316"
+  },
+  {
+    "original": "summarize_native_capacity.py",
+    "destination": "tools/analysis/summarize_native_capacity.py",
+    "action": "move",
+    "reason": "Reusable monitoring, reporting, or diagnostic utility",
+    "original_sha256": "2439c707a4f541383a5a114d09f761314d144e62402e75ce1d65a9842a1a30f7"
+  },
+  {
+    "original": "tensor_cpu_vec_env.py",
+    "destination": "ai2/simulation/tensor_cpu_vec_env.py",
+    "action": "move",
+    "reason": "Native binding, simulation adapter, or optional comparison backend",
+    "original_sha256": "edb2ed37ba324a98ee0eb40450dbaaeab32e69eabd8086ca40a5669b14e51954"
+  },
+  {
+    "original": "tensor_frame_stack.py",
+    "destination": "ai2/training/tensor_frame_stack.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "1a148147668f7127277fbb31af17fb8a130d31dba1ddbcadea327073e86d044b"
+  },
+  {
+    "original": "tensor_ppo.py",
+    "destination": "ai2/training/tensor_ppo.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "f67232c84e0c3d470f81420a5e2dedb69589a310e303ea8d3b7ab2ef3796f251"
+  },
+  {
+    "original": "tensor_rollout_buffer.py",
+    "destination": "ai2/training/tensor_rollout_buffer.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "18116005db52fb288c7e5d60208e0329cafce3304b69d2ba8818b42f59fe1e6c"
+  },
+  {
+    "original": "tracking.py",
+    "destination": "ai2/runtime/tracking.py",
+    "action": "move",
+    "reason": "Supported job coordination or shared runtime helper",
+    "original_sha256": "aedb3bdc3471453cdf149ff827515e075831efca5efeec2985ca4f33ed22c8e7"
+  },
+  {
+    "original": "train.py",
+    "destination": "ai2/training/train.py",
+    "action": "move_with_compatibility",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "56fa73231931f159d0144b334a83816570e0b26e2e7914c1f4fa7a2052f7958e"
+  },
+  {
+    "original": "train_contact_campaign_block.py",
+    "destination": "ai2/training/train_contact_campaign_block.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "86dbff3ff448e414834f2704084831f8ecde3b68c4d364ce758f6c3644ed1d2d"
+  },
+  {
+    "original": "train_reengagement_campaign_block.py",
+    "destination": "ai2/training/train_reengagement_campaign_block.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "4c4151945234763c22e5ea965ce48958155c6f305167d73edbc49d149fb56b56"
+  },
+  {
+    "original": "train_retention_campaign_block.py",
+    "destination": "ai2/training/train_retention_campaign_block.py",
+    "action": "move",
+    "reason": "Shared learning implementation or training entry point",
+    "original_sha256": "0bb3aa36579fe4aba7e6df00b9d56464569959a3a0484a57bcc71b03cba6223c"
+  },
+  {
+    "original": "training_benchmark_contract.py",
+    "destination": "tools/validation/training_benchmark_contract.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "7eaec45580614a59bc9f4e7110c95aa701ae0befb26df9068b95f8a51b11497f"
+  },
+  {
+    "original": "validate_grouped_candidate.py",
+    "destination": "tools/validation/validate_grouped_candidate.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "d98c20290517ef786eecad28ec594c517d1b6350b4793834e57115005f3e243c"
+  },
+  {
+    "original": "validate_native_combat_checkpoint.py",
+    "destination": "tools/validation/validate_native_combat_checkpoint.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "4fff9a04fc2261ff76423c7a41709e03d12db0a1bb5f3f51516ee658ce4c0141"
+  },
+  {
+    "original": "validate_native_game_patch.py",
+    "destination": "tools/validation/validate_native_game_patch.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "e71f093f3c2a8c0f4fda3b43f85df191f104f32524c2839460b1f9bfee9b0e97"
+  },
+  {
+    "original": "validate_native_navigation.py",
+    "destination": "tools/validation/validate_native_navigation.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "557a4891bb4bc95d76c3862869f5fdf905641e7ec90dec634226d666b550ce09"
+  },
+  {
+    "original": "validate_production_action_cuda_gate.py",
+    "destination": "tools/validation/validate_production_action_cuda_gate.py",
+    "action": "move",
+    "reason": "Correctness gate, source contract, or generation tool",
+    "original_sha256": "605cdb48531a35690260e3fae647d3a942d87b1de98507838352487789f17204"
+  },
+  {
+    "original": "visual_train.py",
+    "destination": null,
+    "action": "retire",
+    "reason": "Retired unsafe or obsolete legacy entry point; tracked history retained",
+    "original_sha256": "589b72f96b10964aa5ee34e98044ace6e86f6060b80c1113258f909a641a4401"
+  },
+  {
+    "original": "visualize_positions.py",
+    "destination": "tools/visualization/visualize_positions.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "2da5c0d99ee3170a7f0b6263f569e6435c36a164505269c972ea0f9cf68a7994"
+  },
+  {
+    "original": "watch_games.py",
+    "destination": "tools/visualization/watch_games.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "bf0a68bcb20e0d32ba4c2675192ca25743713856092d49f385a8fb18a16cb66d"
+  },
+  {
+    "original": "watch_navigation.py",
+    "destination": "tools/visualization/watch_navigation.py",
+    "action": "move",
+    "reason": "Supported visualization or position-analysis tool",
+    "original_sha256": "af9ba48d23834e0955df38b98eb2b91087ad2d8f5a946a0841aabc2d531ca709"
+  }
+]

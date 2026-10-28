@@ -73,7 +73,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         return policy, optimizer, metadata
 
     def test_identical_behavior_state_passes_even_when_zip_bytes_differ(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -96,7 +96,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertNotEqual(result["inputs"]["baseline"]["sha256"], result["inputs"]["candidate"]["sha256"])
 
     def test_reports_first_tensor_value_difference_and_nonzero_exit(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -116,7 +116,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertEqual(result["policy"]["max_abs_diff"], 0.5)
 
     def test_rejects_dtype_metadata_and_nonfinite_mismatches(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -146,7 +146,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertEqual(result["optimizer"]["first_mismatch"]["kind"], "nonfinite")
 
     def test_cli_writes_fresh_json_and_exits_nonzero_on_mismatch(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -189,7 +189,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
             self.assertIn("refusing to overwrite", stderr.getvalue())
 
     def test_missing_checkpoint_member_is_a_clean_failure(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -208,7 +208,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
     # --- hardening: cases that must not pass vacuously or on unusual values ---
 
     def test_metadata_key_missing_on_both_sides_fails(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -233,7 +233,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertIn("num_timesteps", result["metadata"]["missing_candidate"])
 
     def test_empty_state_sections_do_not_pass_vacuously(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -257,7 +257,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertEqual(result["policy"]["param_count"], 0)
 
     def test_signed_zero_difference_is_not_exact(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -279,7 +279,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertNotEqual(result["policy"]["digest_baseline"], result["policy"]["digest_candidate"])
 
     def test_identical_nonfinite_values_on_both_sides_fail(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -305,7 +305,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertFalse(mismatch["candidate_finite"])
 
     def test_unsupported_array_dtype_is_a_mismatch(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         try:
             import numpy as np
@@ -323,7 +323,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
         self.assertEqual(section["first_mismatch"]["kind"], "unsupported_dtype")
 
     def test_comparing_a_checkpoint_with_itself_or_a_byte_copy_is_rejected(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
         import shutil
 
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -348,7 +348,7 @@ class CompareTrainingCheckpointsTests(unittest.TestCase):
             self.assertIn("byte-identical", report["error"])
 
     def test_expected_metadata_values_are_enforced(self):
-        import compare_training_checkpoints as compare
+        import ai2.evaluation.compare_training_checkpoints as compare
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

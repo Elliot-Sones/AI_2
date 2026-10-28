@@ -1,5 +1,7 @@
 """Tests for the Weights & Biases tracking helpers (offline, no network)."""
 
+from ai2.paths import source_path
+
 import json
 import os
 from pathlib import Path
@@ -14,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import tracking  # noqa: E402
+import ai2.runtime.tracking as tracking  # noqa: E402
 
 
 def read_json(path: str):
@@ -202,7 +204,7 @@ class OfflineRunTest(unittest.TestCase):
                 run_id = run.id
                 tracking.finish()
             result = subprocess.run(
-                [sys.executable, str(ROOT / "tracking.py"), "info", "--run", os.path.join(tmp, "wandb_run.json")],
+                [sys.executable, str(source_path(ROOT, "tracking.py")), "info", "--run", os.path.join(tmp, "wandb_run.json")],
                 cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stdout)

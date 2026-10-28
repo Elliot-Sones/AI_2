@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import native_navigation_episode as nav
+import ai2.simulation.native_navigation_episode as nav
 
 
 class RawSceneTests(unittest.TestCase):

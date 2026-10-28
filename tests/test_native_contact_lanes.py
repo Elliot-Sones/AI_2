@@ -4,6 +4,8 @@ No CPU policy training occurs here. CPU and CUDA run the same explicit,
 finite scenario schedules; fixture state edits only test failure handling.
 """
 
+from ai2.paths import source_path
+
 import ctypes as C
 import importlib
 from pathlib import Path
@@ -19,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ContactTransportPresenceTests(unittest.TestCase):
     def test_contact_lane_public_module_exists(self):
         self.assertTrue(
-            (ROOT / "native_contact_lane_vec_env.py").is_file(),
+            (source_path(ROOT, "native_contact_lane_vec_env.py")).is_file(),
             "contact lane transport is not implemented",
         )
 
@@ -29,10 +31,10 @@ class ContactLaneTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        path = ROOT / "native_contact_lane_vec_env.py"
+        path = source_path(ROOT, "native_contact_lane_vec_env.py")
         assert path.is_file(), "contact lane transport is not implemented"
-        cls.transport = importlib.import_module("native_contact_lane_vec_env")
-        cls.core = importlib.import_module("native_contact_episode")
+        cls.transport = importlib.import_module('ai2.simulation.native_contact_lane_vec_env')
+        cls.core = importlib.import_module('ai2.simulation.native_contact_episode')
 
     def make_env(self, lanes=2, **kwargs):
         kwargs.setdefault("episodes_per_lane", 4)

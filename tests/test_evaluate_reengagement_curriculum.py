@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 class EvaluateReengagementCurriculumTests(unittest.TestCase):
     def subject(self):
-        import evaluate_reengagement_curriculum as module
+        import ai2.evaluation.evaluate_reengagement_curriculum as module
 
         return module
 

@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import copy
 import hashlib
 import importlib.util
@@ -7,7 +9,7 @@ import tempfile
 import unittest
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "session10_retrieval_handoff.py"
+SOURCE = source_path(Path(__file__).resolve().parents[1], "session10_retrieval_handoff.py")
 
 
 def module():

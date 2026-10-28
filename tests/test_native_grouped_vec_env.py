@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 class NativeGroupedFactoryTests(unittest.TestCase):
     def module(self):
-        return importlib.import_module("native_grouped_vec_env")
+        return importlib.import_module('ai2.simulation.native_grouped_vec_env')
 
     def test_factory_installs_after_original_creation_and_passes_pinned_path(self):
         module = self.module()
@@ -21,7 +21,7 @@ class NativeGroupedFactoryTests(unittest.TestCase):
             events.append((value, kwargs))
         path = Path("/tmp/frozen/environment.py")
         wrapped = module.native_factory(factory, source_path=path)
-        with patch("native_game_patch.install_native_game_patch", side_effect=install):
+        with patch('ai2.simulation.native_game_patch.install_native_game_patch', side_effect=install):
             self.assertIs(wrapped(), env)
         self.assertEqual(events, ["created", (env, {"source_path": path})])
 
@@ -30,7 +30,7 @@ class NativeGroupedFactoryTests(unittest.TestCase):
         closed = []
         env = types.SimpleNamespace(close=lambda: closed.append(True))
         wrapped = module.native_factory(lambda: env, source_path=Path("/tmp/frozen.py"))
-        with patch("native_game_patch.install_native_game_patch", side_effect=ValueError("hash")):
+        with patch('ai2.simulation.native_game_patch.install_native_game_patch', side_effect=ValueError("hash")):
             with self.assertRaisesRegex(ValueError, "hash"):
                 wrapped()
         self.assertEqual(closed, [True])
@@ -51,7 +51,7 @@ class NativeGroupedFactoryTests(unittest.TestCase):
             raise RuntimeError("close failed")
         env = types.SimpleNamespace(close=close)
         active = types.SimpleNamespace(restore=lambda: events.append("restore"))
-        with patch("native_game_patch.install_native_game_patch", return_value=active):
+        with patch('ai2.simulation.native_game_patch.install_native_game_patch', return_value=active):
             wrapped = module.native_factory(lambda: env, source_path=Path("/tmp/frozen.py"))()
         with self.assertRaisesRegex(RuntimeError, "close failed"):
             wrapped.close()

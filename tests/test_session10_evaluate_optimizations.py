@@ -26,8 +26,8 @@ class Clock:
 
 class Session10EvaluationTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("session10_evaluate_optimizations"))
-        self.m = importlib.import_module("session10_evaluate_optimizations")
+        self.assertIsNotNone(importlib.util.find_spec("baselines.native-ppo-session10.scripts.session10_evaluate_optimizations"))
+        self.m = importlib.import_module('baselines.native-ppo-session10.scripts.session10_evaluate_optimizations')
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()

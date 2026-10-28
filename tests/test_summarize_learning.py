@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import summarize_learning as sl
+import tools.analysis.summarize_learning as sl
 
 
 def write_json(path: Path, payload) -> None:

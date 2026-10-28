@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import json
 from pathlib import Path
 import subprocess
@@ -8,7 +10,7 @@ import unittest
 
 class ContinueContactCampaignTests(unittest.TestCase):
     def subject(self):
-        import continue_contact_campaign
+        import ai2.runtime.continue_contact_campaign as continue_contact_campaign
         return continue_contact_campaign
 
     def test_plan_order_seeds_rollouts_and_resume_parents(self):
@@ -77,7 +79,7 @@ class ContinueContactCampaignTests(unittest.TestCase):
             source = root / "source"
             jobs.mkdir()
             source.mkdir()
-            (source / "run_campaign_job.py").write_text(
+            (source_path(source, "run_campaign_job.py")).write_text(
                 "import subprocess, sys\n"
                 "separator = sys.argv.index('--')\n"
                 "subprocess.Popen(sys.argv[separator + 1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).wait()\n"
@@ -97,6 +99,40 @@ class ContinueContactCampaignTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertLess(elapsed, 1.0)
             self.assertRegex(result.stdout.strip(), r"^\d+$")
+
+    def test_background_launch_selects_layout_when_shell_executes(self):
+        m = self.subject()
+        for packaged in (False, True):
+            with self.subTest(packaged=packaged), TemporaryDirectory() as directory:
+                root = Path(directory) / "remote root"
+                source = root / "source"
+                source.mkdir(parents=True)
+                (root / "jobs").mkdir()
+                # Construct before either layout exists: selection belongs to
+                # the shell on the execution host, not the controller host.
+                command = m.build_background_launch_shell(
+                    remote_root=root, deadline_unix=time.time() + 300,
+                    name="layout_check", command=["python3", "train_contact_campaign_block.py"],
+                )
+                script = source / "run_campaign_job.py"
+                if packaged:
+                    (source / "ai2/runtime").mkdir(parents=True)
+                    (source / "ai2/paths.py").touch()
+                    script = source / "ai2/runtime/run_campaign_job.py"
+                marker = root / "launched.json"
+                script.write_text(
+                    "import json, pathlib, sys\n"
+                    f"pathlib.Path({str(marker)!r}).write_text(json.dumps(sys.argv))\n"
+                )
+                result = subprocess.run(["sh", "-c", command], capture_output=True, text=True, timeout=2)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                until = time.monotonic() + 3
+                while not marker.is_file() and time.monotonic() < until:
+                    time.sleep(0.01)
+                self.assertTrue(marker.is_file(), (root / "jobs/layout_check.controller-launch.log").read_text())
+                argv = json.loads(marker.read_text())
+                self.assertEqual((root / argv[0]).resolve(), script.resolve())
+                self.assertEqual(argv[-2:], ["python3", "train_contact_campaign_block.py"])
 
     def test_training_command_uses_actual_preserved_checkpoint_sha(self):
         m = self.subject()
@@ -296,7 +332,7 @@ class ContinueContactCampaignTests(unittest.TestCase):
         stage = stage if stage is not None else int(name.rsplit("-", 1)[1].removesuffix("m"))
         rollouts = rollouts if rollouts is not None else (4 if stage == 50 else 5)
         seed = seed if seed is not None else {10: 145, 20: 20145, 30: 30145, 40: 40145, 50: 50145}.get(stage, 20145)
-        path = root / name
+        path = source_path(root, name)
         path.mkdir()
         (path / "final.zip").write_bytes((name + "-checkpoint").encode())
         sha = m.sha256(path / "final.zip")
@@ -350,7 +386,7 @@ class ContinueContactCampaignTests(unittest.TestCase):
         return sha
 
     def preserved_eval(self, root, name, *, pause):
-        path = root / name
+        path = source_path(root, name)
         path.mkdir()
         train = name.removeprefix("eval-")
         candidate_sha = self.subject().sha256(root / train / "final.zip") if (root / train / "final.zip").exists() else "sha"

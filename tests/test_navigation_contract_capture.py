@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import navigation_contract_capture as capture
+import ai2.evaluation.navigation_contract_capture as capture
 
 
 class _Vec:
@@ -207,7 +207,7 @@ class _UnreadablePlatform:
 
 
 def _native_config():
-    import native_navigation_contract as native
+    import ai2.simulation.native_navigation_contract as native
 
     return native.NavigationConfig(
         completion_mode="sequence",
@@ -222,7 +222,7 @@ def _native_config():
 
 
 def _native_state(**overrides):
-    import native_navigation_contract as native
+    import ai2.simulation.native_navigation_contract as native
 
     state = native.NavigationState(
         target_x=0.0,
@@ -251,7 +251,7 @@ def _native_state(**overrides):
 
 
 def _native_post(**overrides):
-    import native_navigation_contract as native
+    import ai2.simulation.native_navigation_contract as native
 
     post = native.NavigationPostPhysics(
         player_present=True,
@@ -453,7 +453,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
 
         config, state, post_physics = capture.native_case_from_record(record)
 
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         expected = capture.native_result_for_record(record, native.step_navigation_scalar(config, state, post_physics))
         self.assertIsInstance(config, native.NavigationConfig)
@@ -568,7 +568,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
             capture.native_result_for_record(record, capture.expected_native_result(record)["expected"])
 
     def test_native_result_for_record_maps_serialized_native_result(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(hold_steps=1),
@@ -587,7 +587,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
         self.assertTrue(receipt["passed"], receipt)
 
     def test_compiled_c_handoff_result_maps_to_capture_expected(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(hold_steps=1),
@@ -607,7 +607,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
         self.assertEqual(expected["nav_flags"]["nav_reached"], 1)
 
     def test_compiled_c_final_target_acquisition_allows_no_handoff_target(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(targets_this_episode=2, hold_steps=1),
@@ -642,7 +642,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
             capture.validate_record(record)
 
     def test_compiled_c_post_goal_hold_success_after_final_target(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(
@@ -669,7 +669,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
         self.assertTrue(expected["nav_flags"]["nav_success"])
 
     def test_compiled_c_fall_horizon_result_maps_to_capture_expected(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(episode_steps=11, hold_steps=1),
@@ -689,7 +689,7 @@ class NavigationContractCaptureTests(unittest.TestCase):
         self.assertTrue(expected["truncated"])
 
     def test_compiled_c_player_absent_result_maps_to_capture_expected(self):
-        import native_navigation_contract as native
+        import ai2.simulation.native_navigation_contract as native
 
         record = _capture_from_frozen_oracle(
             _native_state(episode_steps=4, steps_since_log=9),

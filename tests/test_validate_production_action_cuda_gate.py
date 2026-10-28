@@ -8,12 +8,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import benchmark_native_contact_training as benchmark
+import ai2.training.benchmark_native_contact_training as benchmark
 
 
 class ProductionActionCudaGateTests(unittest.TestCase):
     def subject(self):
-        return importlib.import_module("validate_production_action_cuda_gate")
+        return importlib.import_module('tools.validation.validate_production_action_cuda_gate')
 
     def test_default_without_cuda_fails_closed_and_writes_no_receipt(self):
         gate = self.subject()

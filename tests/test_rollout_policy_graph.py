@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 import inspect
 import sys
@@ -7,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "rollout_policy_graph.py"
+MODULE_PATH = source_path(ROOT, "rollout_policy_graph.py")
 
 
 def load_module():

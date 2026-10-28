@@ -2,15 +2,15 @@
 import copy
 import unittest
 
-from combat_episode_capture import capture_raw
-from combat_episode_parity import compare_capture, diff_records, gameplay_projection
-from native_attack_tables import DEFAULT_SOURCE
+from ai2.evaluation.combat_episode_capture import capture_raw
+from ai2.evaluation.combat_episode_parity import compare_capture, diff_records, gameplay_projection
+from ai2.simulation.native_attack_tables import DEFAULT_SOURCE
 
 
 class NativeGameSnapshotTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from native_game_snapshot import GameParityAdapter
+        from ai2.evaluation.native_game_snapshot import GameParityAdapter
         cls.adapter_type = GameParityAdapter
         cls.idle = capture_raw(DEFAULT_SOURCE.parent.parent, seed=17,
                                actions=[[[0.] * 10, [0.] * 10] for _ in range(4)])

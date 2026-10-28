@@ -1,5 +1,7 @@
 """CPU-only safety checks for the one-shot session10 external log capture."""
 
+from ai2.paths import source_path
+
 import hashlib
 import importlib.util
 import json
@@ -10,7 +12,7 @@ import unittest
 from unittest import mock
 
 
-MODULE = Path(__file__).resolve().parents[1] / "session10_capture_external_logs.py"
+MODULE = source_path(Path(__file__).resolve().parents[1], "session10_capture_external_logs.py")
 
 
 class CaptureTests(unittest.TestCase):

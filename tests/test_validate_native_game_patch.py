@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import dataclasses
 import json
 import sys
@@ -13,7 +15,7 @@ import unittest
 
 class ValidateNativeGamePatchTests(unittest.TestCase):
     def setUp(self):
-        import validate_native_game_patch as validator
+        import tools.validation.validate_native_game_patch as validator
 
         self.validator = validator
 
@@ -385,7 +387,7 @@ class ValidateNativeGamePatchTests(unittest.TestCase):
         self.assertEqual(written["first_difference"]["field"], "state.players[0].grounded")
 
     def test_compare_pair_uses_real_replay_files_and_reports_missing_gameplay_coverage(self):
-        import benchmark_replay as replay
+        import ai2.evaluation.benchmark_replay as replay
 
         with tempfile.TemporaryDirectory(prefix="ai2-game-patch-real-replay-") as tmp:
             root = make_source_root(Path(tmp))
@@ -405,7 +407,7 @@ class ValidateNativeGamePatchTests(unittest.TestCase):
         self.assertEqual(written["compared_records"], 1)
 
     def test_compare_pair_fails_when_required_gameplay_coverage_is_missing(self):
-        import benchmark_replay as replay
+        import ai2.evaluation.benchmark_replay as replay
 
         with tempfile.TemporaryDirectory(prefix="ai2-game-patch-required-coverage-") as tmp:
             root = make_source_root(Path(tmp))
@@ -457,7 +459,7 @@ class ValidateNativeGamePatchTests(unittest.TestCase):
         self.assertEqual(result["required_gameplay_coverage"], ["hit"])
 
     def test_compare_pair_rejects_mismatched_original_and_native_source_hashes(self):
-        import benchmark_replay as replay
+        import ai2.evaluation.benchmark_replay as replay
 
         with tempfile.TemporaryDirectory(prefix="ai2-game-patch-source-compare-") as tmp:
             root = make_source_root(Path(tmp))
@@ -511,7 +513,7 @@ def make_source_root(root: Path) -> Path:
         "class Player: pass\nclass DroppedWeaponSpawner: pass\n",
         encoding="utf-8",
     )
-    (source / "train.py").write_text("# wrapper\n", encoding="utf-8")
+    (source_path(source, "train.py")).write_text("# wrapper\n", encoding="utf-8")
     return source
 
 
@@ -552,7 +554,7 @@ class FakeBenchModule:
     def seed_everything(self, seed):
         self.calls.append(("seed", seed))
 
-    def build_raw_env(self, seed):
+    def build_raw_env(self, seed, *, source_root=None):
         self.calls.append(("build_raw", seed))
         return FakeEnv(self.calls)
 

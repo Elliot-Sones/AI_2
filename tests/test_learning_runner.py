@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import sys
 import types
 import unittest
@@ -13,7 +15,7 @@ from unittest.mock import patch
 
 class LearningRunnerTests(unittest.TestCase):
     def test_runtime_cuda_probe_and_policy_device_hook_write_proof(self):
-        import learning_runner
+        import ai2.training.learning_runner as learning_runner
 
         with TemporaryDirectory(prefix="runner-cuda-") as tmp:
             output = Path(tmp) / "out"
@@ -58,7 +60,7 @@ class LearningRunnerTests(unittest.TestCase):
             self.assertIn("cuda:0", proof.read_text(encoding="utf-8"))
 
     def test_metadata_hook_records_config_and_input_checkpoint_sha_before_training(self):
-        import learning_runner
+        import ai2.training.learning_runner as learning_runner
 
         with TemporaryDirectory(prefix="runner-meta-") as tmp:
             root = Path(tmp)
@@ -86,7 +88,7 @@ class LearningRunnerTests(unittest.TestCase):
         self.assertEqual(writes[0][1]["ppo_controls"]["n_steps"], 256)
 
     def test_metadata_hook_records_fresh_null_checkpoint_sha(self):
-        import learning_runner
+        import ai2.training.learning_runner as learning_runner
 
         writes = []
         fake_train_job = types.SimpleNamespace(_write_json=lambda path, payload: writes.append((Path(path), payload)))
@@ -104,7 +106,7 @@ class LearningRunnerTests(unittest.TestCase):
         self.assertIsNone(writes[0][1]["input_checkpoint_sha256"])
 
     def test_runner_patches_grouped_env_and_cleans_up_while_forwarding_train_args(self):
-        import learning_runner
+        import ai2.training.learning_runner as learning_runner
 
         calls = []
 
@@ -167,7 +169,7 @@ class LearningRunnerTests(unittest.TestCase):
                 "--train-job",
                 str(root / "train_job.py"),
                 "--grouped-env-path",
-                str(root / "grouped_vec_env.py"),
+                str(source_path(root, "grouped_vec_env.py")),
                 "--group-size",
                 "4",
                 "--config",
@@ -205,7 +207,7 @@ class LearningRunnerTests(unittest.TestCase):
         self.assertEqual(fake_train_job.SubprocVecEnv, "original")
 
     def test_runner_refuses_cpu_before_calling_train_job(self):
-        import learning_runner
+        import ai2.training.learning_runner as learning_runner
 
         with patch.object(learning_runner, "import_train_job_module") as import_train:
             with self.assertRaisesRegex(SystemExit, "CUDA"):
@@ -214,13 +216,13 @@ class LearningRunnerTests(unittest.TestCase):
         import_train.assert_not_called()
 
     def test_campaign_learning_uses_learning_runner_and_grouped_throughput_opt_in(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         with TemporaryDirectory(prefix="e6-wrapper-") as tmp:
             root = Path(tmp)
-            runner = root / "learning_runner.py"
+            runner = source_path(root, "learning_runner.py")
             train_job = root / "train_job.py"
-            grouped = root / "grouped_vec_env.py"
+            grouped = source_path(root, "grouped_vec_env.py")
             source = root / "source"
             config = root / "config.yaml"
             for path in (runner, train_job, grouped, config):
@@ -251,7 +253,7 @@ class LearningRunnerTests(unittest.TestCase):
         self.assertEqual(command.metadata["runner"], "learning_runner.py")
 
     def test_campaign_learning_defaults_remain_stock_until_grouped_checkpoint_parity_resolves(self):
-        import campaign_learning as e6
+        import ai2.runtime.campaign_learning as e6
 
         controls = e6.TrainControls()
 

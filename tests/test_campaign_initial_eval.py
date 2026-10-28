@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+
 import json
 import tempfile
 import unittest
@@ -11,7 +13,7 @@ from unittest.mock import patch
 
 class CampaignInitialEvalTests(unittest.TestCase):
     def make_campaign_root(self, root: Path):
-        import campaign_learning as learning
+        import ai2.runtime.campaign_learning as learning
 
         campaign_root = root / "campaign"
         for spec in learning.default_run_specs():
@@ -48,7 +50,7 @@ class CampaignInitialEvalTests(unittest.TestCase):
         return campaign_root
 
     def write_eval_artifacts(self, output: Path, *, checkpoint: Path, config_sha: str, cumulative_steps: int = 0):
-        import campaign_learning as learning
+        import ai2.runtime.campaign_learning as learning
 
         output.mkdir(parents=True, exist_ok=True)
         (output / "metadata.json").write_text(
@@ -83,8 +85,8 @@ class CampaignInitialEvalTests(unittest.TestCase):
         (output / "summary.json").write_text("[]", encoding="utf-8")
 
     def test_build_plan_creates_nine_initial_dev20_cuda_eval_commands(self):
-        import campaign_initial_eval as initial
-        import campaign_learning as learning
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
+        import ai2.runtime.campaign_learning as learning
 
         with tempfile.TemporaryDirectory(prefix="e6-initial-plan-") as tmp:
             root = Path(tmp)
@@ -123,8 +125,8 @@ class CampaignInitialEvalTests(unittest.TestCase):
         self.assertTrue(first["metadata"]["config_sha256"])
 
     def test_build_plan_fails_when_required_initial_checkpoint_missing(self):
-        import campaign_initial_eval as initial
-        import campaign_learning as learning
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
+        import ai2.runtime.campaign_learning as learning
 
         with tempfile.TemporaryDirectory(prefix="e6-missing-initial-") as tmp:
             root = Path(tmp)
@@ -148,8 +150,8 @@ class CampaignInitialEvalTests(unittest.TestCase):
                 initial.build_plan(args)
 
     def test_preverify_rejects_initial_record_that_started_from_checkpoint(self):
-        import campaign_initial_eval as initial
-        import campaign_learning as learning
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
+        import ai2.runtime.campaign_learning as learning
 
         with tempfile.TemporaryDirectory(prefix="e6-bad-initial-meta-") as tmp:
             root = Path(tmp)
@@ -166,8 +168,8 @@ class CampaignInitialEvalTests(unittest.TestCase):
                 initial.build_plan(args)
 
     def test_validate_initial_eval_rejects_nonzero_model_cumulative_steps(self):
-        import campaign_initial_eval as initial
-        import campaign_learning as learning
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
+        import ai2.runtime.campaign_learning as learning
 
         with tempfile.TemporaryDirectory(prefix="e6-cumulative-") as tmp:
             root = Path(tmp)
@@ -197,8 +199,8 @@ class CampaignInitialEvalTests(unittest.TestCase):
                 initial.validate_initial_eval_artifacts(command)
 
     def test_execute_plan_reuses_campaign_learning_run_command_and_validates_initial_metadata(self):
-        import campaign_initial_eval as initial
-        import campaign_learning as learning
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
+        import ai2.runtime.campaign_learning as learning
 
         with tempfile.TemporaryDirectory(prefix="e6-execute-initial-") as tmp:
             root = Path(tmp)
@@ -233,7 +235,7 @@ class CampaignInitialEvalTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["evidence"]["cumulative_steps"], 0)
 
     def test_main_defaults_to_dry_run_and_writes_plan_provenance_without_execute(self):
-        import campaign_initial_eval as initial
+        initial = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_initial_eval')
 
         with tempfile.TemporaryDirectory(prefix="e6-initial-main-") as tmp:
             root = Path(tmp)

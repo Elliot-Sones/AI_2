@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import inspect
 import subprocess
@@ -20,7 +22,7 @@ if str(ROOT) not in sys.path:
 
 class PolicyCapacityTest(unittest.TestCase):
     def test_generic_cuda_uses_current_index_and_explicit_index_is_preserved(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         for device, expected in [('cuda', 1), ('cuda:0', 0)]:
             with self.subTest(device=device):
@@ -36,7 +38,7 @@ class PolicyCapacityTest(unittest.TestCase):
                 cuda.set_device.assert_called_once_with(expected)
 
     def test_parameter_formula_matches_expected_sb3_box_action_counts(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         expected = {
             (512, 512, 256): 1_053_973,
@@ -56,7 +58,7 @@ class PolicyCapacityTest(unittest.TestCase):
                 )
 
     def test_default_plan_labels_gpu_only_and_synthetic_update_scope(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         plan = cap.build_plan()
 
@@ -77,7 +79,7 @@ class PolicyCapacityTest(unittest.TestCase):
         )
 
     def test_rate_record_reports_explicit_units(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         record = cap.rate_record(
             label="inference_device_resident",
@@ -96,7 +98,7 @@ class PolicyCapacityTest(unittest.TestCase):
         self.assertTrue(record["not_sb3_training_ceiling"])
 
     def test_timed_inference_sections_do_not_force_validation_synchronization(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         source = inspect.getsource(cap.measure_inference)
         for timed_section in source.split("start = time.perf_counter()")[1:]:
@@ -105,7 +107,7 @@ class PolicyCapacityTest(unittest.TestCase):
             self.assertNotIn(".item(", measured_body)
 
     def test_synthetic_update_warmup_and_timed_body_exclude_rng_and_validation_sync(self):
-        import benchmark_policy_capacity as cap
+        import tools.benchmarks.benchmark_policy_capacity as cap
 
         source = inspect.getsource(cap.measure_synthetic_update)
         loss_source = inspect.getsource(cap.synthetic_ppo_loss)
@@ -134,7 +136,7 @@ class PolicyCapacityTest(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "benchmark_policy_capacity.py"),
+                    str(source_path(ROOT, "benchmark_policy_capacity.py")),
                     "--dry-run",
                     "--output",
                     str(output),

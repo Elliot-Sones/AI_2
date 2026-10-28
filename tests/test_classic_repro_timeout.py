@@ -125,7 +125,7 @@ def import_real_stack():
     importlib.invalidate_caches()
     try:
         import numpy as np
-        import train
+        import ai2.training.train as train
         from environment.agent import OpponentsCfg, SelfPlayWarehouseBrawl
         from environment.environment import WarehouseBrawl
     except Exception as exc:  # pragma: no cover - local lightweight env path

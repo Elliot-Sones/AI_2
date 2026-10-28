@@ -16,9 +16,9 @@ else:
 @unittest.skipIf(_IMPORT_ERROR is not None, f"missing grouped runtime dependency: {getattr(_IMPORT_ERROR, 'name', _IMPORT_ERROR)}")
 class NativeSharedBatchedVecEnvTests(unittest.TestCase):
     def test_native_shared_batched_composes_native_wrapper_before_shared_batched_runner(self):
-        import native_grouped_vec_env
-        import native_shared_batched_vec_env
-        import shared_action_vec_env
+        import ai2.simulation.native_grouped_vec_env as native_grouped_vec_env
+        import ai2.simulation.native_shared_batched_vec_env as native_shared_batched_vec_env
+        import ai2.simulation.shared_action_vec_env as shared_action_vec_env
 
         grouped_cls = native_shared_batched_vec_env.GroupedSubprocVecEnv
 

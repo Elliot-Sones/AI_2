@@ -51,7 +51,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             output.mkdir(parents=True, exist_ok=False)
             (output / "final.zip").write_bytes(b"trained checkpoint")
             (output / "result.json").write_text(json.dumps({"status": "trained_not_evaluated"}), encoding="utf8")
-            import benchmark_native_contact_training as contact
+            import ai2.training.benchmark_native_contact_training as contact
 
             contact.write_inventory(output, block_id=output.name)
             return {"checkpoint": output / "final.zip", "result": {"status": "trained_not_evaluated"}}
@@ -109,7 +109,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
         return evaluate
 
     def test_accepts_native_contact_phase_and_promotes_with_both_modes_passing(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -154,7 +154,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(result["schedule"]["sha256"], runner.sha256_file(schedule))
 
     def test_gate_miss_retains_input_checkpoint_without_promoting_failed_output(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         weak_sampled = [
             {"mode": "deterministic", "result": "win", "self_stock_losses": 0, "terminal_cause": "opponent_fall", "hits": 2, "damage_done": 5.0},
@@ -185,7 +185,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertIn("sampled.win_rate", phase_receipt["gate"]["failed"])
 
     def test_completed_retain_run_resumes_idempotently_without_using_rejected_weights(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         weak_sampled = [
             {"mode": "deterministic", "result": "win", "self_stock_losses": 0,
@@ -226,7 +226,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(calls, [])
 
     def test_hit_rate_is_episode_success_frequency_not_hits_per_episode(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         metrics = runner._summarize_mode([
             {"result": "win", "self_stock_losses": 0, "hits": 3, "damage_done": 9.0},
@@ -237,7 +237,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
         self.assertEqual(metrics["hits_per_episode"], 1.5)
 
     def test_evaluation_rows_reject_invalid_results_and_fractional_event_counts(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         invalid_rows = {
             "result": [
@@ -270,7 +270,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                         )
 
     def test_all_cases_means_the_complete_default_evaluation_bank(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -292,7 +292,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 )
 
     def test_schedule_fails_closed_without_deterministic_and_sampled_gates(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -310,7 +310,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 )
 
     def test_evaluation_missing_sampled_mode_fails_and_cannot_promote(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         deterministic_only = [
             {"mode": "deterministic", "result": "win", "self_stock_losses": 0, "terminal_cause": "opponent_fall", "hits": 2, "damage_done": 5.0},
@@ -333,7 +333,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(phase_receipt["next_checkpoint"]["path"], str(checkpoint))
 
     def test_training_or_evaluation_failure_preserves_failure_receipt(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -366,7 +366,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(receipt["failure"]["stage"], "eval")
 
     def test_resume_skips_accepted_phase_and_never_uses_rejected_output(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -413,7 +413,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 )
 
     def test_default_contact_adapter_uses_parser_defaults_and_forces_owned_paths(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -450,7 +450,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 "checkpoint": str(foreign),
                 "output": str(root / "foreign-output"),
             }}}
-            with mock.patch.dict(sys.modules, {"benchmark_native_contact_training": fake_contact}):
+            with mock.patch.dict(sys.modules, {"ai2.training.benchmark_native_contact_training": fake_contact}):
                 result = runner._default_train_block(
                     phase=phase, checkpoint_path=expected_checkpoint, output_dir=output)
 
@@ -463,7 +463,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(result["checkpoint"], output / "final.zip")
 
     def test_default_train_adapter_dispatches_contact_and_reengagement_modules(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -493,8 +493,8 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 )
 
             fake_modules = {
-                "benchmark_native_contact_training": module("contact"),
-                "train_reengagement_campaign_block": module("reengagement"),
+                "ai2.training.benchmark_native_contact_training": module("contact"),
+                "ai2.training.train_reengagement_campaign_block": module("reengagement"),
             }
             with mock.patch.dict(sys.modules, fake_modules):
                 for block_type, label in (
@@ -518,8 +518,8 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             )
 
     def test_default_reengagement_adapter_synthesizes_fresh_and_resume_cycle_arguments(self):
-        import native_curriculum_runner as runner
-        import train_reengagement_campaign_block as reengagement
+        import ai2.training.native_curriculum_runner as runner
+        import ai2.training.train_reengagement_campaign_block as reengagement
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -606,7 +606,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                 )
 
     def test_both_block_types_reject_phase_owned_checkpoint_and_output(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         for block_type in ("native_contact", "native_reengagement"):
             for owned_name in ("checkpoint", "output"):
@@ -629,8 +629,8 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                         runner._validate_phase(raw)
 
     def test_default_contact_adapter_matches_the_real_parser_contract(self):
-        import benchmark_native_contact_training as contact
-        import native_curriculum_runner as runner
+        import ai2.training.benchmark_native_contact_training as contact
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -665,7 +665,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(result["checkpoint"], output / "final.zip")
 
     def test_schedule_requires_explicit_evaluation_policy_contract_and_finite_gates(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -688,7 +688,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     policy_loader=self.fake_policy_loader([]), evaluator=self.fake_evaluator([]))
 
     def test_tampered_checkpoint_inventory_or_eval_manifest_can_never_promote(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -716,7 +716,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     policy_loader=self.fake_policy_loader([]), evaluator=tampered_eval)
 
     def test_checkpoint_outside_block_and_in_memory_eval_claims_cannot_promote(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -755,7 +755,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
             self.assertEqual(result["decision"], "retain")
 
     def test_resume_rejects_checkpoint_or_receipt_tampering(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -773,7 +773,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     policy_loader=self.fake_policy_loader([]), evaluator=self.fake_evaluator([]), resume=True)
 
     def test_resume_rejects_a_changed_but_valid_schedule(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -793,7 +793,7 @@ class NativeCurriculumRunnerTests(unittest.TestCase):
                     policy_loader=self.fake_policy_loader([]), evaluator=self.fake_evaluator([]), resume=True)
 
     def test_failure_receipts_do_not_persist_provider_credentials(self):
-        import native_curriculum_runner as runner
+        import ai2.training.native_curriculum_runner as runner
 
         with TemporaryDirectory() as directory:
             root = Path(directory)

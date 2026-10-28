@@ -1,4 +1,6 @@
 """CPU-only command, qualification-gate, and sequential supervisor checks."""
+
+from ai2.paths import source_inventory, source_path
 import importlib.util
 import json
 import subprocess
@@ -11,7 +13,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "campaign_native_lanes.py"
+MODULE_PATH = source_path(ROOT, "campaign_native_lanes.py")
 
 
 class Clock:
@@ -56,7 +58,7 @@ class CampaignNativeLanesTests(unittest.TestCase):
 
     def args(self, mode="smoke", run=False, **overrides):
         source = self.root / "source"
-        for path in (source / "train.py", source / "UTMIST-AI2-main/environment/environment.py",
+        for path in (source_path(source, "train.py"), source / "UTMIST-AI2-main/environment/environment.py",
                      self.root / "train_job.py", self.root / "control.yaml", self.root / "checkpoint.zip"):
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
@@ -72,7 +74,7 @@ class CampaignNativeLanesTests(unittest.TestCase):
         return args
 
     def receipt(self, args, **overrides):
-        import qualify_native_lanes
+        import tools.validation.qualify_native_lanes as qualify_native_lanes
 
         value = {
             "schema": "ai2.native_lanes.parity.v1", "status": "passed", "exit_code": 0, "skipped": 0,
@@ -115,6 +117,7 @@ class CampaignNativeLanesTests(unittest.TestCase):
                             (45, 128, 8192, 8, 2, 20) for job in jobs))
         self.assertEqual(self.run_suite(args, mock.Mock(side_effect=AssertionError("dry-run launched"))), 0)
         plan = json.loads((args.output / "native_lanes_plan.json").read_text())
+        self.assertEqual(plan["source_layout_version"], 2)
         self.assertTrue(plan["rollout_shape_changed"])
         self.assertIn("131072", plan["comparison_note"])
         self.assertIn("524288", plan["comparison_note"])
@@ -153,7 +156,7 @@ class CampaignNativeLanesTests(unittest.TestCase):
                     self.assertNotIn("--grouped-env-path", command)
                     patch_args = SimpleNamespace(
                         group_size=int(command[command.index("--group-size") + 1]),
-                        grouped_env_path=args.source / "grouped_vec_env.py",
+                        grouped_env_path=source_path(args.source, "grouped_vec_env.py"),
                     )
                     self.assertFalse(patch_args.grouped_env_path.exists())
                     original = object()
@@ -176,6 +179,32 @@ class CampaignNativeLanesTests(unittest.TestCase):
         plan = json.loads((args.output / "native_lanes_plan.json").read_text())
         self.assertEqual(len(plan["jobs"]), 9)
         self.assertTrue(all(record["command"] for record in plan["jobs"]))
+
+    def test_manifest_covers_packaged_implementation_and_layout_support(self):
+        inputs = self.suite.source_inputs(self.args())
+        for name in ("ai2/paths.py", "ai2/__init__.py", "ai2/runtime/__init__.py",
+                     "ai2/runtime/campaign_native_lanes.py", "ai2/training/curriculum_ppo.py",
+                     "curriculum_ppo.py"):
+            self.assertEqual(inputs[name], ROOT / name)
+
+    def test_receipt_rejects_flat_layout_receipt_even_with_current_candidate_hashes(self):
+        args = self.args(run=True)
+        receipt = self.receipt(args)
+        for version in (None, 1):
+            receipt["source_layout_version"] = version
+            write_json(args.parity_receipt, receipt)
+            with self.assertRaisesRegex(ValueError, "source layout"):
+                self.suite.validate_parity_receipt(args)
+
+    def test_receipt_requires_layout_support_hashes(self):
+        args = self.args(run=True)
+        receipt = self.receipt(args)
+        for name in ("ai2/paths.py", "ai2/__init__.py", "ai2/training/__init__.py"):
+            altered = dict(receipt["source_hashes"])
+            altered.pop(name, None)
+            write_json(args.parity_receipt, {**receipt, "source_hashes": altered})
+            with self.assertRaisesRegex(ValueError, "missing"):
+                self.suite.validate_parity_receipt(args)
 
     def test_run_requires_receipt_and_rejects_legacy_failed_skipped_or_changed_sources(self):
         cases = [None, {"schema": "legacy"}, {"status": "failed"}, {"skipped": 1}, {"exit_code": 1},
@@ -233,10 +262,11 @@ class CampaignNativeLanesTests(unittest.TestCase):
         args = self.args(run=True)
         receipt = self.receipt(args)
         candidate_root = self.root / "candidate"
+        inventory = source_inventory(ROOT)
         for name in receipt["source_hashes"]:
             path = candidate_root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes((ROOT / name).read_bytes())
+            path.write_bytes(inventory.get(name, source_path(ROOT, name)).read_bytes())
         (candidate_root / "escaped.py").symlink_to(args.checkpoint)
         receipt["source_hashes"]["escaped.py"] = self.suite.campaign_suite.sha256_file(args.checkpoint)
         write_json(args.parity_receipt, receipt)
@@ -265,6 +295,7 @@ class CampaignNativeLanesTests(unittest.TestCase):
             self.assertEqual(manifest["files"]["checkpoint"]["sha256"], self.suite.campaign_suite.sha256_file(args.checkpoint))
             self.assertEqual(manifest["command"], self.suite.command_for_job(args, job))
             self.assertEqual(manifest["policy_device"], "cuda")
+            self.assertEqual(manifest["source_layout_version"], 2)
 
     def test_process_failure_or_exception_stops_next_arm(self):
         for index, error in enumerate((7, OSError("cannot launch"))):

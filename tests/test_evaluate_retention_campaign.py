@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,8 +10,8 @@ from unittest.mock import patch
 
 class RetentionEvaluationTests(unittest.TestCase):
     def subject(self):
-        self.assertIsNotNone(importlib.util.find_spec("evaluate_retention_campaign"))
-        import evaluate_retention_campaign
+        self.assertIsNotNone(importlib.util.find_spec("ai2.evaluation.evaluate_retention_campaign"))
+        import ai2.evaluation.evaluate_retention_campaign as evaluate_retention_campaign
 
         return evaluate_retention_campaign
 
@@ -171,7 +173,7 @@ class RetentionEvaluationTests(unittest.TestCase):
             wall_seconds=1.5,
         )
         self.assertEqual(result["panels"]["contact"]["deterministic"]["ambiguous"], 20)
-        import continue_retention_campaign
+        import ai2.runtime.continue_retention_campaign as continue_retention_campaign
         gate = continue_retention_campaign.diagnostic_gate(result, continue_retention_campaign.B40_BASELINE)
         self.assertFalse(gate.eligible)
         self.assertIn("contact_deterministic_ambiguous", gate.reason)
@@ -458,8 +460,8 @@ class RetentionEvaluationTests(unittest.TestCase):
             reference_root = root / "reference"
             local_root.mkdir()
             reference_root.mkdir()
-            (local_root / "curriculum_ppo.py").write_text("POLICY_VERSION = 'qualified'\n", encoding="utf8")
-            (reference_root / "curriculum_ppo.py").write_text("POLICY_VERSION = 'shadow'\n", encoding="utf8")
+            (source_path(local_root, "curriculum_ppo.py")).write_text("POLICY_VERSION = 'qualified'\n", encoding="utf8")
+            (source_path(reference_root, "curriculum_ppo.py")).write_text("POLICY_VERSION = 'shadow'\n", encoding="utf8")
             (root / "qualification.json").write_text("{}", encoding="utf8")
             checkpoint = root / "final.zip"
             checkpoint.write_bytes(b"checkpoint")

@@ -1,5 +1,7 @@
 """No-network tests for the local scalar-only session11 monitor."""
 
+from ai2.paths import source_path
+
 import builtins
 import importlib.util
 import json
@@ -13,7 +15,7 @@ import unittest
 from unittest import mock
 
 
-MODULE = Path(__file__).resolve().parents[1] / "session11_monitor.py"
+MODULE = source_path(Path(__file__).resolve().parents[1], "session11_monitor.py")
 HEADER = "utilization.gpu [%], utilization.memory [%], memory.used [MiB], memory.total [MiB], power.draw [W], temperature.gpu"
 SAMPLE = "1788800000.125\n" + HEADER + "\n42, 12, 8000, 24564, 210.5, 62\n"
 

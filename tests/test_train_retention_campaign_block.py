@@ -15,10 +15,10 @@ from unittest.mock import patch
 class RetentionCampaignBlockTests(unittest.TestCase):
     def subject(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("train_retention_campaign_block"),
+            importlib.util.find_spec("ai2.training.train_retention_campaign_block"),
             "retention campaign block runner has not been implemented",
         )
-        import train_retention_campaign_block
+        import ai2.training.train_retention_campaign_block as train_retention_campaign_block
 
         return train_retention_campaign_block
 

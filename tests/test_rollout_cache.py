@@ -13,7 +13,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from rollout_cache import CachedRolloutBuffer
+from ai2.training.rollout_cache import CachedRolloutBuffer
 
 
 def _torch_device() -> th.device:

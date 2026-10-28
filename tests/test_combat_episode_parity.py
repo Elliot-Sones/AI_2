@@ -1,6 +1,8 @@
 """Strict comparison must catch corruption, not silently project it away."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import copy
 import importlib
 import math
@@ -43,8 +45,8 @@ class CombatParityTests(unittest.TestCase):
     module = capture_tests.CombatCaptureTests.module
     document_copy = capture_tests.CombatCaptureTests.document_copy
     def parity(self):
-        self.assertTrue((ROOT / "combat_episode_parity.py").is_file(), "combat parity implementation missing")
-        return importlib.import_module("combat_episode_parity")
+        self.assertTrue((source_path(ROOT, "combat_episode_parity.py")).is_file(), "combat parity implementation missing")
+        return importlib.import_module('ai2.evaluation.combat_episode_parity')
 
     def test_protocol_compares_every_field_without_state_injection(self):
         m = self.parity()

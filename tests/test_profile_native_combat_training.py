@@ -14,9 +14,9 @@ from tests.test_profile_native_lane_training import fake_classes
 
 class ProfileCombatTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec('profile_native_combat_training'),
+        self.assertIsNotNone(importlib.util.find_spec('tools.profiling.profile_native_combat_training'),
                              'raw combat profiler entrypoint must exist')
-        self.module = importlib.import_module('profile_native_combat_training')
+        self.module = importlib.import_module('tools.profiling.profile_native_combat_training')
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.output = Path(self.folder.name) / 'profile'
@@ -58,8 +58,8 @@ class ProfileCombatTests(unittest.TestCase):
         stack.enter_context(patch.dict(sys.modules, {
             'torch': torch,
             'stable_baselines3.common.policies': SimpleNamespace(ActorCriticPolicy=classes['policy_class']),
-            'tensor_ppo': SimpleNamespace(TensorPPO=classes['ppo_class'], TensorVecEnv=classes['env_class']),
-            'tensor_rollout_buffer': SimpleNamespace(TensorRolloutBuffer=classes['buffer_class']),
+            'ai2.training.tensor_ppo': SimpleNamespace(TensorPPO=classes['ppo_class'], TensorVecEnv=classes['env_class']),
+            'ai2.training.tensor_rollout_buffer': SimpleNamespace(TensorRolloutBuffer=classes['buffer_class']),
         }))
         stack.enter_context(patch.object(self.module.driver, 'run_benchmark', benchmark))
         self.addCleanup(stack.close)

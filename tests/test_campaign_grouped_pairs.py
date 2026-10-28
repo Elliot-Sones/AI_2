@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import hashlib
 import importlib.util
 import json
@@ -8,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "campaign_grouped_pairs.py"
+MODULE_PATH = source_path(ROOT, "campaign_grouped_pairs.py")
 
 
 def load_module():
@@ -157,11 +159,11 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                     "--checkpoint",
                     str(checkpoint),
                     "--harness",
-                    str(tmp_path / "benchmark_campaign.py"),
+                    str(source_path(tmp_path, "benchmark_campaign.py")),
                     "--rollout-cache-path",
-                    str(tmp_path / "rollout_cache.py"),
+                    str(source_path(tmp_path, "rollout_cache.py")),
                     "--grouped-env-path",
-                    str(tmp_path / "grouped_vec_env.py"),
+                    str(source_path(tmp_path, "grouped_vec_env.py")),
                     "--pair-limit",
                     "1",
                 ]
@@ -172,7 +174,7 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                 module.run_suite(parsed, runner=runner, clock=FakeClock())
             self.assertEqual(runner.commands, [])
 
-            write_parity_marker(output, tmp_path / "grouped_vec_env.py", frozen_env)
+            write_parity_marker(output, source_path(tmp_path, "grouped_vec_env.py"), frozen_env)
             code = module.run_suite(parsed, runner=runner, clock=FakeClock())
             manifest_grouped = json.loads((output / "grouped-pairs-seed45-group4" / "job_manifest.json").read_text())
             manifest_control = json.loads((output / "grouped-pairs-seed45-group1" / "job_manifest.json").read_text())
@@ -191,7 +193,7 @@ class CampaignGroupedPairsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             output = tmp_path / "suite"
-            grouped_env = write_text(tmp_path / "grouped_vec_env.py", "runner-v1")
+            grouped_env = write_text(source_path(tmp_path, "grouped_vec_env.py"), "runner-v1")
             frozen_env = write_text(
                 tmp_path / "source" / "UTMIST-AI2-main" / "environment" / "environment.py",
                 "environment-v1",
@@ -240,7 +242,7 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                 "environment",
             )
             output = tmp_path / "suite"
-            write_parity_marker(output, tmp_path / "grouped_vec_env.py", frozen_env)
+            write_parity_marker(output, source_path(tmp_path, "grouped_vec_env.py"), frozen_env)
             completed = output / "grouped-pairs-seed45-group4" / "campaign_summary.json"
             completed.parent.mkdir(parents=True)
             completed.write_text('{"status":"completed"}', encoding="utf-8")
@@ -258,11 +260,11 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                 "--checkpoint",
                 str(checkpoint),
                 "--harness",
-                str(tmp_path / "benchmark_campaign.py"),
+                str(source_path(tmp_path, "benchmark_campaign.py")),
                 "--rollout-cache-path",
-                str(tmp_path / "rollout_cache.py"),
+                str(source_path(tmp_path, "rollout_cache.py")),
                 "--grouped-env-path",
-                str(tmp_path / "grouped_vec_env.py"),
+                str(source_path(tmp_path, "grouped_vec_env.py")),
                 "--pair-limit",
                 "1",
             ]
@@ -272,7 +274,7 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                 module.run_suite(parsed, runner=runner, clock=FakeClock())
 
             output2 = tmp_path / "suite2"
-            write_parity_marker(output2, tmp_path / "grouped_vec_env.py", frozen_env)
+            write_parity_marker(output2, source_path(tmp_path, "grouped_vec_env.py"), frozen_env)
             args2 = module.validate_args(
                 module.build_parser().parse_args(
                     [
@@ -291,11 +293,11 @@ class CampaignGroupedPairsTests(unittest.TestCase):
                         "--checkpoint",
                         str(checkpoint),
                         "--harness",
-                        str(tmp_path / "benchmark_campaign.py"),
+                        str(source_path(tmp_path, "benchmark_campaign.py")),
                         "--rollout-cache-path",
-                        str(tmp_path / "rollout_cache.py"),
+                        str(source_path(tmp_path, "rollout_cache.py")),
                         "--grouped-env-path",
-                        str(tmp_path / "grouped_vec_env.py"),
+                        str(source_path(tmp_path, "grouped_vec_env.py")),
                         "--pair-limit",
                         "1",
                     ]

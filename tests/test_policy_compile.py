@@ -151,7 +151,7 @@ class MathTensor:
 
 class PolicyCompileTests(unittest.TestCase):
     def test_actual_tensor_parity_gate_handles_ulp_near_zero_and_nonfinite(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
         try:
             import torch
         except ImportError:
@@ -178,7 +178,7 @@ class PolicyCompileTests(unittest.TestCase):
                 )
 
     def test_parity_gate_is_scale_aware_but_rejects_real_errors(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         eps = 2.0 ** -23
         atol, rtol = e4.parity_tolerances("actions", eps, 1e-5)
@@ -196,7 +196,7 @@ class PolicyCompileTests(unittest.TestCase):
         e4.require_parity_reports({"actions": {"max_normalized_error": 1.0}})
 
     def test_static_policy_param_count_matches_known_current_architecture(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         self.assertEqual(
             e4.count_actor_critic_policy_params(obs_dim=256, action_dim=10, net_arch=[512, 512, 256]),
@@ -204,7 +204,7 @@ class PolicyCompileTests(unittest.TestCase):
         )
 
     def test_build_plan_refuses_cpu_and_requires_work(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         with self.assertRaisesRegex(ValueError, "GPU-only"):
             e4.build_plan(device="cpu")
@@ -214,7 +214,7 @@ class PolicyCompileTests(unittest.TestCase):
             e4.build_plan(device="cuda", batches=[64, 0])
 
     def test_rate_record_labels_rng_inclusion_and_roundtrip_mode(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         record = e4.rate_record(
             label="eager_device_resident",
@@ -231,7 +231,7 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertEqual(record["transfer_mode"], "device_resident")
 
     def test_storage_alias_guard_rejects_same_data_pointer(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         class TensorLike:
             def __init__(self, ptr):
@@ -244,7 +244,7 @@ class PolicyCompileTests(unittest.TestCase):
             e4.assert_no_storage_alias({"actions": TensorLike(7), "values": TensorLike(7)})
 
     def test_compile_failure_is_explicit_unsupported_not_successful_fallback(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         payload = e4.compile_unsupported_record(RuntimeError("graph break"))
 
@@ -254,7 +254,7 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertIn("graph break", payload["error"])
 
     def test_summary_writes_provenance_and_separates_compile_cost(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         with tempfile.TemporaryDirectory(prefix="e4-policy-compile-") as tmp:
             output = Path(tmp)
@@ -276,7 +276,7 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertEqual(written["provenance"]["checkpoint"]["sha256"], "abc")
 
     def test_cuda_device_normalization_accepts_bare_cuda(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         self.assertEqual(e4.normalize_cuda_device("cuda"), "cuda:0")
         self.assertEqual(e4.normalize_cuda_device("cuda:1"), "cuda:1")
@@ -284,7 +284,7 @@ class PolicyCompileTests(unittest.TestCase):
             e4.normalize_cuda_device("cpu")
 
     def test_compile_helper_runs_probe_under_no_grad(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         torch = FakeTorch()
 
@@ -300,13 +300,13 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertTrue(all(torch.helper_called_under_no_grad))
 
     def test_max_abs_diff_rejects_nonfinite_values(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         with self.assertRaisesRegex(RuntimeError, "non-finite"):
             e4.max_abs_diff(DiffTorch(), float("nan"), 0.0)
 
     def test_exact_gaussian_logprob_uses_sampled_actions_not_ideal_eps_only(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         class TorchOps:
             def exp(self, value):
@@ -325,7 +325,7 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertAlmostEqual(log_prob, -0.5 * ((5.1 - 1.0) / 2.0) ** 2 - 0.6931471805599453 - 0.9189385332046727)
 
     def test_gaussian_logprob_tensor_helper_has_no_dynamic_type_branches(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         source = inspect.getsource(e4.gaussian_log_prob_from_actions)
 
@@ -334,7 +334,7 @@ class PolicyCompileTests(unittest.TestCase):
         self.assertNotIn("torch.log", source)
 
     def test_cross_call_storage_reuse_is_rejected(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         with self.assertRaisesRegex(RuntimeError, "reused output storage"):
             e4.assert_no_cross_call_storage_alias(
@@ -345,7 +345,7 @@ class PolicyCompileTests(unittest.TestCase):
             )
 
     def test_snapshot_guard_detects_output_overwrite(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         original = ScalarTensor(1.0, 10)
         snapshot = e4.clone_output_tuple((original,))
@@ -355,7 +355,7 @@ class PolicyCompileTests(unittest.TestCase):
             e4.assert_output_snapshot_unchanged(DiffTorch(), snapshot, (original,), label="compiled")
 
     def test_fresh_epsilon_must_change_actions(self):
-        import benchmark_policy_compile as e4
+        import ai2.training.benchmark_policy_compile as e4
 
         with self.assertRaisesRegex(RuntimeError, "fresh epsilon"):
             e4.assert_fresh_action_response(

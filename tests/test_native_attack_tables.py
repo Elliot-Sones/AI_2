@@ -74,8 +74,8 @@ def oracle_change(holder):
 
 class AttackTableTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec('native_attack_tables'), 'Attack table generator is missing')
-        self.generator = importlib.import_module('native_attack_tables')
+        self.assertIsNotNone(importlib.util.find_spec('ai2.simulation.native_attack_tables'), 'Attack table generator is missing')
+        self.generator = importlib.import_module('ai2.simulation.native_attack_tables')
         self.assets = {path.relative_to(ENVIRONMENT).as_posix(): json.loads(path.read_text())
                        for directory, _ in WEAPONS for path in (ENVIRONMENT / directory).glob('*.json')}
 

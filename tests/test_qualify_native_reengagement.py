@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from ai2.paths import source_path
+import ai2.training
+import ai2.simulation
+
 import json
 import sys
 import tempfile
@@ -12,7 +16,7 @@ from unittest.mock import patch
 
 class QualifyNativeReengagementTests(unittest.TestCase):
     def subject(self):
-        import qualify_native_reengagement as qualification
+        import tools.validation.qualify_native_reengagement as qualification
 
         return qualification
 
@@ -37,7 +41,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
         ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
 
     def write_root_marker(self, root: Path, name: str = "oracle.txt", body: str = "oracle") -> Path:
-        path = root / name
+        path = source_path(root, name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf8")
         return path
@@ -446,7 +450,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
             self.write_root_marker(root / "reference", body="reference")
             self.write_root_marker(root / "frozen", body="frozen")
             hashes = q.qualification_source_hashes(root / "reference", root / "frozen")
-            self.assertEqual(hashes["source_sha256"]["train_reengagement_campaign_block.py"], q.sha256(q.ROOT / "train_reengagement_campaign_block.py"))
+            self.assertEqual(hashes["source_sha256"]["train_reengagement_campaign_block.py"], q.sha256(source_path(q.ROOT, "train_reengagement_campaign_block.py")))
             self.assertEqual(hashes["source_sha256"]["native/navigation_episode.cu"], q.sha256(q.ROOT / "native/navigation_episode.cu"))
             self.assertEqual(hashes["source_sha256"]["reference_root::oracle.txt"], q.sha256(root / "reference" / "oracle.txt"))
             self.assertEqual(hashes["source_sha256"]["frozen_root::oracle.txt"], q.sha256(root / "frozen" / "oracle.txt"))
@@ -537,9 +541,11 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                 ) and FakeEnv()
             )
             with patch.object(q, "probe_system", return_value=q.SystemProbe(True, 1, True)), \
+                    patch.object(ai2.training, "native_curriculum_ppo", FakePPO, create=True), \
+                    patch.object(ai2.simulation, "native_reengagement_lane_vec_env", fake_env_module, create=True), \
                     patch.dict(sys.modules, {
-                        "native_curriculum_ppo": FakePPO,
-                        "native_reengagement_lane_vec_env": fake_env_module,
+                        "ai2.training.native_curriculum_ppo": FakePPO,
+                        "ai2.simulation.native_reengagement_lane_vec_env": fake_env_module,
                     }):
                 result = q.run_real_collector_smoke(args, b1_regression={
                     "status": "passed",
@@ -548,7 +554,7 @@ class QualifyNativeReengagementTests(unittest.TestCase):
                     "command": ["pytest", "tests/test_native_contact_episode.py"],
                 })
 
-            self.assertEqual(result.status, "passed")
+            self.assertEqual(result.status, "passed", result.reason)
             self.assertEqual(calls["load"][0], checkpoint.resolve())
             self.assertEqual(calls["load"][2]["expected_sha256"], q.EXPECTED_PARENT_SHA256)
             self.assertEqual(calls["load"][2]["action_ab_arm"], "B_projected")

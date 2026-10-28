@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 class TensorTrainingDriverTests(unittest.TestCase):
     def test_patch_wraps_real_factory_and_restores_on_failure(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         factory_calls = []
         original_env = object()
         def build(*args, **kwargs):
@@ -34,7 +34,7 @@ class TensorTrainingDriverTests(unittest.TestCase):
         self.assertEqual(converted, [(original_env, "cuda")])
 
     def test_control_does_not_import_or_patch_tensor_runtime(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         args = types.SimpleNamespace(tensor_collector=False)
         original = module.campaign.import_train_job_module
         with patch.object(module.campaign, "run_campaign", return_value=0) as run:
@@ -43,7 +43,7 @@ class TensorTrainingDriverTests(unittest.TestCase):
         self.assertIs(module.campaign.import_train_job_module, original)
 
     def test_cpu_candidate_rejected_before_running_game(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         args = types.SimpleNamespace(tensor_collector=True, device="cpu")
         with patch.object(module.campaign, "run_campaign") as run:
             with self.assertRaisesRegex(ValueError, "CUDA"):
@@ -51,7 +51,7 @@ class TensorTrainingDriverTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_candidate_records_sources_and_restores_importer_on_failure(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         with tempfile.TemporaryDirectory() as tmp:
             args = types.SimpleNamespace(tensor_collector=True, device="cuda", output=Path(tmp))
             original = module.campaign.import_train_job_module
@@ -65,7 +65,7 @@ class TensorTrainingDriverTests(unittest.TestCase):
             self.assertTrue(all(value["sha256"] for value in provenance["candidate"].values()))
 
     def test_missing_candidate_source_prevents_launch(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         with tempfile.TemporaryDirectory() as tmp:
             args = types.SimpleNamespace(tensor_collector=True, device="cuda", output=Path(tmp))
             with patch.object(module, "CANDIDATE_FILES", ("not-present-input.py",)):
@@ -75,13 +75,13 @@ class TensorTrainingDriverTests(unittest.TestCase):
                     run.assert_not_called()
 
     def test_tensor_graph_combination_is_rejected(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         args = types.SimpleNamespace(tensor_collector=True, device="cuda", rollout_policy_graph=True)
         with self.assertRaisesRegex(ValueError, "graph"):
             module.run(args)
 
     def test_adapter_failure_closes_env(self):
-        module = importlib.import_module("benchmark_tensor_training")
+        module = importlib.import_module('tools.benchmarks.benchmark_tensor_training')
         closed = []
         env = types.SimpleNamespace(close=lambda: closed.append(True))
         job = types.SimpleNamespace(build_env=lambda *a, **kw: env, PPO=object)

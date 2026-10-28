@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import reengagement_curriculum as rc
+import ai2.evaluation.reengagement_curriculum as rc
 
 
 def resolve_frozen_source_root() -> Path:

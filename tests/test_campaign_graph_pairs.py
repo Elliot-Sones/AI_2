@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import argparse
 import importlib.util
 import json
@@ -9,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "campaign_graph_pairs.py"
+MODULE_PATH = source_path(ROOT, "campaign_graph_pairs.py")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -317,7 +319,7 @@ def base_args(**overrides):
 
 def create_required_files(root):
     source = root / "source"
-    frozen_train = source / "train.py"
+    frozen_train = source_path(source, "train.py")
     frozen_env = source / "UTMIST-AI2-main/environment/environment.py"
     frozen_env.parent.mkdir(parents=True)
     source.mkdir(parents=True, exist_ok=True)
@@ -328,13 +330,13 @@ def create_required_files(root):
         "checkpoint": root / "selected.zip",
         "source": source,
         "train_job": root / "train_job.py",
-        "harness": root / "benchmark_campaign.py",
-        "rollout_cache_path": root / "rollout_cache.py",
-        "grouped_env_path": root / "grouped_vec_env.py",
-        "rollout_policy_graph_path": root / "rollout_policy_graph.py",
-        "verifier_path": root / "benchmark_graph_rollout_parity.py",
-        "policy_compile_path": root / "benchmark_policy_compile.py",
-        "policy_cuda_graph_path": root / "benchmark_policy_cuda_graph.py",
+        "harness": source_path(root, "benchmark_campaign.py"),
+        "rollout_cache_path": source_path(root, "rollout_cache.py"),
+        "grouped_env_path": source_path(root, "grouped_vec_env.py"),
+        "rollout_policy_graph_path": source_path(root, "rollout_policy_graph.py"),
+        "verifier_path": source_path(root, "benchmark_graph_rollout_parity.py"),
+        "policy_compile_path": source_path(root, "benchmark_policy_compile.py"),
+        "policy_cuda_graph_path": source_path(root, "benchmark_policy_cuda_graph.py"),
     }
     for key, path in files.items():
         if key == "source":
@@ -361,7 +363,7 @@ def write_parity_summary(args, *, byte_parity=True, helper_sha=None, control_ove
     sha = lambda p: sha256_file(Path(p))
     helper_sha = helper_sha or sha(args.rollout_policy_graph_path)
     file_records = {
-        "source_train": file_record(args.source / "train.py"),
+        "source_train": file_record(source_path(args.source, "train.py")),
         "config": file_record(args.config),
         "train_job": file_record(args.train_job),
         "checkpoint": file_record(args.checkpoint),

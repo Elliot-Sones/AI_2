@@ -1,6 +1,8 @@
 """Synthetic artifact tests: no Torch, GPU, subprocess, or original source required."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import copy
 from contextlib import redirect_stderr
 import importlib
@@ -19,9 +21,9 @@ FLAGS = ("optimizer_cpu_steps", "deferred_metrics", "deferred_timeouts",
 
 class SummarizeAblationsTests(unittest.TestCase):
     def setUp(self):
-        self.assertTrue((ROOT / "session10_summarize_ablations.py").exists(),
+        self.assertTrue((source_path(ROOT, "session10_summarize_ablations.py")).exists(),
                         "standalone ablation artifact summarizer must exist")
-        self.module = importlib.import_module("session10_summarize_ablations")
+        self.module = importlib.import_module('tools.analysis.session10_summarize_ablations')
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)

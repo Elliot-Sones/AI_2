@@ -1,4 +1,6 @@
 """Guardrails for actual native learning, without requiring CUDA to collect tests."""
+
+from ai2.paths import source_path
 import argparse
 import importlib
 import json
@@ -27,7 +29,7 @@ def checkpoint(path, steps, updates):
 
 class ValidationTests(unittest.TestCase):
     def setUp(self):
-        self.runner = importlib.import_module("native_learning_runner")
+        self.runner = importlib.import_module('ai2.training.native_learning_runner')
 
     def test_validates_all_three_architecture_counts(self):
         for arch, count in [([512, 512, 256], 1053973), ([1024] * 3, 4736021), ([1536] * 3, 10249749)]:
@@ -103,7 +105,7 @@ class ValidationTests(unittest.TestCase):
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
-        self.runner = importlib.import_module("native_learning_runner")
+        self.runner = importlib.import_module('ai2.training.native_learning_runner')
 
     def exercise(self, *, resume=False, failure=False, mismatch=False, incomplete=False,
                  preupdate_final=False, validate_artifacts=False, wrong_arch=False):
@@ -111,7 +113,7 @@ class RunnerTests(unittest.TestCase):
             root = Path(tmp).resolve()
             source = root / "source"
             source.mkdir()
-            (source / "train.py").write_text("# frozen source\n")
+            (source_path(source, "train.py")).write_text("# frozen source\n")
             job_path = root / "train_job.py"
             job_path.write_text("# frozen job\n")
             cfg = root / "config.yaml"
@@ -190,7 +192,7 @@ class RunnerTests(unittest.TestCase):
                 argv += ["--checkpoint", str(input_path)]
             previous_cwd, previous_path = Path.cwd(), list(sys.path)
             with patch.object(self.runner.campaign, "import_train_job_module", return_value=job), patch.dict(
-                    sys.modules, {"tensor_ppo": types.SimpleNamespace(TensorPPO=TensorPPO)}):
+                    sys.modules, {"ai2.training.tensor_ppo": types.SimpleNamespace(TensorPPO=TensorPPO)}):
                 code = self.runner.run(argv)
             self.assertEqual(Path.cwd(), previous_cwd)
             self.assertEqual(sys.path, previous_path)
@@ -201,7 +203,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(job.CHECKPOINT_INTERVAL, 250000)
             receipt = json.loads((output / "native_learning_receipt.json").read_text())
             if validate_artifacts:
-                import campaign_learning
+                import ai2.runtime.campaign_learning as campaign_learning
                 command = types.SimpleNamespace(output=output, label="native-test", metadata={
                     "rounded_steps": 65536, "expected_starting_steps": start, "expected_ending_steps": start + 65536,
                     "checkpoint": str(input_path) if resume else None, "seed": 145,

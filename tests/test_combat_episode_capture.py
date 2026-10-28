@@ -1,6 +1,8 @@
 """Actual raw-game capture: two players, deterministic draws, no policy."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import copy
 import importlib
 import os
@@ -19,8 +21,8 @@ class CombatCaptureTests(unittest.TestCase):
         cls.document = None
 
     def module(self):
-        self.assertTrue((ROOT / "combat_episode_capture.py").is_file(), "combat capture implementation missing")
-        return importlib.import_module("combat_episode_capture")
+        self.assertTrue((source_path(ROOT, "combat_episode_capture.py")).is_file(), "combat capture implementation missing")
+        return importlib.import_module('ai2.evaluation.combat_episode_capture')
 
     def document_copy(self):
         m = self.module()

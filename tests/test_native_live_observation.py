@@ -74,7 +74,7 @@ except Exception:  # pragma: no cover - dependency-light hosts skip.
 class NativeLiveObservationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        import native_live_observation as obs
+        import ai2.simulation.native_live_observation as obs
 
         cls.obs = obs
         cls.helper = obs.load_c_extension(facing_right=Facing.RIGHT, dropped_spawner_type=DroppedWeaponSpawner)

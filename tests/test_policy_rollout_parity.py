@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import argparse
 import hashlib
 import importlib.util
@@ -11,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "benchmark_policy_rollout_parity.py"
+MODULE_PATH = source_path(ROOT, "benchmark_policy_rollout_parity.py")
 
 
 def load_module():
@@ -175,7 +177,7 @@ class PolicyRolloutParityTests(unittest.TestCase):
             tmp_path = Path(tmp)
             config = tmp_path / "control.yaml"
             checkpoint = tmp_path / "selected.zip"
-            grouped = tmp_path / "grouped_vec_env.py"
+            grouped = source_path(tmp_path, "grouped_vec_env.py")
             train_job = tmp_path / "train_job.py"
             source = tmp_path / "source"
             for path in (config, checkpoint, grouped, train_job):
@@ -237,7 +239,7 @@ class PolicyRolloutParityTests(unittest.TestCase):
         module = load_module()
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            grouped_path = tmp_path / "grouped_vec_env.py"
+            grouped_path = source_path(tmp_path, "grouped_vec_env.py")
             grouped_path.write_text("class GroupedSubprocVecEnv:\n    pass\n", encoding="utf-8")
             with preserved_import_state("grouped_vec_env", "campaign_grouped_vec_env"):
                 sys.modules.pop("grouped_vec_env", None)

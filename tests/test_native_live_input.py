@@ -27,7 +27,7 @@ def oracle():
 
 class LiveInputTests(unittest.TestCase):
     def test_c_update_matches_actual_frozen_all_button_combinations_and_history(self):
-        native = importlib.import_module("native_live_input").load_live_input()
+        native = importlib.import_module('ai2.simulation.native_live_input').load_live_input()
         cls = oracle()
         reference, candidate = cls(), cls()
         rng = np.random.default_rng(1992)
@@ -47,7 +47,7 @@ class LiveInputTests(unittest.TestCase):
                     self.assertIs(type(left), type(right))
 
     def test_threshold_noncontiguous_and_invalid_action_preserve_source_semantics(self):
-        native = importlib.import_module("native_live_input").load_live_input()
+        native = importlib.import_module('ai2.simulation.native_live_input').load_live_input()
         cls = oracle()
         for action in ([0.5] * 10, np.linspace(-1, 1, 20)[::2], [float("nan")] * 10):
             reference, candidate = cls(), cls()

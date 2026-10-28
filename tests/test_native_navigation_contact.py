@@ -6,6 +6,8 @@ Pymunk 6.2.1 runtime are importable; it is skipped, not passed, otherwise.
 """
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import ctypes
 import importlib
 import json
@@ -27,7 +29,7 @@ FROZEN = Path(os.environ.get("AI2_FROZEN_SOURCE_ROOT") or "/Users/elliot18/Proje
 
 
 def build_reference(tmp: Path, contract: str = "on"):
-    import native_navigation_contact as m
+    import ai2.simulation.native_navigation_contact as m
 
     if shutil.which(os.environ.get("CC") or "cc") is None:
         raise unittest.SkipTest("no C compiler")
@@ -162,7 +164,7 @@ class ContactReferencePureTests(unittest.TestCase):
 
 class ContactReferenceFrozenGameTests(unittest.TestCase):
     def test_frozen_replay_uses_production_default_contraction(self):
-        import native_navigation_contact as contact
+        import ai2.simulation.native_navigation_contact as contact
 
         first = {"compared_ticks": 150, "exact": True, "first_divergence": None}
         second = {"exact": False}
@@ -182,7 +184,7 @@ class ContactReferenceFrozenGameTests(unittest.TestCase):
     def test_short_capture_replays_bit_exactly(self):
         try:
             import pymunk  # noqa: F401
-            importlib.import_module("benchmark_replay")
+            importlib.import_module('ai2.evaluation.benchmark_replay')
         except Exception as exc:  # pragma: no cover - runtime dependent
             raise unittest.SkipTest(f"frozen runtime unavailable: {exc}")
         if not (FROZEN / "control.yaml").is_file():
@@ -193,10 +195,10 @@ class ContactReferenceFrozenGameTests(unittest.TestCase):
         try:
             capture = tmp / "capture.jsonl"
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy", PYGAME_HIDE_SUPPORT_PROMPT="1", MPLCONFIGDIR=str(tmp / "mpl"))
-            subprocess.run([sys.executable, str(ROOT / "navigation_contact_capture.py"), "--source-root", str(FROZEN), "--config", str(FROZEN / "control.yaml"),
+            subprocess.run([sys.executable, str(source_path(ROOT, "navigation_contact_capture.py")), "--source-root", str(FROZEN), "--config", str(FROZEN / "control.yaml"),
                             "--controller", "scripted", "--steps", "150", "--seeds", "45", "--output", str(capture)], check=True, env=env, cwd=str(ROOT),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            import native_navigation_contact as m
+            import ai2.simulation.native_navigation_contact as m
             m, ref = build_reference(tmp, contract=m.default_contraction())
             result = m.verify_capture(ref, capture)
             self.assertEqual(result["compared_ticks"], 150)

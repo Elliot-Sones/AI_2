@@ -57,7 +57,7 @@ def fixtures(n):
 
 class ObservationTests(unittest.TestCase):
     def test_compiled_c_matches_frozen_get_obs_including_inactive_and_dropped_weapons(self):
-        module = importlib.import_module("native_navigation_observation")
+        module = importlib.import_module('ai2.simulation.native_navigation_observation')
         p, s, platform = fixtures(32)
         with tempfile.TemporaryDirectory() as tmp:
             core = module.load_reference(Path(tmp))
@@ -70,7 +70,7 @@ class ObservationTests(unittest.TestCase):
         np.testing.assert_array_equal(swapped, np.concatenate([expected[:, 32:], expected[:, :32]], axis=1))
 
     def test_bad_shapes_dtype_nonfinite_and_reserved_fields_fail(self):
-        module = importlib.import_module("native_navigation_observation")
+        module = importlib.import_module('ai2.simulation.native_navigation_observation')
         with tempfile.TemporaryDirectory() as tmp:
             core = module.load_reference(Path(tmp))
             p, s, platform = fixtures(2)
@@ -91,7 +91,7 @@ class ObservationTests(unittest.TestCase):
             self.skipTest("Torch unavailable")
         if not torch.cuda.is_available():
             self.skipTest("CUDA unavailable")
-        module = importlib.import_module("native_navigation_observation")
+        module = importlib.import_module('ai2.simulation.native_navigation_observation')
         with tempfile.TemporaryDirectory() as tmp:
             core = module.load_reference(Path(tmp), cuda=True)
             p, s, platform = fixtures(256)

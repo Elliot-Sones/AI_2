@@ -21,7 +21,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
     def test_worst_location_report_adds_coordinates_and_operand_scales(self):
         torch = require_torch()
 
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         left = torch.tensor([[10.0, 0.0], [100.0, 7.0]], dtype=torch.float32)
         right = torch.tensor([[10.0, 3e-6], [100.0, 7.0]], dtype=torch.float32)
@@ -43,7 +43,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
     def test_component_result_captures_failures_without_throwing(self):
         torch = require_torch()
 
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         def eager():
             return (torch.tensor([0.0], dtype=torch.float32),)
@@ -67,7 +67,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
     def test_component_result_captures_exceptions_without_silent_loss(self):
         torch = require_torch()
 
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         def eager():
             return (torch.tensor([0.0], dtype=torch.float32),)
@@ -89,7 +89,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
         self.assertEqual(result["reports"], {})
 
     def test_mixed_arm_summary_requires_all_gates(self):
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         results = [
             {"name": "features_latents", "status": "passed"},
@@ -107,7 +107,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
         self.assertEqual(summary["passed_components"], 5)
 
     def test_write_summary_records_incomplete_failures(self):
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         with tempfile.TemporaryDirectory(prefix="policy-components-") as tmp:
             payload = components.write_summary(
@@ -123,7 +123,7 @@ class PolicyCompileComponentTests(unittest.TestCase):
         self.assertEqual(written["provenance"]["files"]["checkpoint"]["sha256"], "abc")
 
     def test_parse_args_rejects_cpu(self):
-        import benchmark_policy_compile_components as components
+        import tools.benchmarks.benchmark_policy_compile_components as components
 
         with self.assertRaises(SystemExit):
             components.parse_args(["--output", "/tmp/x", "--device", "cpu"])

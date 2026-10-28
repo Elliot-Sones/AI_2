@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import tempfile
 import unittest
@@ -9,7 +11,7 @@ from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
 
-import benchmark_policy_cuda_graph as graph
+import ai2.training.benchmark_policy_cuda_graph as graph
 
 
 class PolicyCudaGraphTests(unittest.TestCase):
@@ -140,7 +142,7 @@ class PolicyCudaGraphTests(unittest.TestCase):
             config = root / "control.yaml"
             source = root / "source"
             source.mkdir()
-            train = source / "train.py"
+            train = source_path(source, "train.py")
             helper = root / "helper.py"
             harness = root / "harness.py"
             for path in (checkpoint, config, train, helper, harness):

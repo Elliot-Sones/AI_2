@@ -1,6 +1,6 @@
 import unittest
 
-from native_fullgame_action_table import (
+from ai2.evaluation.native_fullgame_action_table import (
     canonical_action_table,
     contact_mask,
     movement_mask,

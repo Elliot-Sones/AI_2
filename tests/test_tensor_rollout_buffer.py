@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import importlib
 import inspect
 from pathlib import Path
@@ -24,12 +26,12 @@ def _deps(*, require_cuda=True):
 
 class TensorRolloutBufferStaticTests(unittest.TestCase):
     def test_module_exports_tensor_rollout_buffer(self):
-        module = importlib.import_module("tensor_rollout_buffer")
+        module = importlib.import_module('ai2.training.tensor_rollout_buffer')
 
         self.assertTrue(hasattr(module, "TensorRolloutBuffer"))
 
     def test_source_does_not_subclass_sb3_numpy_rollout_buffer_or_allocate_numpy_storage(self):
-        source = (Path(__file__).resolve().parents[1] / "tensor_rollout_buffer.py").read_text()
+        source = (source_path(Path(__file__).resolve().parents[1], "tensor_rollout_buffer.py")).read_text()
 
         self.assertNotIn("(RolloutBuffer)", source)
         self.assertNotIn("np.empty", source)
@@ -44,7 +46,7 @@ class TensorRolloutBufferCudaTests(unittest.TestCase):
         self.torch = torch
         self.spaces = spaces
         self.RolloutBuffer = RolloutBuffer
-        self.module = importlib.import_module("tensor_rollout_buffer")
+        self.module = importlib.import_module('ai2.training.tensor_rollout_buffer')
         self.device = torch.device("cuda", torch.cuda.current_device())
         self.obs_space = spaces.Box(low=-100, high=100, shape=(3,), dtype=np.float32)
         self.action_space = spaces.Box(low=-10, high=10, shape=(2,), dtype=np.float32)
@@ -298,7 +300,7 @@ class TensorRolloutBufferCudaTests(unittest.TestCase):
 class TensorRolloutBufferDependencyTests(unittest.TestCase):
     def test_cpu_device_is_rejected_before_any_cuda_allocation(self):
         torch, spaces, _ = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_rollout_buffer")
+        module = importlib.import_module('ai2.training.tensor_rollout_buffer')
         obs_space = spaces.Box(low=-100, high=100, shape=(3,), dtype=np.float32)
         action_space = spaces.Box(low=-10, high=10, shape=(2,), dtype=np.float32)
 
@@ -315,7 +317,7 @@ class TensorRolloutBufferDependencyTests(unittest.TestCase):
 
     def test_constructor_rejects_bad_scalars_before_cuda_allocation(self):
         torch, spaces, _ = _deps(require_cuda=False)
-        module = importlib.import_module("tensor_rollout_buffer")
+        module = importlib.import_module('ai2.training.tensor_rollout_buffer')
         obs_space = spaces.Box(low=-100, high=100, shape=(3,), dtype=np.float32)
         action_space = spaces.Box(low=-10, high=10, shape=(2,), dtype=np.float32)
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 class KLDiagnosticsRunnerTests(unittest.TestCase):
     def test_dry_run_writes_bounded_replay_plan_without_requiring_gpu(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "plan.json"
 
@@ -42,7 +42,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             self.assertFalse(plan["verification"]["update_executed"])
 
     def test_sb3_update_mode_is_rejected_for_diagnostics(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         config = module.KLDiagnosticConfig(
             checkpoint="/tmp/canonical-contact-checkpoint.zip",
             expected_sha256="a" * 64,
@@ -66,7 +66,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_jsonl_sink_publishes_once_without_mixing_existing_artifacts(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "trace.jsonl"
             sink = module.JSONLDiagnosticSink(path)
@@ -86,7 +86,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
                 module.JSONLDiagnosticSink(path)
 
     def test_write_json_publishes_once_without_overwriting_existing_artifact(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "receipt.json"
 
@@ -97,7 +97,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text()), {"status": "first"})
 
     def test_main_preflights_output_and_trace_before_real_replay(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         original_run_replay = module.run_replay
         calls = []
 
@@ -126,7 +126,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             module.run_replay = original_run_replay
 
     def test_run_replay_cleans_trace_temp_when_setup_learn_fails(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
 
         class FakeModel:
             env = object()
@@ -145,15 +145,15 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             "stable_baselines3": types.ModuleType("stable_baselines3"),
             "stable_baselines3.common": types.ModuleType("stable_baselines3.common"),
             "stable_baselines3.common.callbacks": types.SimpleNamespace(BaseCallback=type("BaseCallback", (), {})),
-            "native_contact_lane_vec_env": types.SimpleNamespace(
+            "ai2.simulation.native_contact_lane_vec_env": types.SimpleNamespace(
                 build_contact_env=lambda lanes, device, seed: {"lanes": lanes, "device": device, "seed": seed}
             ),
-            "native_curriculum_ppo": types.SimpleNamespace(
+            "ai2.training.native_curriculum_ppo": types.SimpleNamespace(
                 NativeCurriculumPPO=types.SimpleNamespace(
                     load_contact_checkpoint=lambda *_args, **_kwargs: fake_model
                 )
             ),
-            "tensor_ppo": types.SimpleNamespace(
+            "ai2.training.tensor_ppo": types.SimpleNamespace(
                 TensorVecEnv=lambda raw_env, device: {"raw_env": raw_env, "device": device}
             ),
         }
@@ -182,7 +182,7 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
                     sys.modules[name] = value
 
     def test_run_replay_seeds_python_numpy_and_torch_after_checkpoint_load_before_collection(self):
-        module = importlib.import_module("kl_diagnostics_runner")
+        module = importlib.import_module('tools.analysis.kl_diagnostics_runner')
         events = []
 
         class FakeCuda:
@@ -232,15 +232,15 @@ class KLDiagnosticsRunnerTests(unittest.TestCase):
             "stable_baselines3": types.ModuleType("stable_baselines3"),
             "stable_baselines3.common": types.ModuleType("stable_baselines3.common"),
             "stable_baselines3.common.callbacks": types.SimpleNamespace(BaseCallback=type("BaseCallback", (), {})),
-            "native_contact_lane_vec_env": types.SimpleNamespace(
+            "ai2.simulation.native_contact_lane_vec_env": types.SimpleNamespace(
                 build_contact_env=lambda lanes, device, seed: events.append(("build_env", seed)) or object()
             ),
-            "native_curriculum_ppo": types.SimpleNamespace(
+            "ai2.training.native_curriculum_ppo": types.SimpleNamespace(
                 NativeCurriculumPPO=types.SimpleNamespace(
                     load_contact_checkpoint=lambda *_args, **_kwargs: events.append(("load_checkpoint",)) or fake_model
                 )
             ),
-            "tensor_ppo": types.SimpleNamespace(
+            "ai2.training.tensor_ppo": types.SimpleNamespace(
                 TensorVecEnv=lambda raw_env, device: events.append(("wrap_env", device)) or object()
             ),
         }

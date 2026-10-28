@@ -51,12 +51,12 @@ def fixture_info(lane=0, index=0, reward=0.5):
 
 class QualificationHelperTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("qualify_native_lanes"), "qualification runner must exist")
-        self.q = importlib.import_module("qualify_native_lanes")
+        self.assertIsNotNone(importlib.util.find_spec("tools.validation.qualify_native_lanes"), "qualification runner must exist")
+        self.q = importlib.import_module('tools.validation.qualify_native_lanes')
 
     def test_explicit_phase_reaches_both_backends_and_receipt(self):
         import torch
-        import native_lane_vec_env as native
+        import ai2.simulation.native_lane_vec_env as native
 
         self.assertIn("wrapper_cfg", inspect.signature(self.q.run_case).parameters)
         config = dict(native.PHASE_0B, min_dist=1.5, max_dist=3.0, time_limit=4)
@@ -78,7 +78,7 @@ class QualificationHelperTests(unittest.TestCase):
             self.assertEqual(result["counts"]["episode_records"], 4)
 
     def test_default_configuration_is_recorded_and_backend_mismatch_fails(self):
-        import native_lane_vec_env as native
+        import ai2.simulation.native_lane_vec_env as native
 
         self.assertIn("wrapper_cfg", inspect.signature(self.q.run_case).parameters)
         fake_cuda = SimpleNamespace(cuda=SimpleNamespace(default_stream=lambda: None,
@@ -176,14 +176,21 @@ class QualificationHelperTests(unittest.TestCase):
 
     def test_source_manifest_requires_every_declared_source(self):
         manifest = self.q.source_manifest()
-        self.assertEqual(manifest["native_sources"], importlib.import_module("native_lane_vec_env").source_hashes())
+        self.assertEqual(manifest["source_layout_version"], 2)
+        self.assertEqual(manifest["native_sources"], importlib.import_module('ai2.simulation.native_lane_vec_env').source_hashes())
         self.assertIn("native_lane_vec_env.py", manifest["source_hashes"])
         self.assertIn("native_lane_cpu_adapter.py", manifest["source_hashes"])
         self.assertIn("native/navigation_spaces.json", manifest["source_hashes"])
+        for name in ("ai2/paths.py", "ai2/__init__.py", "ai2/simulation/__init__.py",
+                     "ai2/training/__init__.py", "tools/validation/__init__.py",
+                     "ai2/training/curriculum_ppo.py", "curriculum_ppo.py"):
+            self.assertIn(name, manifest["source_hashes"])
+        self.assertNotEqual(manifest["source_hashes"]["curriculum_ppo.py"],
+                            manifest["source_hashes"]["ai2/training/curriculum_ppo.py"])
         with patch.object(self.q, "CANDIDATE_FILES", ("missing-source-for-test.py",)):
             with self.assertRaises(FileNotFoundError):
                 self.q.source_manifest()
-        lanes = importlib.import_module("native_lane_vec_env")
+        lanes = importlib.import_module('ai2.simulation.native_lane_vec_env')
         with patch.object(lanes, "LANE_SOURCE_FILES", (*lanes.LANE_SOURCE_FILES, ROOT / "missing-native-source.c")):
             with self.assertRaises(FileNotFoundError):
                 self.q.source_manifest()
@@ -228,7 +235,7 @@ class QualificationHelperTests(unittest.TestCase):
 
     def test_real_cpu_blocks_validate_autoreset_and_zero_based_episode_indices(self):
         import torch
-        import native_lane_vec_env as native
+        import ai2.simulation.native_lane_vec_env as native
 
         if shutil.which("cc") is None:
             self.skipTest("C compiler unavailable")
@@ -254,7 +261,7 @@ class CudaQualificationTests(unittest.TestCase):
             self.skipTest("actual CUDA unavailable")
         if shutil.which("nvcc") is None:
             self.skipTest("nvcc unavailable")
-        q = importlib.import_module("qualify_native_lanes")
+        q = importlib.import_module('tools.validation.qualify_native_lanes')
         with tempfile.TemporaryDirectory() as tmp:
             for stream in ("default", "nondefault"):
                 result = q.run_case(lanes=4, steps=650, seed=45, build_dir=Path(tmp), block_size=128, stream=stream)

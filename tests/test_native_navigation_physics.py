@@ -91,7 +91,7 @@ def pack_invalid_dynamic_state(physics):
 
 class NativeNavigationPhysicsTest(unittest.TestCase):
     def test_scalar_dynamic_body_step_matches_pymunk_default_position_then_velocity(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         expected = pymunk_body_after_step()
         actual = physics.step_body_scalar(
@@ -120,7 +120,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertEqual(actual.torque, 0.0)
 
     def test_scalar_dynamic_body_step_matches_real_space_step_with_space_damping_exponent(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         expected = pymunk_space_after_step(space_damping=0.97, dt=1.0 / 30.0)
         actual = physics.step_body_scalar(
@@ -146,7 +146,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertAlmostEqual(actual.angular_velocity, expected.angular_velocity, places=12)
 
     def test_scalar_kinematic_body_step_matches_real_space_step_orientation(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         pymunk = require_pymunk()
         body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
@@ -178,7 +178,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertAlmostEqual(actual.velocity[1], expected.velocity.y, places=12)
 
     def test_scalar_static_body_step_matches_real_space_step_no_motion(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         pymunk = require_pymunk()
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
@@ -204,7 +204,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertAlmostEqual(actual.angle, expected.angle, places=12)
 
     def test_scalar_no_gravity_body_step_matches_real_space_step_callback(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         pymunk = require_pymunk()
         body = pymunk.Body(1.0, 1e9)
@@ -240,7 +240,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertAlmostEqual(actual.angular_velocity, expected.angular_velocity, places=12)
 
     def test_scalar_no_gravity_mode_matches_frozen_dodge_velocity_callback(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         expected = pymunk_body_after_step(no_gravity=True)
         actual = physics.step_body_scalar(
@@ -267,7 +267,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertEqual(actual.torque, 0.0)
 
     def test_bias_velocity_affects_position_and_is_reset_without_polluting_velocity(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         actual = physics.step_body_scalar(
             physics.BodyState(
@@ -296,7 +296,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertEqual(actual.angular_velocity_bias, 0.0)
 
     def test_kinematic_body_integrates_position_but_skips_velocity_update(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         actual = physics.step_body_scalar(
             physics.BodyState(
@@ -322,7 +322,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
         self.assertEqual(actual.torque, 99.0)
 
     def test_python_api_rejects_fractional_enum_fields(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         with self.assertRaises(ValueError):
             physics.step_body_scalar(
@@ -340,7 +340,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
             )
 
     def test_python_api_rejects_nonzero_cog_and_negative_damping_factor(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         with self.assertRaises(ValueError):
             physics.step_body_scalar(
@@ -358,7 +358,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
             )
 
     def test_compiled_c_reference_matches_scalar_for_batch_and_preserves_outputs_on_invalid_lane(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         if not physics.can_compile_cpu_reference():
             self.skipTest("no C compiler available")
@@ -413,7 +413,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
             self.assertEqual(list(sentinel), [12345.0] * physics.BODY_STATE_FIELD_COUNT)
 
     def test_compiled_c_reference_rejects_fractional_enum_fields(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         if not physics.can_compile_cpu_reference():
             self.skipTest("no C compiler available")
@@ -441,7 +441,7 @@ class NativeNavigationPhysicsTest(unittest.TestCase):
                     self.assertEqual(list(sentinel), [54321.0] * physics.BODY_STATE_FIELD_COUNT)
 
     def test_cuda_batch_matches_scalar_when_runtime_available(self):
-        import native_navigation_physics as physics
+        import ai2.simulation.native_navigation_physics as physics
 
         if not physics.can_run_cuda():
             self.skipTest("CUDA runtime or nvcc unavailable")

@@ -8,8 +8,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import training_benchmark_contract as contract
-from training_benchmark_contract import (
+import tools.validation.training_benchmark_contract as contract
+from tools.validation.training_benchmark_contract import (
     ContractError,
     END_TO_END_STAGES,
     SCHEMA_VERSION,

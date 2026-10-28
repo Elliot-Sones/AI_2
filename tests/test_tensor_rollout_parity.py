@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import argparse
 import importlib.util
 import json
@@ -14,7 +16,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "benchmark_tensor_rollout_parity.py"
+MODULE_PATH = source_path(ROOT, "benchmark_tensor_rollout_parity.py")
 
 
 def load_module():
@@ -103,7 +105,7 @@ class TensorRolloutParityTests(unittest.TestCase):
         self.assertTrue(hasattr(args, "pipeline_hooks"))
         self.assertTrue(hasattr(args, "update_hooks"))
         self.assertTrue(hasattr(args, "rollout_cache_path"))
-        self.assertEqual(args.rollout_cache_path, source.resolve() / "rollout_cache.py")
+        self.assertEqual(args.rollout_cache_path, source_path(source.resolve(), "rollout_cache.py"))
         self.assertTrue(hasattr(args, "rollout_policy_graph_path"))
         self.assertIn("mode=baseline", notes)
         self.assertIn("resident_buffer=False", notes)
@@ -172,11 +174,11 @@ class TensorRolloutParityTests(unittest.TestCase):
                 config=root / "source" / "control.yaml",
                 checkpoint=root / "checkpoint.zip",
                 output=root / "out",
-                grouped_env_path=root / "grouped_vec_env.py",
+                grouped_env_path=source_path(root, "grouped_vec_env.py"),
             )
             (root / "source").mkdir()
             (root / "scripts").mkdir()
-            (root / "source" / "train.py").write_text("train", encoding="utf-8")
+            (source_path(root / "source", "train.py")).write_text("train", encoding="utf-8")
             (root / "source" / "UTMIST-AI2-main" / "environment").mkdir(parents=True)
             (root / "source" / "UTMIST-AI2-main" / "environment" / "environment.py").write_text("env", encoding="utf-8")
 
@@ -193,12 +195,12 @@ class TensorRolloutParityTests(unittest.TestCase):
             scripts.mkdir()
             (source / "UTMIST-AI2-main" / "environment").mkdir(parents=True)
             paths = {
-                "source_train": source / "train.py",
+                "source_train": source_path(source, "train.py"),
                 "source_environment": source / "UTMIST-AI2-main" / "environment" / "environment.py",
                 "train_job": scripts / "train_job.py",
                 "config": source / "control.yaml",
                 "checkpoint": root / "selected.zip",
-                "grouped_env": root / "grouped_vec_env.py",
+                "grouped_env": source_path(root, "grouped_vec_env.py"),
             }
             for path in paths.values():
                 path.write_text(path.name, encoding="utf-8")

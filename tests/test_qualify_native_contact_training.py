@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 class QualifyNativeContactTrainingTests(unittest.TestCase):
     def subject(self):
-        import qualify_native_contact_training as qualification
+        import tools.validation.qualify_native_contact_training as qualification
 
         return qualification
 

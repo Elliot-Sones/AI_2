@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from native_navigation_curriculum_env import (
+from ai2.simulation.native_navigation_curriculum_env import (
     NAVIGATION_MASK,
     NAVIGATION_VERSION,
     NativeNavigationCurriculumEnv,
@@ -112,7 +112,7 @@ class NativeNavigationCurriculumEnvTests(unittest.TestCase):
 
     def test_builder_delegates_to_existing_cuda_navigation_env(self):
         raw = FakeRawNavigationEnv()
-        with patch("native_navigation_curriculum_env.native_lane_vec_env.build_cuda_env", return_value=raw) as build:
+        with patch('ai2.simulation.native_navigation_curriculum_env.native_lane_vec_env.build_cuda_env', return_value=raw) as build:
             env = build_navigation_curriculum_env(
                 5,
                 build_dir="/tmp/build",

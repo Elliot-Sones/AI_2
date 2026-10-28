@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import ctypes as C
 import importlib.util
 import os
@@ -28,7 +30,7 @@ class NativeReengagementTests(unittest.TestCase):
     def setUpClass(cls):
         import pymunk
 
-        from native_reengagement_episode import compile_reference
+        from ai2.simulation.native_reengagement_episode import compile_reference
 
         pymunk_version = getattr(pymunk, "version", None) or getattr(pymunk, "__version__", None)
         if pymunk_version != "6.2.1":
@@ -39,7 +41,7 @@ class NativeReengagementTests(unittest.TestCase):
 
         cls.native_library = compile_reference()
         spec = importlib.util.spec_from_file_location(
-            "reengagement_python_reference", ROOT / "reengagement_curriculum.py"
+            "reengagement_python_reference", source_path(ROOT, "reengagement_curriculum.py")
         )
         cls.reference = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.reference)
@@ -50,7 +52,7 @@ class NativeReengagementTests(unittest.TestCase):
         cls.env.close()
 
     def native(self):
-        from native_reengagement_episode import ReengagementReference
+        from ai2.simulation.native_reengagement_episode import ReengagementReference
 
         return ReengagementReference(self.native_library)
 
@@ -96,7 +98,7 @@ class NativeReengagementTests(unittest.TestCase):
             cls._relocation_probe_path = ROOT / ".native-build" / f"relocation-probe-{os.getpid()}.so"
             cls._relocation_probe_path.write_bytes(library.read_bytes())
         probe = C.CDLL(str(cls._relocation_probe_path))
-        from native_reengagement_episode import State
+        from ai2.simulation.native_reengagement_episode import State
 
         probe.ai2b2_test_relocate_export.argtypes = [C.POINTER(State)]
         probe.ai2b2_test_relocate_export.restype = C.c_int
@@ -104,7 +106,7 @@ class NativeReengagementTests(unittest.TestCase):
         return probe
 
     def injected_step(self, native, stream, event, action=None):
-        from native_reengagement_episode import StepResult
+        from ai2.simulation.native_reengagement_episode import StepResult
 
         if action is None:
             action = np.zeros(10, dtype=np.float64)
@@ -122,7 +124,7 @@ class NativeReengagementTests(unittest.TestCase):
         return code, result
 
     def reset_pair(self, native, seed, slot=None, direction=None):
-        from navigation_episode_capture import DrawRecorder
+        from ai2.evaluation.navigation_episode_capture import DrawRecorder
 
         scenario = native.scenario(seed, seed % 2 if slot is None else slot, direction)
         options = {
@@ -242,7 +244,7 @@ class NativeReengagementTests(unittest.TestCase):
             recorder.restore()
 
     def test_constants_abi_sizes_reward_order_and_scenario_generation(self):
-        from native_reengagement_episode import (
+        from ai2.simulation.native_reengagement_episode import (
             ABI_LAYOUTS,
             ABI_OFFSETS,
             REWARD_NAMES,
@@ -359,7 +361,7 @@ class NativeReengagementTests(unittest.TestCase):
                 recorder.restore()
 
     def test_invalid_actions_scenarios_post_terminal_and_corrupt_state(self):
-        from native_reengagement_episode import Scenario, StepResult
+        from ai2.simulation.native_reengagement_episode import Scenario, StepResult
 
         native = self.native()
         native.reset_generated(native.scenario(134000))
@@ -462,7 +464,7 @@ class NativeReengagementTests(unittest.TestCase):
                 self.assert_invalid_state(candidate)
 
     def assert_invalid_state(self, native):
-        from native_reengagement_episode import StepResult
+        from ai2.simulation.native_reengagement_episode import StepResult
 
         before, rng_before = bytes(native.state), bytes(native.rng)
         result = StepResult()
@@ -488,7 +490,7 @@ class NativeReengagementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "403"):
             native.step_generated(np.zeros(10))
 
-        from native_reengagement_episode import PlayerEvent
+        from ai2.simulation.native_reengagement_episode import PlayerEvent
 
         native = self.native()
         native.reset_generated(native.scenario(134000, 0, -1))
@@ -563,14 +565,14 @@ class NativeReengagementTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "403"):
             native.step_generated(np.zeros(10))
 
-        from reengagement_curriculum import choose_target_anchor
+        from ai2.evaluation.reengagement_curriculum import choose_target_anchor
 
         self.assertEqual(choose_target_anchor(0, 10, 0.435, 5.0, 1), 9.365)
         self.assertEqual(choose_target_anchor(0, 10, 0.435, 5.0, -1), 0.635)
         self.assertEqual(choose_target_anchor(0, 3, 0.435, 1.5, 1), None)
 
     def test_relocation_distinguishes_pending_anchor_from_recreation_failure(self):
-        from native_reengagement_episode import PlayerEvent
+        from ai2.simulation.native_reengagement_episode import PlayerEvent
 
         native = self.native()
         native.reset_generated(native.scenario(134000, 0, -1))
@@ -656,7 +658,7 @@ class NativeReengagementTests(unittest.TestCase):
             """
             import ctypes as C
             import sys
-            from native_reengagement_episode import ReengagementReference, StepResult
+            from ai2.simulation.native_reengagement_episode import ReengagementReference, StepResult
             native = ReengagementReference(sys.argv[1])
             for field, value in (
                 ('player_slot', 2), ('direction', 0), ('gap', 3.0),
@@ -686,7 +688,7 @@ class NativeReengagementTests(unittest.TestCase):
         self.assertIn("stored scenario rejection ok cases=4", process.stdout)
 
     def test_scenario_helper_rejects_noninteger_identity_fields(self):
-        from native_reengagement_episode import scenario_from_seed
+        from ai2.simulation.native_reengagement_episode import scenario_from_seed
 
         for kwargs in (
             {"seed": -1},
@@ -698,7 +700,7 @@ class NativeReengagementTests(unittest.TestCase):
                 scenario_from_seed(**kwargs)
 
     def test_invalid_positive_damage_evidence_is_rejected(self):
-        from native_reengagement_episode import PlayerEvent
+        from ai2.simulation.native_reengagement_episode import PlayerEvent
 
         native = self.native()
         native.reset_generated(native.scenario(134000, 0, -1))

@@ -18,7 +18,7 @@ HAS_CLASSIC_DEPS = (
 
 if HAS_CLASSIC_DEPS:
     from gymnasium import spaces
-    import train
+    import ai2.training.train as train
     import environment.agent as agent_module
 
 

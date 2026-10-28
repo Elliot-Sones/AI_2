@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 import json
 import os
@@ -19,11 +21,11 @@ except ModuleNotFoundError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "benchmark_worker_profile.py"
+MODULE_PATH = source_path(ROOT, "benchmark_worker_profile.py")
 
 
 def load_module():
-    return load_module_as("benchmark_worker_profile")
+    return load_module_as("tools.benchmarks.benchmark_worker_profile")
 
 
 def load_module_as(name):
@@ -298,7 +300,7 @@ class WorkerProfileTests(unittest.TestCase):
         self.assertIsInstance(wrapped, stable_profile.WorkerTimingWrapper)
         self.assertEqual(len(stable_profile._GROUPED_RNG_SPAN_TARGETS), 1)
         self.assertEqual(len(main_copy._GROUPED_RNG_SPAN_TARGETS), 0)
-        import_module.assert_any_call("benchmark_worker_profile")
+        import_module.assert_any_call("tools.benchmarks.benchmark_worker_profile")
 
     def test_worker_component_patch_records_grounded_frozen_hotpath_labels(self):
         profile = load_module()
@@ -608,7 +610,7 @@ class WorkerProfileTests(unittest.TestCase):
 
     def test_build_campaign_args_includes_every_current_campaign_parser_field(self):
         profile = load_module()
-        import benchmark_campaign
+        import ai2.runtime.benchmark_campaign as benchmark_campaign
 
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
@@ -643,7 +645,7 @@ class WorkerProfileTests(unittest.TestCase):
         profile = load_module()
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
-            grouped = Path(tmp) / "grouped_vec_env.py"
+            grouped = source_path(Path(tmp), "grouped_vec_env.py")
             args = profile.build_parser().parse_args(
                 [
                     "--output",
@@ -678,7 +680,7 @@ class WorkerProfileTests(unittest.TestCase):
         try:
             import gymnasium as gym
             import numpy as np
-            import grouped_vec_env
+            import ai2.simulation.grouped_vec_env as grouped_vec_env
         except ModuleNotFoundError as exc:
             self.skipTest(f"missing grouped runtime dependency: {exc.name}")
 
@@ -722,11 +724,11 @@ class WorkerProfileTests(unittest.TestCase):
         load_module()
         main_copy = load_module_as("profile_main_copy")
         main_copy.__dict__["__name__"] = "__main__"
-        main_copy._ProfiledEnvFactory.__module__ = "benchmark_worker_profile"
+        main_copy._ProfiledEnvFactory.__module__ = "tools.benchmarks.benchmark_worker_profile"
         try:
             import gymnasium as gym
             import numpy as np
-            import grouped_vec_env
+            import ai2.simulation.grouped_vec_env as grouped_vec_env
         except ModuleNotFoundError as exc:
             self.skipTest(f"missing grouped runtime dependency: {exc.name}")
 

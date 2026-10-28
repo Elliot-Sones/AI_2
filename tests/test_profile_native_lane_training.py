@@ -1,6 +1,8 @@
 """Profiler instrumentation contracts without policy training or CUDA."""
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 from contextlib import contextmanager, ExitStack
 import importlib
 import inspect
@@ -54,8 +56,8 @@ def fake_classes():
 
 class ProfileRegionTests(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("profile_native_lane_training"), "profiler wrapper must exist")
-        self.m = importlib.import_module("profile_native_lane_training")
+        self.assertIsNotNone(importlib.util.find_spec("tools.profiling.profile_native_lane_training"), "profiler wrapper must exist")
+        self.m = importlib.import_module('tools.profiling.profile_native_lane_training')
         self.classes = fake_classes()
         self.events = []
 
@@ -278,7 +280,7 @@ class ProfileRegionTests(unittest.TestCase):
         # Only the external GPU profiler and training boundary are mocked. Report
         # construction, instrumentation restoration, aggregation and validation run normally.
         import torch
-        import benchmark_native_lane_training as driver
+        import ai2.training.benchmark_native_lane_training as driver
 
         class Profiler:
             def __enter__(self):
@@ -331,7 +333,7 @@ class ProfileRegionTests(unittest.TestCase):
         hashes = self.m.source_hashes()
         for name in ("profile_native_lane_training.py", "benchmark_native_lane_training.py", "native_lane_vec_env.py",
                      "native_lane_cpu_adapter.py", "tensor_ppo.py", "tensor_rollout_buffer.py", "native/navigation_lanes.cu"):
-            self.assertEqual(len(hashes[name]), 64)
+            self.assertEqual(len(hashes[str(source_path(ROOT, name).relative_to(ROOT))]), 64)
 
     def test_installed_torch_profiler_exports_named_fake_class_regions(self):
         import torch

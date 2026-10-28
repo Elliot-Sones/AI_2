@@ -1,3 +1,5 @@
+
+import importlib
 import importlib.util
 import copy
 import json
@@ -14,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class CapacityCampaignTests(unittest.TestCase):
     def module(self):
-        self.assertIsNotNone(importlib.util.find_spec('native_capacity_campaign'),
+        self.assertIsNotNone(importlib.util.find_spec('baselines.native-capacity-session11.scripts.native_capacity_campaign'),
                              'native capacity campaign has not been implemented')
-        import native_capacity_campaign
+        native_capacity_campaign = importlib.import_module('baselines.native-capacity-session11.scripts.native_capacity_campaign')
         return native_capacity_campaign
 
     def test_rollout_boundary_targets_are_cumulative(self):
@@ -50,6 +52,24 @@ class CapacityCampaignTests(unittest.TestCase):
         for phase, target in [('0c',5_000_000),('0a',2_000_000)]:
             with self.assertRaises(ValueError):
                 m.build_plan(Path('/gpu'), rows, target=target, phase=phase, panel='dev', episodes=20)
+
+    def test_runner_path_matches_campaign_source_layout(self):
+        m = self.module()
+        for packaged in (False, True):
+            with self.subTest(packaged=packaged), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / 'source'
+                source.mkdir()
+                runner = source / 'native_learning_runner.py'
+                if packaged:
+                    (source / 'ai2/training').mkdir(parents=True)
+                    (source / 'ai2/paths.py').touch()
+                    runner = source / 'ai2/training/native_learning_runner.py'
+                runner.write_text('# local runner fixture\n')
+                plan = m.build_plan(root, m.initial_records(root), target=5_000_000,
+                                    phase='0a', panel='dev', episodes=20)
+                train_commands = [item for item in plan['commands'] if item['kind'] == 'train']
+                self.assertEqual({item['argv'][1] for item in train_commands}, {str(runner)})
 
     def test_final_and_development_seed_panels_are_disjoint(self):
         m = self.module()
@@ -136,7 +156,7 @@ class CapacityRestartTests(unittest.TestCase):
     """Exercise real planning/validation/journaling; only GPU subprocesses are fake."""
 
     def setUp(self):
-        import native_capacity_campaign as campaign
+        campaign = importlib.import_module('baselines.native-capacity-session11.scripts.native_capacity_campaign')
         self.m = campaign
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

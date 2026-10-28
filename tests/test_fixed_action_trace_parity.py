@@ -5,8 +5,8 @@ import types
 import unittest
 from pathlib import Path
 
-import fixed_action_trace_parity as parity
-from fixed_action_trace_parity import (
+import tools.validation.fixed_action_trace_parity as parity
+from tools.validation.fixed_action_trace_parity import (
     build_fixed_action_suite,
     build_receipt,
     compare_trace_pair,
@@ -59,7 +59,7 @@ class FixedActionTraceParityTests(unittest.TestCase):
         from unittest.mock import patch
         try:
             import torch
-            import native_game_lane_vec_env
+            import ai2.simulation.native_game_lane_vec_env as native_game_lane_vec_env
         except ImportError as error:
             self.skipTest(str(error))
 

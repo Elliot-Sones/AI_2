@@ -8,10 +8,10 @@ import unittest
 class CausalRetentionCampaignTests(unittest.TestCase):
     def subject(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("causal_retention_campaign"),
+            importlib.util.find_spec("ai2.runtime.causal_retention_campaign"),
             "causal retention campaign controller has not been implemented",
         )
-        import causal_retention_campaign
+        import ai2.runtime.causal_retention_campaign as causal_retention_campaign
 
         return causal_retention_campaign
 

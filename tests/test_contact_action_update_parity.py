@@ -36,8 +36,8 @@ class ContactActionUpdateParityTests(unittest.TestCase):
             self.skipTest("Set AI2_CONTACT_CHECKPOINT to the canonical calibrated contact checkpoint")
         self.torch = torch
         self.device = torch.device("cuda", torch.cuda.current_device())
-        import native_curriculum_ppo as native_ppo
-        from ppo_update_optimizations import sb3_train_source_metadata
+        import ai2.training.native_curriculum_ppo as native_ppo
+        from ai2.training.ppo_update_optimizations import sb3_train_source_metadata
         native_ppo.verify_checkpoint(checkpoint, native_ppo.CALIBRATED_CHECKPOINT_SHA256)
         self.assertTrue(native_ppo.curriculum_source_metadata()["supported"])
         self.assertTrue(sb3_train_source_metadata()["supported"])
@@ -70,8 +70,8 @@ class ContactActionUpdateParityTests(unittest.TestCase):
         self.torch.cuda.set_rng_state_all(state[3])
 
     def make_env(self, *, seed):
-        from native_contact_lane_vec_env import build_contact_env
-        from tensor_ppo import TensorVecEnv
+        from ai2.simulation.native_contact_lane_vec_env import build_contact_env
+        from ai2.training.tensor_ppo import TensorVecEnv
 
         raw = build_contact_env(
             64,
@@ -176,7 +176,7 @@ class ContactActionUpdateParityTests(unittest.TestCase):
         )
 
     def test_same_arm_sb3_and_deferred_metrics_update_exactly_from_one_saved_rollout(self):
-        from benchmark_native_contact_training import ACTION_EXPERIMENT_ARMS, loss_metrics
+        from ai2.training.benchmark_native_contact_training import ACTION_EXPERIMENT_ARMS, loss_metrics
 
         receipts = []
         for index, arm in enumerate(self.arms):

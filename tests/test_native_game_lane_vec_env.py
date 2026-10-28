@@ -10,7 +10,7 @@ try:
     import torch
 except ModuleNotFoundError:
     torch = None
-from native_game_lane_vec_env import GameLaneBackend, build_game_env, compile_lanes
+from ai2.simulation.native_game_lane_vec_env import GameLaneBackend, build_game_env, compile_lanes
 
 
 @unittest.skipIf(torch is None, "PyTorch is required for tensor lane wrapper tests")
@@ -191,7 +191,7 @@ class GameEnvTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix='game-hash-compiler-') as directory:
             before = compile_lanes('cpu', Path(directory))
-            with patch('native_game_lane_vec_env.subprocess.run', changed_compiler_identity):
+            with patch('ai2.simulation.native_game_lane_vec_env.subprocess.run', changed_compiler_identity):
                 after = compile_lanes('cpu', Path(directory))
             self.assertNotEqual(before.name, after.name)
 

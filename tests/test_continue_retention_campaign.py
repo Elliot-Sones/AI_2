@@ -8,9 +8,21 @@ import unittest
 
 class ContinueRetentionCampaignTests(unittest.TestCase):
     def subject(self):
-        import continue_retention_campaign
+        import ai2.runtime.continue_retention_campaign as continue_retention_campaign
 
         return continue_retention_campaign
+
+    def test_plan_source_digest_covers_layout_and_packaged_implementation(self):
+        m = self.subject()
+        self.assertEqual(m.PLAN_SOURCE_PROVENANCE['source_layout_version'], 2)
+        hashes = m.PLAN_SOURCE_PROVENANCE['source_hashes']
+        for name in ('ai2/paths.py', 'ai2/__init__.py',
+                     'ai2/training/native_curriculum_ppo.py',
+                     'ai2/training/train_retention_campaign_block.py',
+                     'ai2/training/curriculum_ppo.py', 'curriculum_ppo.py'):
+            self.assertEqual(hashes[name], m.sha256(m.ROOT / name))
+        expected = m.bytes_sha256(json.dumps(m.PLAN_SOURCE_PROVENANCE, sort_keys=True).encode('utf-8'))
+        self.assertEqual(m.PLAN_SOURCE_DIGEST, expected)
 
     def test_initial_candidates_start_independently_from_exact_b40_and_name_the_recipe_seed_digest(self):
         m = self.subject()
@@ -226,6 +238,9 @@ class ContinueRetentionCampaignTests(unittest.TestCase):
             command=["/workspace/run/venv/bin/python", "-B", "train_retention_campaign_block.py"],
         )
         self.assertIn("source/run_campaign_job.py", command)
+        self.assertIn("if [ -f source/ai2/paths.py ]", command)
+        self.assertIn("source/ai2/runtime/run_campaign_job.py", command)
+        self.assertIn('nohup /workspace/run/venv/bin/python "$ai2_job_runner"', command)
         self.assertIn("--root /workspace/run", command)
         self.assertIn("--deadline-unix 12345.5", command)
         self.assertIn("jobs/safe-job.controller-launch.log", command)

@@ -28,10 +28,10 @@ def _dependencies():
 
 class PPOUpdateInterfaceTests(unittest.TestCase):
     def test_opt_in_update_module_exists(self):
-        self.assertIsNotNone(importlib.util.find_spec("ppo_update_optimizations"))
+        self.assertIsNotNone(importlib.util.find_spec("ai2.training.ppo_update_optimizations"))
 
     def test_diagnostic_summary_and_digest_helpers_are_dependency_light(self):
-        module = importlib.import_module("ppo_update_optimizations")
+        module = importlib.import_module('ai2.training.ppo_update_optimizations')
         actions = np.asarray([[1.0, -1.0], [0.5, 0.25]], dtype=np.float32)
         old_log_prob = np.asarray([-0.7, -0.2], dtype=np.float32)
 
@@ -52,8 +52,8 @@ class PPOUpdateParityTests(unittest.TestCase):
 
     def setUp(self):
         self.gym, self.torch, self.PPO, self.configure = _dependencies()
-        self.assertIsNotNone(importlib.util.find_spec("ppo_update_optimizations"))
-        self.module = importlib.import_module("ppo_update_optimizations")
+        self.assertIsNotNone(importlib.util.find_spec("ai2.training.ppo_update_optimizations"))
+        self.module = importlib.import_module('ai2.training.ppo_update_optimizations')
         self.torch.set_num_threads(1)
 
     def make_model(self, *, discrete=False, batch_size=3, n_steps=6,
@@ -490,8 +490,8 @@ class PPOUpdateCudaParityTests(PPOUpdateParityTests):
         super().setUp()
 
     def test_native_tensor_buffer_explained_variance_and_updates_match_proxy(self):
-        from tensor_ppo import _TensorRolloutStatsProxy
-        from tensor_rollout_buffer import TensorRolloutBuffer
+        from ai2.training.tensor_ppo import _TensorRolloutStatsProxy
+        from ai2.training.tensor_rollout_buffer import TensorRolloutBuffer
 
         reference = self.make_model()
         candidate = copy.deepcopy(reference)

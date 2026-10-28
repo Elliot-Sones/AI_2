@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+import importlib
+
 import argparse
 import json
 import tempfile
@@ -9,7 +12,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import campaign_candidate_scaling as scaling
+scaling = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_scaling')
 
 
 def write(path: Path, text: str = "x\n") -> Path:
@@ -29,10 +32,10 @@ class FakeClock:
 class CandidateScalingTests(unittest.TestCase):
     def make_paths(self, root: Path) -> SimpleNamespace:
         source = root / "source"
-        grouped = write(root / "native_shared_batched_vec_env.py", "candidate\n")
+        grouped = write(source_path(root, "native_shared_batched_vec_env.py"), "candidate\n")
         paths = SimpleNamespace(
             output=root / "out",
-            harness=write(root / "benchmark_campaign.py", "harness\n"),
+            harness=write(source_path(root, "benchmark_campaign.py"), "harness\n"),
             config=write(source / "control.yaml", "phase: 0b\n"),
             checkpoint=write(root / "selected_16001056.zip", "checkpoint\n"),
             source=source,
@@ -40,7 +43,7 @@ class CandidateScalingTests(unittest.TestCase):
             grouped_env_path=grouped,
             frozen_environment=write(source / "UTMIST-AI2-main/environment/environment.py", "env\n"),
         )
-        write(source / "train.py", "train\n")
+        write(source_path(source, "train.py"), "train\n")
         return paths
 
     def write_receipt(self, paths: SimpleNamespace, *, overrides: dict | None = None) -> Path:
@@ -156,13 +159,13 @@ class CandidateScalingTests(unittest.TestCase):
             self.assertEqual(manifest["files"]["grouped_env"]["sha256"], scaling.sha256_file(paths.grouped_env_path))
             self.assertIn("parity_source::isolated_rng_vec_env.py", manifest["files"])
             snapshot = first_job.output / "source_snapshot"
-            self.assertTrue((snapshot / "campaign_candidate_scaling.py").is_file())
-            self.assertTrue((snapshot / "benchmark_campaign.py").is_file())
+            self.assertTrue((source_path(snapshot, "campaign_candidate_scaling.py")).is_file())
+            self.assertTrue((source_path(snapshot, "benchmark_campaign.py")).is_file())
             self.assertTrue((snapshot / "candidate_grouped_env.py").is_file())
             self.assertTrue((snapshot / "train_job.py").is_file())
             self.assertTrue((snapshot / "control.yaml").is_file())
             self.assertTrue((snapshot / "selected_16001056.zip").is_file())
-            self.assertTrue((snapshot / "train.py").is_file())
+            self.assertTrue((source_path(snapshot, "train.py")).is_file())
             self.assertTrue((snapshot / "environment.py").is_file())
             self.assertTrue((snapshot / "candidate_game_parity_passed.json").is_file())
             self.assertTrue((snapshot / "parity_source__isolated_rng_vec_env.py").is_file())

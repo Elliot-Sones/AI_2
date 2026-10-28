@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import benchmark_campaign
+import ai2.runtime.benchmark_campaign as benchmark_campaign
 from tests import test_grouped_game as grouped_game
 
 
@@ -70,7 +70,7 @@ class CandidateGroupedLoaderTest(unittest.TestCase):
             candidate = Path(tmp) / "candidate_grouped.py"
             candidate.write_text("# candidate\n", encoding="utf-8")
             with mock.patch.dict(os.environ, {"AI2_GROUPED_CANDIDATE_PATH": str(candidate)}, clear=True), mock.patch(
-                "benchmark_campaign.load_grouped_env_module", return_value=fake_module
+                'ai2.runtime.benchmark_campaign.load_grouped_env_module', return_value=fake_module
             ) as load:
                 resolved = load_candidate_grouped_cls()
 

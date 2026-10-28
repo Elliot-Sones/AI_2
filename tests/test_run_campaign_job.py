@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 class RunCampaignJobTests(unittest.TestCase):
     def subject(self):
-        import run_campaign_job
+        import ai2.runtime.run_campaign_job as run_campaign_job
 
         return run_campaign_job
 
@@ -122,6 +122,61 @@ class RunCampaignJobTests(unittest.TestCase):
                     "print('should not run')",
                 ])
             self.assertFalse((root / "jobs" / "too-late.started.json").exists())
+
+    def test_legacy_python_job_uses_the_executed_source_layout(self):
+        m = self.subject()
+        for packaged in (False, True):
+            for absolute_script in (False, True):
+                with self.subTest(packaged=packaged, absolute_script=absolute_script), tempfile.TemporaryDirectory() as directory:
+                    root = self.make_root(Path(directory))
+                    source = root / "source"
+                    script = source / "train_contact_campaign_block.py"
+                    requested_script = str(script) if absolute_script else script.name
+                    if packaged:
+                        (source / "ai2/training").mkdir(parents=True)
+                        (source / "ai2/paths.py").write_text("# package layout marker\n")
+                        script = source / "ai2/training/train_contact_campaign_block.py"
+                    script.write_text("print('local layout job completed')\n")
+                    requested = [sys.executable, requested_script]
+                    result = m.main([
+                        "--root", str(root), "--deadline-unix", str(time.time() + 300),
+                        "layout-check", "--", *requested,
+                    ])
+                    self.assertEqual(result["returncode"], 0)
+                    self.assertEqual((root / "jobs/layout-check.log").read_text(), "local layout job completed\n")
+                    if packaged:
+                        self.assertEqual(result["argv"], [sys.executable, str(script.resolve())])
+                        self.assertEqual(result["requested_argv"], requested)
+                    else:
+                        self.assertEqual(result["argv"], requested)
+
+    def test_job_normalization_preserves_python_modes_and_external_scripts(self):
+        m = self.subject()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            (source / "ai2").mkdir(parents=True)
+            (source / "ai2/paths.py").touch()
+            for command in (
+                [sys.executable, "-c", "print('ok')"],
+                [sys.executable, "-m", "ai2.training.train"],
+                [sys.executable, "/other/train_contact_campaign_block.py"],
+                [sys.executable, "nested/train_contact_campaign_block.py"],
+                ["echo", "train_contact_campaign_block.py"],
+            ):
+                with self.subTest(command=command):
+                    self.assertEqual(m.resolve_job_command(source, command), command)
+
+    def test_job_normalization_preserves_flags_before_legacy_script(self):
+        m = self.subject()
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            (source / "ai2").mkdir(parents=True)
+            (source / "ai2/paths.py").touch()
+            for flags in (["-B"], ["-u"], ["-B", "-u"]):
+                command = [sys.executable, *flags, "train_contact_campaign_block.py", "--resume"]
+                expected = [sys.executable, *flags,
+                            str(source / "ai2/training/train_contact_campaign_block.py"), "--resume"]
+                self.assertEqual(m.resolve_job_command(source, command), expected)
 
     def test_nonzero_child_still_writes_started_final_receipts_and_log(self):
         m = self.subject()

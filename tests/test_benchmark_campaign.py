@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import importlib.util
 import json
 import sys
@@ -11,7 +13,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "benchmark_campaign.py"
+MODULE_PATH = source_path(ROOT, "benchmark_campaign.py")
 
 
 def load_campaign():
@@ -375,8 +377,8 @@ class BenchmarkCampaignTests(unittest.TestCase):
         campaign = load_campaign()
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            cache_path = tmp_path / "rollout_cache.py"
-            grouped_path = tmp_path / "grouped_vec_env.py"
+            cache_path = source_path(tmp_path, "rollout_cache.py")
+            grouped_path = source_path(tmp_path, "grouped_vec_env.py")
             cache_path.write_text("class CachedRolloutBuffer: pass\n")
             grouped_path.write_text("class GroupedSubprocVecEnv: pass\n")
 
@@ -395,7 +397,7 @@ class BenchmarkCampaignTests(unittest.TestCase):
         campaign = load_campaign()
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            grouped_path = tmp_path / "grouped_vec_env.py"
+            grouped_path = source_path(tmp_path, "grouped_vec_env.py")
             grouped_path.write_text(
                 "CALLS=[]\n"
                 "class GroupedSubprocVecEnv:\n"
@@ -436,12 +438,12 @@ class BenchmarkCampaignTests(unittest.TestCase):
                 pipeline_hooks=output / "probe_pipeline.py",
                 update_hooks=output / "update_hooks.py",
                 resident_buffer=False,
-                rollout_cache_path=output / "rollout_cache.py",
+                rollout_cache_path=source_path(output, "rollout_cache.py"),
                 group_size=8,
-                grouped_env_path=output / "grouped_vec_env.py",
+                grouped_env_path=source_path(output, "grouped_vec_env.py"),
                 profile_timing="natural",
                 rollout_policy_graph=False,
-                rollout_policy_graph_path=output / "rollout_policy_graph.py",
+                rollout_policy_graph_path=source_path(output, "rollout_policy_graph.py"),
                 rollout_policy_graph_capture_warmup=3,
                 rollout_policy_graph_tolerance=1e-5,
             )
@@ -457,7 +459,7 @@ class BenchmarkCampaignTests(unittest.TestCase):
             provenance = json.loads((output / "campaign_provenance.json").read_text())
             self.assertEqual(provenance["grouping"], {
                 "group_size": 8,
-                "grouped_env_path": str((output / "grouped_vec_env.py").resolve()),
+                "grouped_env_path": str((source_path(output, "grouped_vec_env.py")).resolve()),
             })
             self.assertEqual(provenance["profile_timing"], "natural")
 
@@ -465,7 +467,7 @@ class BenchmarkCampaignTests(unittest.TestCase):
         campaign = load_campaign()
         with TemporaryDirectory() as tmp:
             output = Path(tmp)
-            graph_path = output / "rollout_policy_graph.py"
+            graph_path = source_path(output, "rollout_policy_graph.py")
             graph_path.write_text("# helper\n")
             args = types.SimpleNamespace(
                 config=output / "config.yaml",
@@ -475,9 +477,9 @@ class BenchmarkCampaignTests(unittest.TestCase):
                 pipeline_hooks=output / "probe_pipeline.py",
                 update_hooks=output / "update_hooks.py",
                 resident_buffer=False,
-                rollout_cache_path=output / "rollout_cache.py",
+                rollout_cache_path=source_path(output, "rollout_cache.py"),
                 group_size=1,
-                grouped_env_path=output / "grouped_vec_env.py",
+                grouped_env_path=source_path(output, "grouped_vec_env.py"),
                 profile_timing="natural",
                 rollout_policy_graph=True,
                 rollout_policy_graph_path=graph_path,

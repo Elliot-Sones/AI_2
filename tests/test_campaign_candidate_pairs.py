@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+import importlib
+
 import argparse
 import json
 from pathlib import Path
@@ -29,7 +32,7 @@ def marker_path_strings(args: argparse.Namespace) -> list[str]:
 
 class CampaignCandidatePairsTests(unittest.TestCase):
     def make_args(self, tmp: Path, *, output: Path | None = None, parity: Path | None = None):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         source = tmp / "source"
         frozen = write(source / "UTMIST-AI2-main/environment/environment.py", "frozen\n")
@@ -38,13 +41,13 @@ class CampaignCandidatePairsTests(unittest.TestCase):
         write(source / "UTMIST-AI2-main/environment/constants.py", "constants\n")
         write(source / "UTMIST-AI2-main/environment/agent.py", "agents\n")
         config = write(source / "control.yaml", "config\n")
-        source_train = write(source / "train.py", "source train\n")
+        source_train = write(source_path(source, "train.py"), "source train\n")
         checkpoint = write(tmp / "checkpoint.zip", "checkpoint\n")
         train = write(tmp / "train_job.py", "train\n")
-        harness = write(tmp / "benchmark_campaign.py", "harness\n")
-        baseline_grouped = write(tmp / "grouped_vec_env.py", "baseline grouped\n")
-        candidate_grouped = write(tmp / "native_grouped_vec_env.py", "candidate grouped\n")
-        native_helper = write(tmp / "native_game_patch.py", "native patch\n")
+        harness = write(source_path(tmp, "benchmark_campaign.py"), "harness\n")
+        baseline_grouped = write(source_path(tmp, "grouped_vec_env.py"), "baseline grouped\n")
+        candidate_grouped = write(source_path(tmp, "native_grouped_vec_env.py"), "candidate grouped\n")
+        native_helper = write(source_path(tmp, "native_game_patch.py"), "native patch\n")
         native_c = write(tmp / "native/live_input.c", "native c\n")
         parity_path = parity or tmp / "parity.json"
         write(
@@ -99,7 +102,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
         return args
 
     def test_plan_uses_three_alternating_matched_pairs_with_fixed_campaign_shape(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             args = self.make_args(Path(raw_tmp))
@@ -125,7 +128,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
         self.assertTrue(all(job.cycles == 100 for job in jobs))
 
     def test_commands_keep_candidate_path_and_flags_off_baseline(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             args = self.make_args(Path(raw_tmp))
@@ -151,7 +154,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
         self.assertEqual(candidate_env["AI2_NATIVE_OBSERVATION"], "1")
 
     def test_parity_summary_must_bind_current_candidate_and_frozen_source_hashes(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -162,7 +165,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.validate_parity_summary(args)
 
     def test_parity_summary_rejects_stale_helper_hashes_and_weak_runtime_evidence(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -190,8 +193,8 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.validate_parity_summary(args)
 
     def test_parity_summary_requires_complete_validator_dependency_set(self):
-        import campaign_candidate_pairs as pairs
-        import validate_grouped_candidate
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
+        import tools.validation.validate_grouped_candidate as validate_grouped_candidate
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             args = self.make_args(Path(raw_tmp))
@@ -210,7 +213,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.validate_parity_summary(args)
 
     def test_candidate_extra_args_and_candidate_env_are_rejected_for_this_scope(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             args = self.make_args(Path(raw_tmp))
@@ -223,7 +226,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.validate_args(args)
 
     def test_required_source_files_must_exist_for_archive(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             args = self.make_args(Path(raw_tmp))
@@ -232,7 +235,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.run_suite(args, runner=lambda *items: 0, clock=types.SimpleNamespace(time=lambda: 100.0))
 
     def test_dry_run_refuses_existing_output_and_writes_source_archive_without_running_jobs(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -261,7 +264,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
                 pairs.run_suite(args, runner=lambda *items: 0, clock=types.SimpleNamespace(time=lambda: 100.0))
 
     def test_main_dry_run_cli_executes_without_mocked_runner(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)
@@ -296,7 +299,7 @@ class CampaignCandidatePairsTests(unittest.TestCase):
             self.assertTrue((args.output / "suite_report.json").is_file())
 
     def test_runner_refuses_if_candidate_source_hash_changes_before_job(self):
-        import campaign_candidate_pairs as pairs
+        pairs = importlib.import_module('baselines.throughput-scaling-20260906.scripts.campaign_candidate_pairs')
 
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

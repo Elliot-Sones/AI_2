@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import copy
 import importlib.util
 import json
@@ -10,13 +12,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import benchmark_replay as replay
-import benchmark_contact_fixtures as fixtures
+import ai2.evaluation.benchmark_replay as replay
+import tools.benchmarks.benchmark_contact_fixtures as fixtures
 
 
 class _Vec:
@@ -136,7 +140,7 @@ def wrapper_source_path() -> Path:
     if configured:
         path = Path(configured).resolve()
         if path.is_dir():
-            return path / "train.py"
+            return source_path(path, "train.py")
         return path
     remote_layout = ROOT / "variants/corrected/train.py"
     if remote_layout.exists():
@@ -712,12 +716,12 @@ class ReplayComparatorTest(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory(prefix="ai2-wrapper-dir-") as tmp:
                 root = Path(tmp)
-                (root / "train.py").write_text("# wrapper\n", encoding="utf-8")
+                (source_path(root, "train.py")).write_text("# wrapper\n", encoding="utf-8")
                 (root / "control.yaml").write_text("curriculum: {}\n", encoding="utf-8")
                 os.environ["AI2_REPLAY_WRAPPER_SOURCE"] = str(root)
                 os.environ.pop("AI2_REPLAY_CONFIG", None)
 
-                self.assertEqual(wrapper_source_path(), root.resolve() / "train.py")
+                self.assertEqual(wrapper_source_path(), source_path(root.resolve(), "train.py"))
                 self.assertEqual(wrapper_config_path(), root.resolve() / "control.yaml")
         finally:
             if old_source is None:
@@ -917,6 +921,67 @@ class ReplayComparatorTest(unittest.TestCase):
         self.assertEqual(metadata["actions"]["script"], ["adaptive_platform_right"])
 
 
+class ReplaySourceSelectionTests(unittest.TestCase):
+    def test_source_selection_rejects_a_cached_foreign_game_before_changing_cwd(self):
+        game = ModuleType("environment.environment")
+        game.__file__ = "/foreign/environment/environment.py"
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, {"environment.environment": game}):
+            environment = Path(directory) / "UTMIST-AI2-main/environment/environment.py"
+            environment.parent.mkdir(parents=True)
+            environment.touch()
+            with patch.object(replay.os, "chdir") as chdir:
+                with self.assertRaisesRegex(RuntimeError, "different game source"):
+                    replay.prepare_source_imports(Path(directory))
+                chdir.assert_not_called()
+
+    def test_missing_frozen_game_is_rejected_before_changing_cwd(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(replay.os, "chdir") as chdir:
+            with self.assertRaises(FileNotFoundError):
+                replay.prepare_source_imports(Path(directory))
+            chdir.assert_not_called()
+
+    def test_frozen_helper_is_loaded_from_selected_root(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules):
+            source = Path(directory)
+            (source / "benchmark_training.py").write_text("SELECTED = 'frozen'\n")
+            helper = replay.load_benchmark_helper(source)
+            self.assertEqual(helper.SELECTED, "frozen")
+            self.assertEqual(Path(helper.__file__), (source / "benchmark_training.py").resolve())
+
+    def test_incomplete_packaged_source_does_not_use_live_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            (source / "ai2").mkdir()
+            (source / "ai2/paths.py").touch()
+            with self.assertRaises(FileNotFoundError):
+                replay.load_benchmark_helper(source)
+
+    def test_raw_builder_requires_the_selected_game_source(self):
+        from ai2.evaluation import benchmark_training as bench
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                bench.build_raw_env(7, source_root=Path(directory))
+
+    def test_raw_builder_rejects_an_already_loaded_foreign_game(self):
+        from ai2.evaluation import benchmark_training as bench
+        with tempfile.TemporaryDirectory() as directory, patch.object(sys, "path", list(sys.path)):
+            source = Path(directory)
+            environment = source / "UTMIST-AI2-main/environment/environment.py"
+            environment.parent.mkdir(parents=True)
+            environment.touch()
+            package = ModuleType("environment")
+            package.__path__ = []
+            agent = ModuleType("environment.agent")
+            agent.CameraResolution = SimpleNamespace(LOW="low")
+            game = ModuleType("environment.environment")
+            game.__file__ = "/foreign/environment/environment.py"
+            game.WarehouseBrawl = lambda **kwargs: self.fail("foreign game must not be constructed")
+            with patch.dict(sys.modules, {"environment": package, "environment.agent": agent,
+                                          "environment.environment": game}), patch.object(bench, "seed_everything"):
+                with self.assertRaisesRegex(RuntimeError, "does not match selected source"):
+                    bench.build_raw_env(7, source_root=source)
+
+
 class ReplayEnvironmentSmokeTest(unittest.TestCase):
     def test_scripted_actions_capture_walk_turn_jump_edge_idle_records(self):
         if importlib.util.find_spec("pygame") is None or importlib.util.find_spec("gymnasium") is None:
@@ -924,10 +989,10 @@ class ReplayEnvironmentSmokeTest(unittest.TestCase):
 
         source_root = replay_source_root()
         replay.prepare_source_imports(source_root)
-        import benchmark_training as bench
+        import ai2.evaluation.benchmark_training as bench
 
         bench.set_headless_environment()
-        env = bench.build_raw_env(7)
+        env = bench.build_raw_env(7, source_root=source_root)
         try:
             env.reset(seed=7)
             labels = ["startup", "walk", "turn", "jump", "edge", "idle"]

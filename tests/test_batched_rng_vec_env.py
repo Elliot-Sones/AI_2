@@ -11,7 +11,7 @@ import numpy as np
 try:
     import gymnasium as gym
     from gymnasium import spaces
-    from grouped_vec_env import GroupedSubprocVecEnv as OriginalGroupedSubprocVecEnv
+    from ai2.simulation.grouped_vec_env import GroupedSubprocVecEnv as OriginalGroupedSubprocVecEnv
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised on light local Python only.
     gym = None
     _IMPORT_ERROR = exc
@@ -19,7 +19,7 @@ else:
     _IMPORT_ERROR = None
 
 if _IMPORT_ERROR is None:
-    from batched_rng_vec_env import (
+    from ai2.simulation.batched_rng_vec_env import (
         BatchedRngGroupedSubprocVecEnv,
         _BatchController,
         _BatchedGlobalRngStates,
@@ -178,8 +178,8 @@ class BatchedRngVecEnvTests(unittest.TestCase):
         self.assertEqual(controller.outer_restore_count, 1)
 
     def test_parent_worker_target_restores_after_constructor_exception(self):
-        import batched_rng_vec_env
-        import grouped_vec_env
+        import ai2.simulation.batched_rng_vec_env as batched_rng_vec_env
+        import ai2.simulation.grouped_vec_env as grouped_vec_env
 
         original_worker = grouped_vec_env._worker
         original_init = grouped_vec_env.GroupedSubprocVecEnv.__init__

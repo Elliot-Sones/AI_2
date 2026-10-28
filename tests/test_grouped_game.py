@@ -18,6 +18,8 @@ or:
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import copy
 import importlib.util
 import os
@@ -51,7 +53,7 @@ def _import_required_modules():
     try:
         import numpy as np
         import yaml
-        from grouped_vec_env import GroupedSubprocVecEnv
+        from ai2.simulation.grouped_vec_env import GroupedSubprocVecEnv
     except ModuleNotFoundError as exc:
         raise unittest.SkipTest(f"missing runtime dependency for frozen game parity: {exc.name}") from exc
 
@@ -65,7 +67,7 @@ def _resolve_runtime_paths() -> tuple[Path, Path, Path]:
     source_root = Path(explicit_source).expanduser().resolve() if explicit_source else None
     if source_root is not None and not source_root.is_dir():
         raise AssertionError(f"AI2_CAMPAIGN_SOURCE does not exist: {source_root}")
-    if source_root is not None and not (source_root / "train.py").is_file():
+    if source_root is not None and not (source_path(source_root, "train.py")).is_file():
         raise AssertionError(f"AI2_CAMPAIGN_SOURCE must point at frozen source containing train.py: {source_root}")
 
     if explicit:
@@ -82,7 +84,7 @@ def _resolve_runtime_paths() -> tuple[Path, Path, Path]:
 
     if source_root is None:
         candidate = train_job.parents[1] / "variants" / "corrected"
-        if not (candidate / "train.py").is_file():
+        if not (source_path(candidate, "train.py")).is_file():
             raise AssertionError(
                 "TRAIN_JOB was supplied without AI2_CAMPAIGN_SOURCE and "
                 f"could not find frozen source at {candidate}"
@@ -404,7 +406,7 @@ class RuntimePathResolutionTest(unittest.TestCase):
         scripts.mkdir(parents=True)
         train_job = scripts / "train_job.py"
         train_job.write_text("# train job\n", encoding="utf-8")
-        (source / "train.py").write_text("# frozen train\n", encoding="utf-8")
+        (source_path(source, "train.py")).write_text("# frozen train\n", encoding="utf-8")
         control = source / "control.yaml"
         config = source / "config.yaml"
         control.write_text("curriculum: {phase: 0b}\n", encoding="utf-8")

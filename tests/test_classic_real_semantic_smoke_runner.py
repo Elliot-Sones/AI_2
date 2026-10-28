@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import json
 import hashlib
 import subprocess
@@ -10,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "classic_real_semantic_smoke.py"
+RUNNER = source_path(ROOT, "classic_real_semantic_smoke.py")
 
 
 def test_runner_writes_hash_bound_real_dependency_artifacts(tmp_path):

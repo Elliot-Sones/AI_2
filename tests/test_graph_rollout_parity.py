@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import argparse
 import importlib.util
 import json
@@ -8,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "benchmark_graph_rollout_parity.py"
+MODULE_PATH = source_path(ROOT, "benchmark_graph_rollout_parity.py")
 
 
 class FakeArray:
@@ -193,10 +195,10 @@ class GraphRolloutParityTests(unittest.TestCase):
             root = Path(tmp)
             source = root / "source"
             source.mkdir()
-            (source / "train.py").write_text("train\n", encoding="utf-8")
+            (source_path(source, "train.py")).write_text("train\n", encoding="utf-8")
             files = {}
             for name in ("train_job.py", "config.yaml", "checkpoint.zip", "rollout_policy_graph.py", "grouped_vec_env.py"):
-                path = root / name
+                path = source_path(root, name)
                 path.write_text(name, encoding="utf-8")
                 files[name] = path
 

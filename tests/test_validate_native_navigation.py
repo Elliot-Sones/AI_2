@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import argparse
 import importlib.util
 import json
@@ -10,7 +12,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "validate_native_navigation.py"
+MODULE_PATH = source_path(ROOT, "validate_native_navigation.py")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -344,7 +346,7 @@ def load_module():
 
 def create_source_files(root):
     source_root = root / "source"
-    wrapper_source = source_root / "train.py"
+    wrapper_source = source_path(source_root, "train.py")
     env = source_root / "UTMIST-AI2-main/environment/environment.py"
     positions = source_root / "positions.json"
     config = root / "control.yaml"
@@ -535,7 +537,11 @@ class FakeCaptureWriter:
 
 class temporary_modules:
     def __init__(self, **modules):
-        self.modules = modules
+        self.modules = {
+            {"benchmark_replay": "ai2.evaluation.benchmark_replay",
+             "navigation_contract_capture": "ai2.evaluation.navigation_contract_capture"}.get(name, name): module
+            for name, module in modules.items()
+        }
         self.previous = {}
 
     def __enter__(self):

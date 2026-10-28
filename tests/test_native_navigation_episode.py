@@ -6,6 +6,8 @@ Pymunk 6.2.1 runtime are importable; it is skipped, not passed, otherwise.
 """
 from __future__ import annotations
 
+from ai2.paths import source_path
+
 import ctypes
 import gzip
 import hashlib
@@ -30,7 +32,7 @@ PHASE_0B = {"min_dist": 2.0, "max_dist": 6.0, "fall_penalty": -3.0, "completion_
 
 
 def build_reference(tmp: Path):
-    import native_navigation_episode as m
+    import ai2.simulation.native_navigation_episode as m
 
     if shutil.which(os.environ.get("CC") or "cc") is None:
         raise unittest.SkipTest("no C compiler")
@@ -122,7 +124,7 @@ class EpisodeFrozenGameTests(unittest.TestCase):
     def test_closed_loop_matches_frozen_game_bit_for_bit(self):
         try:
             import pymunk  # noqa: F401
-            importlib.import_module("benchmark_replay")
+            importlib.import_module('ai2.evaluation.benchmark_replay')
         except Exception as exc:  # pragma: no cover - runtime dependent
             raise unittest.SkipTest(f"frozen runtime unavailable: {exc}")
         if not (FROZEN / "control.yaml").is_file():
@@ -133,7 +135,7 @@ class EpisodeFrozenGameTests(unittest.TestCase):
         try:
             capture = tmp / "capture.jsonl.gz"
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy", PYGAME_HIDE_SUPPORT_PROMPT="1", MPLCONFIGDIR=str(tmp / "mpl"))
-            subprocess.run([sys.executable, str(ROOT / "navigation_episode_capture.py"), "--source-root", str(FROZEN), "--config", str(FROZEN / "control.yaml"),
+            subprocess.run([sys.executable, str(source_path(ROOT, "navigation_episode_capture.py")), "--source-root", str(FROZEN), "--config", str(FROZEN / "control.yaml"),
                             "--controller", "adaptive", "--steps", "150", "--seeds", "45", "--output", str(capture)], check=True, env=env, cwd=str(ROOT),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             m, ref = build_reference(tmp)

@@ -1,3 +1,5 @@
+
+from ai2.paths import source_path
 import argparse
 import importlib.util
 import json
@@ -108,10 +110,10 @@ class CampaignCorrectedScalingTests(unittest.TestCase):
             args = module.validate_args(base_args(output=root / "out", **paths, execute=True))
             write_valid_marker(args)
 
-            self.assertEqual(module.frozen_train_path(args), args.source / "train.py")
+            self.assertEqual(module.frozen_train_path(args), source_path(args.source, "train.py"))
             record = module.provenance(args)["frozen_train"]
             self.assertTrue(record["exists"])
-            self.assertEqual(record["path"], str((args.source / "train.py").resolve()))
+            self.assertEqual(record["path"], str((source_path(args.source, "train.py")).resolve()))
 
     def test_validate_args_rejects_nonfinite_timeout_and_past_execute_deadline(self):
         module = load_module()
@@ -206,7 +208,7 @@ class CampaignCorrectedScalingTests(unittest.TestCase):
                 module.existing_completed(args, job)
 
             write_matching_completed_job(module, args, job)
-            (paths["source"] / "train.py").write_text("changed source train\n")
+            (source_path(paths["source"], "train.py")).write_text("changed source train\n")
             with self.assertRaisesRegex(FileExistsError, "frozen_train"):
                 module.existing_completed(args, job)
 
@@ -289,7 +291,7 @@ class CampaignCorrectedScalingTests(unittest.TestCase):
 
 
 def load_module():
-    path = Path(__file__).resolve().parents[1] / "campaign_corrected_scaling.py"
+    path = source_path(Path(__file__).resolve().parents[1], "campaign_corrected_scaling.py")
     spec = importlib.util.spec_from_file_location("campaign_corrected_scaling", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["campaign_corrected_scaling"] = module
@@ -319,7 +321,7 @@ def base_args(**overrides):
 
 def create_required_files(root):
     source = root / "source"
-    frozen_train = source / "train.py"
+    frozen_train = source_path(source, "train.py")
     frozen_env = source / "UTMIST-AI2-main/environment/environment.py"
     frozen_env.parent.mkdir(parents=True)
     source.mkdir(parents=True, exist_ok=True)
@@ -330,9 +332,9 @@ def create_required_files(root):
         "checkpoint": root / "selected.zip",
         "source": source,
         "train_job": root / "train_job.py",
-        "harness": root / "benchmark_campaign.py",
-        "rollout_cache_path": root / "rollout_cache.py",
-        "grouped_env_path": root / "grouped_vec_env.py",
+        "harness": source_path(root, "benchmark_campaign.py"),
+        "rollout_cache_path": source_path(root, "rollout_cache.py"),
+        "grouped_env_path": source_path(root, "grouped_vec_env.py"),
     }
     for key, path in files.items():
         if key == "source":
