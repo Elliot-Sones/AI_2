@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fighting-Game AI Case Studies</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 4 of 8</b></p>
+  <h1>Fighting-Game AI Case Studies</h1>
+  <p class="dateline">Researched 2026-09-15 against arXiv:1904.03821, arXiv:2406.02081, arXiv:2210.10595, arXiv:1702.06230, arXiv:1810.07286, the slippi-ai repository, Nature (GT Sophy) and arXiv:1912.09729. Single-source numbers marked "reported".</p>
+  <p class="lede">This is the closest evidence to your actual problem: systems trained to fight in real time against another player. Across seven of them, the design choices converge hard on a few answers, and the strongest convergence is on the one place AI_2 currently differs from everyone: the action space.</p>
+</header>
+<main>
+
+<h2>Blade &amp; Soul: a commercial fighter, beaten pros, published recipe</h2>
+<p>NCSOFT trained agents for the arena mode of Blade &amp; Soul, a real-time 1v1 fighting game, and fielded them in blind matches against professional players at their 2018 world championship. The paper reports pro-level performance; secondary accounts of the exact match record vary, so treat the win-rate as order-of-magnitude. Three design choices carry the value:</p>
+<ul>
+<li><strong>Discrete everything.</strong> The agent picks among 44 skills plus movement and targeting directions, about 144 combinations, once every 0.1 seconds, through separate output heads for skill, movement, and target (an actor-critic LSTM). No continuous outputs, no thresholds.</li>
+<li><strong>The time penalty is the aggression dial.</strong> They shipped three distinct fighting styles from one codebase purely by re-weighting rewards. The aggressive style has a large per-step time penalty, so stalling is expensive and the agent is forced to engage. The defensive style weights its own remaining health. The balanced style sits between. Same environment, same algorithm, three personalities.</li>
+<li><strong>A pool of styles, not a pool of snapshots.</strong> All three styles train concurrently and serve as opponents for each other. This covers a slice of the rock-paper-scissors space (report 3) deliberately rather than hoping history provides it.</li>
+</ul>
+<div class="note"><span class="lb">Direct AI_2 hook</span><p>Your contact lesson has a per-step cost of 0.001, which over a 300-step episode totals 0.3, small next to the +1 hit and +2 completion rewards. Blade &amp; Soul used the time cost as a primary lever to force engagement. An agent that approaches but never commits to an attack is precisely the behavior a meaningful time penalty attacks. Worth an experiment; also note your scripted bots (edge-guard, weapon-hunter, recovery-punish) already are a small "pool of styles", which is a genuinely good feature of the current setup.</p></div>
+
+<h2>FightLadder: the benchmark that ran the bake-off</h2>
+<p>Covered in report 3 for its league results. What matters here is its environment design, because it encodes the community's consensus about fighting-game action spaces. It offers two: a 12-way binary space mirroring the physical joystick and buttons, and a "transformed" categorical space of 8 motions times 6 attacks where each special move is a single action. The authors chose to hard-code special-move motions as single discrete actions rather than ask RL to discover quarter-circle inputs. Abstraction of button sequences into atomic actions is considered part of the environment, not cheating. Its other finding worth repeating: the built-in CPU opponents of these 1990s games still beat most freshly trained agents, and every trained agent stayed exploitable by a simple human-found pattern.</p>
+
+<h2>DIAMBRA: the hobby-scale baseline</h2>
+<p>DIAMBRA Arena wraps real fighting games (Street Fighter III, Tekken Tag, more) for RL through an emulator, with discrete or multi-discrete action modes only. The default reward is the health-bar difference: damage dealt positive, damage taken negative, no win-only sparse mode by default. Their published PPO baseline learns visible competence, such as withholding attacks when out of range, within about 25 million steps on a desktop (reported). Useful as a sanity anchor: at your throughput, 25M transitions is a few minutes of native-pipeline time. Basic attack competence in a fighting game is not a large-sample problem.</p>
+
+<h2>Phillip and the reaction-time follow-up: Smash Bros. specifically</h2>
+<p>Phillip (2017) reached pro-competitive play in Super Smash Bros. Melee. The repo notes in your research/06 file already cover its curriculum story: training against the in-game AI produced exploitable agents; self-play against old versions fixed it; narrow training (one character, one stage) made it brittle. Facts to add here:</p>
+<ul>
+<li><strong>Action space: 54 discrete actions</strong>, factored as 9 stick positions times a few button states. The GameCube controller is analog hardware, and they still discretized it.</li>
+<li><strong>Reward: damage shaping plus KO.</strong> Plus/minus per KO with a smaller weight on damage dealt and taken, because KOs alone are too sparse.</li>
+<li><strong>Reaction time.</strong> The original agent acted within about 33 ms, three to six times faster than a human, and was criticized for it. The 2018 follow-up ("At Human Speed") trained with an enforced input delay and found performance degrades sharply past 6 to 10 frames of delay, and that agents must be <em>trained</em> with the delay to cope with it. If AI_2 ever plays humans and fairness matters, delay is a training-time decision, not an evaluation-time patch.</li>
+</ul>
+
+<h2>slippi-ai: the modern Smash agent</h2>
+<p>The successor project by the same author (vladfi1), actively maintained. Pipeline: behavior-clone a large corpus of human Slippi replay files, then fine-tune with PPO self-play. It has beaten a top-30-ranked professional in an exhibition set (reported: 10-3 in a Fox mirror against Moky) and holds its own against other pros. It is the strongest existing evidence that for a platform fighter at accessible compute, <strong>imitation bootstrap plus self-play</strong> is the winning formula, echoing AlphaGo and AlphaStar. AI_2 has no human replay corpus, but the same mechanism applies at small scale: behavior-clone your own successful sampled episodes (self-imitation), then continue RL. Report 7 ranks this among the fixes for the attack problem.</p>
+
+<h2>GT Sophy: reward engineering under a deadline</h2>
+<p>Sony's Gran Turismo agent (Nature 2022) is racing, not fighting, but it is the best documented case of reward design in a shipped competitive game. Its reward summed eight terms: track progress, passing, several collision penalties, off-course, wall contact, and steering-smoothness costs. Two lessons travel:</p>
+<ul>
+<li><strong>Scenario tables.</strong> Training episodes were drawn from a curated mixture: alone on track, one opponent nearby, packs of three, packs of seven, each with its own replay buffer so no scenario starved. That is a curriculum expressed as a data mixture, the same pattern as your phase opponent mixes, and it argues for keeping explicit per-scenario coverage rather than one blended stream.</li>
+<li><strong>Reward hacking under pressure.</strong> A week before the public event, Sophy was still deliberately ramming opponents because the collision penalties underpriced the racing advantage. Re-weighting the penalty terms fixed it in days. Behavior follows the actual numbers in the reward, not the designer's intent, and re-weighting is cheap once you can measure the behavior.</li>
+</ul>
+
+<h2>JueWu 1v1: action factoring at industrial scale</h2>
+<p>Tencent's Honor of Kings 1v1 system (the "Solo" line) beat top players in thousands of public matches (reported 99.8%). Relevant mechanics: the action is a factored discrete triple, what to do, whom to target, where to aim, with an action mask removing illegal choices before sampling; rewards are a weighted sum over health, gold, experience, farming, kills, deaths, tower damage (the paper's table lists health weighted highest); and the agent acts at a 133 ms interval, deliberately matched to strong human reaction time. Every one of those choices rhymes with OpenAI Five's, made independently by a different lab. That convergence is the point.</p>
+
+<h2>The consensus table</h2>
+<div class="tw"><table>
+<thead><tr><th>Question</th><th>What the seven systems say</th></tr></thead>
+<tbody>
+<tr><td>Discrete or continuous actions?</td><td><strong>Discrete, unanimously, for every fighting game.</strong> Blade &amp; Soul 144 discrete combos; FightLadder binary or categorical; DIAMBRA discrete/multi-discrete only; Phillip 54 discrete; slippi-ai discrete controller inputs; JueWu factored discrete with masking. The only continuous-control system, GT Sophy, is a driving game where the physical controls really are continuous. AI_2's 10-dim continuous vector with 0.5 thresholds has no precedent in this list.</td></tr>
+<tr><td>Damage-shaped or win-only reward?</td><td><strong>Damage shaping everywhere.</strong> No system trains on win/loss alone; all use health or damage deltas as the dense signal with win/KO on top. Your phase 2 to 4 damage weights follow the standard pattern.</td></tr>
+<tr><td>Time penalty to force engagement?</td><td>Proven decisive in Blade &amp; Soul, present in FightLadder's annealed aggression coefficient, absent elsewhere. Use when the observed failure is passivity, which is AI_2's observed failure.</td></tr>
+<tr><td>Imitation bootstrap or from scratch?</td><td>Academic systems go from scratch; the two strongest human-competitive agents in this list against skilled humans, slippi-ai and AlphaStar, both bootstrap from imitation. FightLadder's authors conjecture human data is needed to escape exploitability. At minimum: self-imitation of your own successful episodes is cheap and directionally supported.</td></tr>
+<tr><td>Reaction-time handicap?</td><td>Train at full speed for capability work; add delay during training, not just evaluation, if fairness against humans becomes a goal (Phillip follow-up, JueWu's 133 ms).</td></tr>
+</tbody>
+</table></div>
+
+<div class="call"><span class="lb">Reading this against AI_2's symptom</span><p>The project's measured blocker, an agent that approaches but never presses attack deterministically, sits at the intersection of the two strongest consensus rows: an unprecedented continuous-threshold action design, and an engagement failure that the one commercial fighter fixed with a time penalty. Report 7 gives the mechanism; report 8 sequences the fixes.</p></div>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>Oh et al., Creating Pro-Level AI for a Real-Time Fighting Game Using Deep RL — <a href="https://arxiv.org/abs/1904.03821">arXiv:1904.03821</a></li>
+<li>Li et al., FightLadder — <a href="https://arxiv.org/abs/2406.02081">arXiv:2406.02081</a></li>
+<li>DIAMBRA Arena — <a href="https://arxiv.org/abs/2210.10595">arXiv:2210.10595</a>, <a href="https://docs.diambra.ai/envs/">docs.diambra.ai</a></li>
+<li>Firoiu et al., Beating the World's Best at Super Smash Bros. — <a href="https://arxiv.org/abs/1702.06230">arXiv:1702.06230</a>; At Human Speed — <a href="https://arxiv.org/abs/1810.07286">arXiv:1810.07286</a></li>
+<li>slippi-ai — <a href="https://github.com/vladfi1/slippi-ai">github.com/vladfi1/slippi-ai</a></li>
+<li>Wurman et al., GT Sophy, Nature 2022 — <a href="https://www.nature.com/articles/s41586-021-04357-7">nature.com/articles/s41586-021-04357-7</a></li>
+<li>Ye et al., Mastering Complex Control in MOBA Games — <a href="https://arxiv.org/abs/1912.09729">arXiv:1912.09729</a></li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="03-alphastar-and-leagues.html">← AlphaStar and League Training</a>
+  <a href="index.html">Series index</a>
+  <a href="05-self-play-design.html">Next: Self-Play by Design →</a>
+</nav>
+</div>
+</body>
+</html>

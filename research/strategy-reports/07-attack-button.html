@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Attack-Button Problem</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+figure{margin:18px 0;padding:16px;border:1px solid var(--rule);background:var(--surface);overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto}
+figcaption{font-size:13px;color:var(--ink2);margin-top:10px;line-height:1.5}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 7 of 8</b></p>
+  <h1>The Attack-Button Problem</h1>
+  <p class="dateline">Researched 2026-09-15. AI_2 measurements are from the preserved September 8 contact-calibration results (baselines/combat-curriculum-session13). External findings verified against the cited papers; two 2026 preprints are single-source and marked "reported".</p>
+  <p class="lede">This is the one report about a measured AI_2 failure rather than someone else's system. After contact calibration, the agent approached its target in 20 of 20 episodes and pressed the attack button in none of them, when actions were taken deterministically. Under sampling, it landed hits in 20 of 20. The highest deterministic attack output was 0.0269 against a button threshold of 0.5. This page explains the mechanism, then ranks the fixes by evidence.</p>
+</header>
+<main>
+
+<h2>How your policy chooses actions</h2>
+<p>The policy used in these experiments is a Gaussian over a 10-dimensional continuous vector. For each action dimension the network outputs a <strong>mean</strong>, and the policy keeps a learned <strong>spread</strong> (standard deviation) per dimension. Two ways to act:</p>
+<ul>
+<li><strong>Sampled:</strong> draw a random value from the bell curve around the mean. Used during training so the agent explores.</li>
+<li><strong>Deterministic:</strong> just take the mean. Used by default during evaluation in Stable-Baselines3.</li>
+</ul>
+<p>The game turns dimension values into buttons with a threshold: the light-attack button is pressed when its dimension exceeds 0.5. Now look at what the measurement says: the attack dimension's mean sits near 0.03, and the spread is wide enough that random draws exceed 0.5 fairly often.</p>
+
+<figure>
+<svg viewBox="0 0 640 300" role="img" aria-label="A bell curve centered at 0.03 with a threshold line at 0.5. The deterministic action is the center of the bell and never crosses the threshold. The shaded right tail beyond 0.5, roughly 15 percent of the curve's area, is the only part that presses the attack button, and only sampling reaches it.">
+  <defs><marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g fill="none" stroke="currentColor" stroke-width="1.5" color="var(--ink)">
+    <path d="M394.7,131 L422.7,164 L450.7,191 L506.7,220 L562.7,228 L600,229 L600,230 L394.7,230 Z" fill="var(--accent-soft)" stroke="none"/>
+    <path d="M40,229 L114.7,218 L152,199 L189.3,166 L217.3,134 L245.3,100 L273.3,73 L306.9,60 L329.3,66 L357.3,88 L394.7,131 L422.7,164 L450.7,191 L506.7,220 L562.7,228 L600,229" stroke="var(--accent)" stroke-width="2"/>
+    <line x1="40" y1="230" x2="612" y2="230"/>
+    <line x1="394.7" y1="48" x2="394.7" y2="230" stroke="var(--amber)" stroke-dasharray="5 4" stroke-width="1.8"/>
+    <line x1="306.9" y1="60" x2="306.9" y2="230" stroke-dasharray="3 4" stroke="var(--ink3)"/>
+    <line x1="114.7" y1="230" x2="114.7" y2="236"/><line x1="301.3" y1="230" x2="301.3" y2="236"/><line x1="488" y1="230" x2="488" y2="236"/>
+  </g>
+  <g fill="currentColor" color="var(--ink)" font-size="12.5">
+    <text x="114.7" y="252" text-anchor="middle" fill="var(--ink3)">-1</text>
+    <text x="301.3" y="252" text-anchor="middle" fill="var(--ink3)">0</text>
+    <text x="488" y="252" text-anchor="middle" fill="var(--ink3)">1</text>
+    <text x="306.9" y="278" text-anchor="middle">mean ≈ 0.03 = the deterministic action</text>
+    <text x="399" y="42" font-size="12.5" fill="var(--amber)">button fires above 0.5</text>
+    <text x="470" y="150" font-size="12.5" fill="var(--accent-ink)">sampled draws land here</text>
+    <text x="470" y="166" font-size="12.5" fill="var(--accent-ink)">~15% of the time: attacks happen</text>
+  </g>
+</svg>
+<figcaption>The measured situation on the attack dimension. Deterministic play takes the center of the bell, 0.03, and never presses the button. Sampling reaches the shaded tail on roughly one draw in seven (with a spread around 0.45), which at 30 decisions per second is several presses per second of play, enough to land hits in every sampled episode. Both observations, 0 of 20 deterministic and 20 of 20 sampled, come from one policy whose mean simply never moved.</figcaption>
+</figure>
+
+<h2>Why training never moved the mean</h2>
+<p>Four forces, each documented, combine here:</p>
+<ol>
+<li><strong>The mean starts at zero and the reward is on the far side of a threshold.</strong> Standard PPO initialization gives every action dimension a mean near 0. Reward for attacking only arrives when a sample crosses 0.5. Learning must drag the mean rightward using only those rare tail events.</li>
+<li><strong>The pull from successful tail samples is diluted and partially cancelled.</strong> The gradient moves the mean toward actions that went better than expected and away from ones that went worse. Attack presses are a small fraction of steps; the surrounding thousands of no-attack steps carry their own noisy advantages, and PPO's clipping caps how far any single update can move. Analyses of sparse or flat-reward regions describe exactly this: gradient estimates dominated by noise and cancelling contributions (reported, 2026 preprint on zero-reward collapse).</li>
+<li><strong>Entropy regularization does not help the mean at all.</strong> The entropy bonus that keeps exploration alive has zero gradient with respect to the mean of a Gaussian; it only widens or narrows the spread. A 2026 study of clipped-Gaussian PPO (reported) works this out and measures the consequence: means wander wherever weak advantage signals leave them, with no force centering them into the useful range. Raising <code>ent_coef</code>, which the navigation config does, widens the bell but does not move its center.</li>
+<li><strong>Clipping distorts what the boundary samples teach.</strong> Actions are clipped into [0,1] before the game sees them, while the policy's probability math uses the unclipped values. Fujita &amp; Maeda showed this mismatch adds variance to the gradient exactly when mass piles up at a boundary. A secondary effect here, but part of why continuous-plus-threshold is a hostile design for buttons.</li>
+</ol>
+<div class="note"><span class="lb">The repo's own framing, answered</span><p>The September curriculum review (research/04) said: audit the conversion from policy output to executed game buttons, and decide which action-selection mode the skill must work under. This report is that audit's mechanism half. The answer to "why does sampling work when deterministic play does not" is not a mystery of learning; it is geometry. The policy's knowledge lives partly in its spread, and deterministic evaluation throws the spread away.</p></div>
+
+<h2>What everyone else does</h2>
+<p>Report 4's consensus table carries the weight here: Blade &amp; Soul, FightLadder, DIAMBRA, Phillip, slippi-ai, JueWu, and OpenAI Five all use discrete action heads for button-like decisions. A discrete head outputs a probability for "press" directly. When pressing earns reward, the gradient raises that probability, and the deterministic action becomes "press" the moment the probability crosses one half. Learning and greedy execution stop being different worlds. There is no published fighting-game system that drives buttons through thresholded continuous Gaussians.</p>
+
+<h2>The fixes, ranked by evidence</h2>
+<div class="tw"><table>
+<thead><tr><th class="r">Rank</th><th>Fix</th><th>What the literature predicts</th><th>Cost</th></tr></thead>
+<tbody>
+<tr><td class="r">1</td><td><strong>Make button dimensions discrete</strong> (Bernoulli/MultiBinary heads, or a MultiDiscrete factoring like move × attack)</td><td>Removes the threshold mismatch at the root; every attack reward directly raises press probability; deterministic and sampled behavior converge. Backed by the unanimous practice of report 4 and by bounded-action analyses</td><td>Changes policy and env interface; a contained A/B on the contact lesson; checkpoint transfer needs care</td></tr>
+<tr><td class="r">2</td><td><strong>Declare sampled action selection as the skill's execution mode</strong>, now</td><td>Zero training cost: the current policy already succeeds 20/20 sampled. Precedent: AlphaGo Zero samples early moves; OpenAI Five and AlphaStar act stochastically in real matches. Makes evaluation honest while structural fixes land</td><td>A decision plus an evaluation-config line</td></tr>
+<tr><td class="r">3</td><td><strong>Self-imitation warm start:</strong> behavior-clone the agent's own successful sampled episodes, then resume PPO</td><td>Directly moves the deterministic mean into the attacking region, exactly the quantity that is stuck; kickstarting literature and sparse-reward BC-then-RL studies support it, and slippi-ai is the domain precedent</td><td>A few hours: collect sampled successes, one BC pass, continue training</td></tr>
+<tr><td class="r">4</td><td><strong>Beta-distribution policy</strong> for bounded dimensions</td><td>Removes boundary bias and clip variance (Chou et al.); still does not by itself create the missing gradient if attack events stay rare. A better continuous policy, not a cure</td><td>Custom SB3 distribution; moderate</td></tr>
+<tr><td class="r">5</td><td><strong>Engagement-shaped rewards:</strong> meaningful per-step time cost, or a small bonus per attack initiation, annealed later</td><td>Attacks the incentive side rather than the geometry; Blade &amp; Soul's time penalty demonstrably forced aggression. Complements any of the above; beware rewarding button-mashing, gate on hits</td><td>Config-level; needs the fade discipline of report 6</td></tr>
+<tr><td class="r">6</td><td><strong>Entropy measured after clipping / executed-action entropy</strong></td><td>A 2026 preprint (reported) shows this adds a centering force on means; would push the attack mean inward toward the playable range. Least proven of the list</td><td>Fork of SB3's entropy term</td></tr>
+</tbody>
+</table></div>
+
+<div class="call"><span class="lb">Before changing anything: one audit</span><p>The repo has two action-space stories. config.yaml's settings block says <code>action_space: "discrete"</code> for the classic train.py path, while the contact and native benchmarks demonstrably run the 10-dim continuous Box with 0.5 thresholds. First establish, in code, which representation each training path actually uses end to end, from policy output through wrapper to the game's button check. The fix menu above assumes the continuous-threshold path, which is the one the September measurements came from. If a discrete path already exists in the classic trainer, fix 1 becomes "port that to the contact/native path" rather than new design work.</p></div>
+
+<h2>How to test it</h2>
+<ol>
+<li><strong>Instrument first (no retraining).</strong> Log the attack dimension's mean and spread per rollout to W&amp;B for existing and future runs. The diagnosis predicts: mean flat near 0 across contact training while sampled hit-rate climbs. One chart settles the mechanism.</li>
+<li><strong>A/B on the contact lesson.</strong> Same seeds, same budget (the 524k-transition blocks the native pipeline already runs in ~25 seconds make this cheap once the curriculum port lands): continuous-threshold baseline versus Bernoulli attack head, versus baseline-plus-self-imitation. Success metric, per the corrected gate design of report 6: attack-initiation rate and hit rate in <em>deterministic</em> mode, plus no regression in sampled mode and navigation retention.</li>
+<li><strong>Decide the contract.</strong> Whatever wins, write down the execution mode the project evaluates under from now on, and use it everywhere: gates, panels, videos, and eventual human matches. The deterministic-vs-sampled ambiguity is how this failure stayed invisible until a 20-episode panel caught it.</li>
+</ol>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>AI_2 measurements: baselines/combat-curriculum-session13 results, summarized in research/04 (finding 3)</li>
+<li>Chou et al., Beta-distribution policy gradients, ICML 2017 — <a href="https://proceedings.mlr.press/v70/chou17a.html">proceedings.mlr.press/v70/chou17a</a></li>
+<li>Fujita &amp; Maeda, Clipped Action Policy Gradient — <a href="https://arxiv.org/abs/1802.07564">arXiv:1802.07564</a></li>
+<li>Seyde et al., Is Bang-Bang Control All You Need? — <a href="https://arxiv.org/abs/2111.02552">arXiv:2111.02552</a></li>
+<li>Where Entropy Is Measured Matters (2026 preprint, reported) — arXiv:2608.24488; zero-reward collapse analysis (2026 preprint, reported) — arXiv:2605.30896</li>
+<li>Plappert et al., Parameter Space Noise — <a href="https://arxiv.org/abs/1706.01905">arXiv:1706.01905</a>; Schmitt et al., Kickstarting — <a href="https://arxiv.org/abs/1803.03835">arXiv:1803.03835</a></li>
+<li>Practice consensus: report 4's seven systems; SB3 documentation on deterministic evaluation and MultiBinary/MultiDiscrete support</li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="06-curriculum-engineering.html">← Curriculum Engineering</a>
+  <a href="index.html">Series index</a>
+  <a href="08-ai2-playbook.html">Next: The AI_2 Playbook →</a>
+</nav>
+</div>
+</body>
+</html>

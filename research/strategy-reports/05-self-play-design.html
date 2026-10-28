@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-Play by Design</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 5 of 8</b></p>
+  <h1>Self-Play by Design</h1>
+  <p class="dateline">Researched 2026-09-15 against arXiv:1603.01121, arXiv:1710.03748, arXiv:1711.00832, arXiv:2004.09468, arXiv:2408.01072 and the systems papers from reports 1–4. Single-source numbers marked "reported".</p>
+  <p class="lede">In a two-player zero-sum game, the opponent mix is not a detail of training. It is the curriculum, the difficulty dial, and the thing your reward is measured against, all at once. This report gives you the small amount of theory that explains why, the ladder of algorithms the field built on top of it, and a source-by-source audit of AI_2's current opponent configuration.</p>
+</header>
+<main>
+
+<h2>Four ideas, in plain terms</h2>
+<div class="def"><b>Zero-sum.</b> One player's win is the other's loss. All the reward your agent can get comes from outplaying whoever it trains against. Change the opponent and you have changed the objective.</div>
+<div class="def"><b>Best response.</b> The single most effective strategy against one specific opponent. Best responses tend to be narrow specialists: the perfect anti-rushdown policy may be helpless against anything else.</div>
+<div class="def"><b>Nash equilibrium.</b> A pair of strategies where neither side can gain by changing alone. In practice: a policy with no cheap counter. This is the theoretical target of all self-play training.</div>
+<div class="def"><b>Exploitability.</b> How badly the best possible counter-strategy beats your policy. This is the honest score of a self-play agent. It is measured by actually training a fresh opponent against your frozen policy and seeing how well it does.</div>
+
+<div class="call"><span class="lb">The trap every self-play project falls into once</span><p>Training win rate tells you almost nothing. When both sides of self-play adapt to each other, the win rate hovers near 50% whether the policies are brilliant or have collapsed into a private meta only they understand. A 2026 study documented a 51.9-point drop in generalization win rate that was completely invisible in the training curves (reported). Progress must be measured against something that does not move: a frozen benchmark suite, a round-robin of past checkpoints scored by Elo, or a trained exploiter probe. AI_2's held-out scripted evaluation panels already follow this principle; keep them sacred and never train on them.</p></div>
+
+<h2>The algorithm ladder</h2>
+<p>Each rung fixes the failure mode of the one below it.</p>
+<div class="tw"><table>
+<thead><tr><th>Rung</th><th>Opponent is...</th><th>Fails when</th></tr></thead>
+<tbody>
+<tr><td><strong>Naive self-play</strong></td><td>the current policy itself</td><td>the game has style cycles: training chases its tail (report 3). Works in near-transitive games like Go</td></tr>
+<tr><td><strong>Past-checkpoint sampling</strong> (Bansal et al. 2018)</td><td>a random past snapshot from a recent window</td><td>the window is shallow or sampling is uniform: the pool fills with pushovers and near-clones. Their finding: sampling old checkpoints beat latest-only for stability</td></tr>
+<tr><td><strong>Fictitious self-play</strong> (NFSP, 2016)</td><td>effectively the <em>average</em> of all past policies</td><td>averaging is slow and dilutes; but the theory is why pools work at all: the time-average of self-play converges toward equilibrium in zero-sum games</td></tr>
+<tr><td><strong>PFSP</strong> (AlphaStar)</td><td>pool members weighted toward the ones you lose to</td><td>the pool lacks diversity to begin with; weighting cannot conjure styles that are not there</td></tr>
+<tr><td><strong>PSRO</strong> (Lanctot et al. 2017)</td><td>a game-theoretically chosen mixture: build a win-rate matrix among all pool members, solve for the equilibrium mixture, train a best response to it, add it to the pool, repeat</td><td>cost: the pairwise matrix is N² matches and grows every round. The principled endpoint of the pool idea</td></tr>
+<tr><td><strong>League</strong> (AlphaStar)</td><td>pool + dedicated exploiter agents whose only job is finding blind spots</td><td>compute-hungry; see report 3 for the small version</td></tr>
+<tr><td><strong>R-NaD</strong> (DeepNash, 2022)</td><td>the current self, but the learning rule itself is regularized to spiral into equilibrium</td><td>research-grade; the population-free alternative</td></tr>
+</tbody>
+</table></div>
+
+<h2>What the big systems actually shipped</h2>
+<div class="tw"><table>
+<thead><tr><th>System</th><th>Recipe</th></tr></thead>
+<tbody>
+<tr><td>OpenAI Five</td><td>80% latest self, 20% past pool; pool members carry difficulty scores that steer sampling</td></tr>
+<tr><td>AlphaStar</td><td>full league; mains sample by PFSP weight <code>(1 - winrate)^0.5</code> (reported)</td></tr>
+<tr><td>Bansal et al.</td><td>uniform over a recent window of snapshots; explicitly better than latest-only</td></tr>
+<tr><td>KataGo</td><td>latest network only; viable because Go is close to transitive and search stabilizes play</td></tr>
+<tr><td>Blade &amp; Soul</td><td>a live pool of three deliberately different styles training against each other</td></tr>
+</tbody>
+</table></div>
+<p>The pattern: nobody strong trains majority-scripted, everybody manages a pool, and the two systems facing style-cycling games (AlphaStar, Blade &amp; Soul) engineered diversity into the pool on purpose.</p>
+
+<h2>Scripted opponents: anchor early, poison late</h2>
+<p>Rule-based bots have a real job at the start of training. Two random agents flailing at each other generate almost no signal; a scripted opponent that walks forward and attacks provides stable, learnable structure, and your curriculum uses constant and random agents this way in the navigation and early combat phases. That use is supported.</p>
+<p>The documented failure is leaving them in charge. Phillip's authors found that training against the built-in Smash AI produced an agent that exploited that AI's specific patterns and collapsed against anything else, and they moved to self-play. A deterministic script is a fixed lock; RL manufactures its key and stops there. The general finding repeats across the fighting-game literature: agents trained mostly on rule-based opponents become quasi-open-loop pattern players.</p>
+<p>The supportable schedule: scripted share high early, decaying toward a small residual (10–15%) once the agent reliably beats every script, with the freed share going to the self-play pool. Keep a <em>separate, never-trained-on</em> scripted suite for evaluation. AI_2's config already separates these roles in spirit; the shares are the issue, below.</p>
+
+<h2>Audit of AI_2's current opponent configuration</h2>
+<p>Phase 3 mix from config.yaml: random 0.20, based 0.18, constant 0.08, clockwork 0.06, self-play 0.28, edge-guard 0.06, weapon-hunter 0.06, recovery-punish 0.04, noisy-based 0.04. Phase 4: self-play 0.32, based 0.28, others smaller. Pool: last 7 checkpoints, saved every 500k steps, sampled uniformly. Each row below is a hypothesis for AI_2, grounded in a named source, not a measured AI_2 result.</p>
+<div class="tw"><table>
+<thead><tr><th>Setting</th><th>Concern</th><th>Supported alternative</th></tr></thead>
+<tbody>
+<tr><td>Self-play share peaks at 0.32</td><td>68–72% of late-phase experience comes from scripted bots. Every strong system inverts this ratio: Five at 80% self, AlphaStar at effectively 100% pool. Majority-scripted training risks the Phillip failure at exactly the phase where opponent quality matters most</td><td>Ramp self-play to 0.6–0.8 across phases 3–4 as scripts become reliably beaten; retain ~0.1–0.15 scripted as anchor (OpenAI Five; AlphaStar; Phillip)</td></tr>
+<tr><td>Pool of 7 recent snapshots</td><td>Seven consecutive snapshots of one training run are near-clones at one skill level: a thin slice of the spinning top. Coverage of style cycles needs history depth and, ideally, distinct styles</td><td>Keep 20+ snapshots at spaced intervals; consider admitting differently-rewarded variants (an aggressive-reward run, a defensive one) Blade-&amp;-Soul-style (Czarnecki 2020; Oh et al.)</td></tr>
+<tr><td>Uniform pool sampling</td><td>Equal time on a stale 500k-step checkpoint and on the one opponent that still wins. Uniform was the baseline every serious system upgraded away from</td><td>PFSP weighting <code>(1 - winrate)^0.5</code> from per-opponent win rates you already log (AlphaStar ablation: PFSP beats uniform)</td></tr>
+<tr><td>No exploiter</td><td>Nothing in the loop actively searches for the champion's blind spots, so robustness is only ever tested by accident</td><td>Periodic short-budget exploiter trained against the frozen main; its final win rate is your exploitability meter, and its policy joins the pool (Lanctot 2017; AlphaStar; FightLadder)</td></tr>
+<tr><td>Style bots (edge-guard, weapon-hunter, recovery-punish)</td><td>None. This is the good part: hand-built style diversity, the same idea as Blade &amp; Soul's style pool</td><td>Keep them, but shift their weight from training diet toward the evaluation suite as self-play ramps</td></tr>
+</tbody>
+</table></div>
+
+<h2>How to evaluate whatever you change</h2>
+<ul>
+<li><strong>Fixed benchmark suite:</strong> the scripted cast plus a handful of frozen historical checkpoints, never trained against, same seeds, both action-selection modes. Your repo's evaluation-discipline notes (research/04, the rliable reference) already say this; it bears repeating because opponent-mix changes are precisely where training curves lie.</li>
+<li><strong>Round-robin Elo across checkpoints:</strong> cheap with the native pipeline, and it detects the cycling signature directly: if checkpoint N beats N-1 but loses to N-3, you are watching the rock-paper-scissors chase in your own data.</li>
+<li><strong>Exploiter probe:</strong> the strongest single number. Budget X million steps of fresh PPO against your frozen best; report its final win rate over time. FightLadder's sobering 94% (reported) is the reminder that this number will be ugly at first, and that trend, not level, is the signal.</li>
+</ul>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>Heinrich &amp; Silver, NFSP — <a href="https://arxiv.org/abs/1603.01121">arXiv:1603.01121</a></li>
+<li>Bansal et al., Emergent Complexity via Multi-Agent Competition — <a href="https://arxiv.org/abs/1710.03748">arXiv:1710.03748</a></li>
+<li>Lanctot et al., PSRO — <a href="https://arxiv.org/abs/1711.00832">arXiv:1711.00832</a></li>
+<li>Czarnecki et al., Spinning Tops — <a href="https://arxiv.org/abs/2004.09468">arXiv:2004.09468</a></li>
+<li>Vinyals et al., AlphaStar, Nature 2019; Berner et al., OpenAI Five — <a href="https://arxiv.org/abs/1912.06680">arXiv:1912.06680</a></li>
+<li>Perolat et al., DeepNash — <a href="https://arxiv.org/abs/2206.15378">arXiv:2206.15378</a>; NeuPL — <a href="https://arxiv.org/abs/2202.07415">arXiv:2202.07415</a></li>
+<li>Survey of self-play methods — <a href="https://arxiv.org/abs/2408.01072">arXiv:2408.01072</a>; Firoiu et al. — <a href="https://arxiv.org/abs/1702.06230">arXiv:1702.06230</a></li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="04-fighting-games.html">← Fighting-Game Case Studies</a>
+  <a href="index.html">Series index</a>
+  <a href="06-curriculum-engineering.html">Next: Curriculum Engineering →</a>
+</nav>
+</div>
+</body>
+</html>

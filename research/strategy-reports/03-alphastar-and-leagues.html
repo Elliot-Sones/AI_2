@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlphaStar and League Training</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+figure{margin:18px 0;padding:16px;border:1px solid var(--rule);background:var(--surface);overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto}
+figcaption{font-size:13px;color:var(--ink2);margin-top:10px;line-height:1.5}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 3 of 8</b></p>
+  <h1>AlphaStar and League Training</h1>
+  <p class="dateline">Researched 2026-09-15 against the Nature 2019 paper, arXiv:2004.09468, arXiv:2206.15378 and arXiv:2406.02081. Single-source numbers marked "reported".</p>
+  <p class="lede">Fighting games have styles that beat other styles in circles, like rock-paper-scissors. In games shaped like that, plain self-play does not steadily improve; it chases its own tail. AlphaStar is the system that named this problem in public and shipped the industrial fix, the league. This report explains why the cycling happens, how the league works, and what the smallest useful version looks like for a 1v1 fighter.</p>
+</header>
+<main>
+
+<h2>The problem: strategy spaces have cycles</h2>
+<p>Call a game <strong>transitive</strong> if "A beats B" and "B beats C" together imply "A beats C". In a transitive game, self-play works beautifully: any improvement against yourself is a real improvement against everyone. Go is close to transitive, which is why the AlphaGo line (report 1) never needed anything fancier.</p>
+<p>Now suppose your fighter has three viable styles: rushdown pressures zoning, zoning walls out grappling, grappling punishes rushdown. An agent training only against its current self can circle forever: it learns rushdown, its opponent-self is rushdown so it learns grappling to counter, then zoning to counter that, then rushdown again. Every step is an improvement against the <em>current</em> opponent and none of it accumulates. Published self-play surveys describe exactly this signature: checkpoints that beat their immediate predecessor and lose to their own past and future selves.</p>
+
+<figure>
+<svg viewBox="0 0 640 330" role="img" aria-label="A spinning-top diagram. The vertical axis is skill. The width of the top at each height is the number of distinct viable strategies. It is narrow at the bottom for beginners, widest in the middle where many styles coexist in cycles, and narrows again toward elite play.">
+  <g fill="none" stroke="currentColor" stroke-width="1.5" color="var(--ink)">
+    <path d="M320,28 L354,44 Q470,96 466,150 Q460,204 342,286 L320,304 L298,286 Q180,204 174,150 Q170,96 286,44 Z" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <line x1="80" y1="290" x2="80" y2="40" marker-end="url(#ar3)"/>
+    <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+    <line x1="174" y1="150" x2="466" y2="150" stroke-dasharray="4 4" stroke="var(--ink3)"/>
+    <line x1="286" y1="52" x2="354" y2="52" stroke-dasharray="4 4" stroke="var(--ink3)"/>
+  </g>
+  <g fill="currentColor" color="var(--ink)" font-size="12.5">
+    <text x="66" y="160" text-anchor="middle" transform="rotate(-90 66 160)">skill</text>
+    <text x="482" y="154" font-size="12">widest here: many styles,</text>
+    <text x="482" y="170" font-size="12">strong rock-paper-scissors</text>
+    <text x="366" y="56" font-size="12">elite play: fewer viable styles,</text>
+    <text x="366" y="72" font-size="12">cycles remain</text>
+    <text x="320" y="322" text-anchor="middle" font-size="12" fill="var(--ink3)">near-random play</text>
+  </g>
+</svg>
+<figcaption>The "spinning top" picture from Czarnecki et al. (2020). Width at each height is how many genuinely different strategies survive at that skill level. The theory result that matters: to keep improving through a level, your training population must cover the strategy cycle at that level. One agent, or a pool of near-identical snapshots of one agent, does not.</figcaption>
+</figure>
+
+<p>The same paper estimates that real games like StarCraft are non-transitive on an enormous scale, and proves that fictitious-play-style training converges only when the population is large enough to cover the cycle at the current level. That is the theoretical justification for everything else on this page.</p>
+
+<h2>AlphaStar's three-part answer</h2>
+<p>AlphaStar reached Grandmaster on the real StarCraft II ladder, above 99.8% of human players, on all three races. Its training had three pillars.</p>
+
+<h3>1. Start from humans, stay anchored to humans</h3>
+<p>It first imitated 971,000 replays of strong players (reported thresholds: above-average ranked players for the bulk, roughly top-grandmaster games for fine-tuning). During the entire RL phase, a penalty kept the policy from drifting too far from the imitation policy (a KL term, a measure of how different two policies are). On top of that, each game was conditioned on a variable <code>z</code> encoding an opening build order sampled from human games, with a bonus for following it. Purpose: keep a <em>diversity</em> of openings alive instead of letting RL collapse everything into one style.</p>
+
+<h3>2. The league: three kinds of agents with different jobs</h3>
+<figure>
+<svg viewBox="0 0 880 320" role="img" aria-label="League structure. A main agent trains against a pool of frozen snapshots with difficulty-weighted sampling and periodically adds a frozen copy of itself. A main exploiter trains only against the main agent. A league exploiter trains against the whole pool. Both exploiters reset to the human-imitation checkpoint.">
+  <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <g fill="none" stroke="currentColor" stroke-width="1.5" color="var(--ink)">
+    <rect x="40" y="42" width="230" height="84" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <rect x="600" y="30" width="240" height="62" rx="3" fill="var(--amber-soft)" stroke="var(--amber)"/>
+    <rect x="600" y="118" width="240" height="62" rx="3" fill="var(--amber-soft)" stroke="var(--amber)"/>
+    <rect x="40" y="222" width="800" height="70" rx="3" fill="var(--surface2)"/>
+    <rect x="60" y="240" width="34" height="34"/><rect x="102" y="240" width="34" height="34"/><rect x="144" y="240" width="34" height="34"/><rect x="186" y="240" width="34" height="34"/><rect x="228" y="240" width="34" height="34"/><rect x="270" y="240" width="34" height="34"/>
+    <line x1="120" y1="126" x2="120" y2="220" marker-end="url(#ar4)"/>
+    <line x1="200" y1="220" x2="200" y2="128" marker-end="url(#ar4)" stroke-dasharray="4 4"/>
+    <line x1="598" y1="61" x2="272" y2="72" marker-end="url(#ar4)" stroke="var(--amber)"/>
+    <line x1="620" y1="182" x2="480" y2="238" marker-end="url(#ar4)" stroke="var(--amber)"/>
+  </g>
+  <g fill="currentColor" color="var(--ink)" font-size="13">
+    <text x="155" y="70" text-anchor="middle" font-weight="600">Main agent</text>
+    <text x="155" y="88" text-anchor="middle" font-size="11.5" fill="var(--ink2)">the one you keep;</text>
+    <text x="155" y="103" text-anchor="middle" font-size="11.5" fill="var(--ink2)">never reset</text>
+    <text x="720" y="55" text-anchor="middle" font-weight="600">Main exploiter</text>
+    <text x="720" y="72" text-anchor="middle" font-size="11.5" fill="var(--ink2)">attacks only the main agent</text>
+    <text x="720" y="143" text-anchor="middle" font-weight="600">League exploiter</text>
+    <text x="720" y="160" text-anchor="middle" font-size="11.5" fill="var(--ink2)">attacks the whole pool</text>
+    <text x="440" y="213" text-anchor="middle" font-size="12" fill="var(--ink2)">plays vs snapshots, sampling weighted toward the ones it loses to (PFSP)</text>
+    <text x="212" y="160" font-size="11.5" fill="var(--ink3)">adds a frozen copy of itself periodically</text>
+    <text x="430" y="52" text-anchor="middle" font-size="11.5" fill="var(--amber)">finds the champion's blind spots</text>
+    <text x="560" y="215" text-anchor="end" font-size="11.5" fill="var(--amber)">finds gaps nobody covers</text>
+    <text x="330" y="264" font-size="12" fill="var(--ink2)">frozen snapshots of everyone, growing over time</text>
+    <text x="705" y="205" font-size="11" fill="var(--ink3)">both exploiters reset to the imitation checkpoint after each contribution</text>
+  </g>
+</svg>
+<figcaption>The league. Only the main agent is meant to become strong. The exploiters exist to be sacrificed: they specialize in beating the current champion or the current pool, their discoveries force the main agent to patch its weaknesses, and then they are reset and start over.</figcaption>
+</figure>
+
+<p><strong>PFSP, prioritized fictitious self-play</strong>, is the sampling rule for picking opponents from the pool. Instead of uniform choice, opponent <code>i</code> is drawn with weight proportional to a function of your current win rate <code>p</code> against it. Two published shapes: <code>(1 - p)^x</code> focuses on opponents you lose to; <code>p(1 - p)</code> focuses on even matchups where a game carries the most information. Either way the effect is the same: no training time is wasted farming opponents you already beat 95% of the time, which is exactly what uniform sampling over a stale pool does.</p>
+
+<h3>3. Results, and what the ablation showed</h3>
+<p>The paper's ablation, run on a simplified setup, is the key evidence table of this whole subject: plain self-play cycled; fictitious self-play (uniform over all past) improved but stayed exploitable; PFSP beat uniform; and the full league with exploiters was both strongest and least exploitable. Removing the main exploiters left the champion with lasting blind spots.</p>
+<p>One caveat for honesty: AlphaStar did not use PPO. It used an off-policy actor-critic (V-trace, plus a self-imitation term called UPGO) because its infrastructure demanded it. The league is a <em>who-do-I-train-against</em> mechanism and does not care which policy-gradient algorithm sits underneath; FightLadder (below) ran a league on PPO.</p>
+
+<h2>The 2022 counterpoint: fix the dynamics instead</h2>
+<p>DeepNash (Science 2022) reached expert level in Stratego, a huge hidden-information game, with <em>no league and no pool</em>. Its method, Regularized Nash Dynamics, changes the learning rule itself: each round, the reward is modified by a penalty for straying from a reference policy, the learner converges to a fixed point, and the fixed point becomes the next reference. The sequence of fixed points spirals into an equilibrium instead of orbiting it. It won 84% of games against human experts on the Gravon platform (reported). The takeaway for you is not to implement R-NaD; it is that the field has two answers to cycling, populations (AlphaStar) and regularized dynamics (DeepNash), and populations are the practical one at hobby scale.</p>
+
+<h2>League training measured on actual fighting games</h2>
+<p>FightLadder (ICML 2024) built a benchmark on real fighting games (Street Fighter II and III, Mortal Kombat, King of Fighters '97, Fatal Fury 2) and ran the alternatives head to head, all on PPO (numbers as reported in the paper, Street Fighter II mirror match):</p>
+<div class="tw"><table>
+<thead><tr><th>Training scheme</th><th class="r">Elo of best agent</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>League (AlphaStar-style)</td><td class="r">1682</td><td>strongest, most compute</td></tr>
+<tr><td>PSRO (population + game-theory solver, report 5)</td><td class="r">1517</td><td></td></tr>
+<tr><td>Plain independent PPO self-play</td><td class="r">1164</td><td>cheapest</td></tr>
+<tr><td>Fictitious self-play, uniform</td><td class="r">1150</td><td></td></tr>
+</tbody>
+</table></div>
+<div class="call"><span class="lb">The humbling part</span><p>Every one of those agents, including the league champion, remained massively exploitable: a fresh PPO agent trained specifically against them reached roughly 94% win rate (reported), and human players found a simple defensive-crouch-plus-low-kick pattern that beat all of them. Leagues buy <em>relative</em> strength and robustness against known styles. Nobody has demonstrated an unexploitable fighting-game agent. Set your goal accordingly: robust against a wide suite, not theoretically unbeatable.</p></div>
+
+<h2>A league-lite for AI_2</h2>
+<p>Your current setup already has pieces of this: a pool (last 7 snapshots, uniform sampling) and a cast of scripted bots that act like fixed styles. The evidence above supports a specific minimal upgrade path, each step independently testable:</p>
+<div class="tw"><table>
+<thead><tr><th>Step</th><th>Change</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Replace uniform pool sampling with PFSP weighting, <code>(1 - winrate)^0.5</code>, using win rates you already log per opponent</td><td>AlphaStar ablation: PFSP > uniform; costs almost nothing to implement</td></tr>
+<tr><td>2</td><td>Deepen the pool: keep 20+ snapshots at spaced intervals rather than the last 7</td><td>Spinning-top coverage argument; OpenAI Five and AlphaStar both kept long histories</td></tr>
+<tr><td>3</td><td>Add one exploiter: periodically train a short-budget fresh agent purely against the current main checkpoint, then add it to the pool and reset it</td><td>AlphaStar ablation: exploiters remove lasting blind spots; also doubles as your exploitability meter</td></tr>
+<tr><td>4</td><td>Keep the scripted bots as an evaluation suite and as a small early-training share, not as the majority training diet late</td><td>Phillip's overfitting finding (report 4); FightLadder's exploitability warning cuts both ways</td></tr>
+</tbody>
+</table></div>
+<p>Everything here is a hypothesis for AI_2 until measured; the series playbook (report 8) turns these into concrete experiments with budgets and kill criteria.</p>
+
+<h2 class="src">Primary sources</h2>
+<div class="src"><ul>
+<li>Vinyals et al., Grandmaster level in StarCraft II using multi-agent reinforcement learning, Nature 2019 — <a href="https://www.nature.com/articles/s41586-019-1724-z">nature.com/articles/s41586-019-1724-z</a></li>
+<li>Czarnecki et al., Real World Games Look Like Spinning Tops — <a href="https://arxiv.org/abs/2004.09468">arXiv:2004.09468</a></li>
+<li>Perolat et al., Mastering Stratego (DeepNash) — <a href="https://arxiv.org/abs/2206.15378">arXiv:2206.15378</a></li>
+<li>Li et al., FightLadder, ICML 2024 — <a href="https://arxiv.org/abs/2406.02081">arXiv:2406.02081</a></li>
+<li>Survey of self-play methods — <a href="https://arxiv.org/abs/2408.01072">arXiv:2408.01072</a></li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="02-openai-agents.html">← OpenAI Five and Hide-and-Seek</a>
+  <a href="index.html">Series index</a>
+  <a href="04-fighting-games.html">Next: Fighting-Game Case Studies →</a>
+</nav>
+</div>
+</body>
+</html>

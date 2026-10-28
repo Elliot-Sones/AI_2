@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The AI_2 Playbook</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#eceef2;--ink:#191d24;--ink2:#4a5160;--ink3:#7b8292;--rule:#d8dce3;--rule2:#e8eaef;--accent:#2b62c9;--accent-ink:#1f4c9e;--accent-soft:#e6edfa;--amber:#b06c0e;--amber-soft:#fbf0da;--good:#2d7a4f;--codebg:#20252f;--codeink:#dfe4ec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14171c;--surface:#1b1f26;--surface2:#232830;--ink:#e7eaef;--ink2:#b3bac6;--ink3:#828b99;--rule:#2f353f;--rule2:#272c35;--accent:#7ea6ee;--accent-ink:#a8c4f5;--accent-soft:#1f2a3f;--amber:#e3a552;--amber-soft:#2c2416;--good:#6cc496;--codebg:#0f1218;--codeink:#dbe1ea;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",Arial,sans-serif;font-size:16px;line-height:1.65}
+.page{max-width:800px;margin:0 auto;padding:0 22px 90px}
+a{color:var(--accent-ink);text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:currentColor}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.masthead{padding:44px 0 26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.eyebrow b{color:var(--accent);font-weight:500}
+h1{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:clamp(27px,4vw,36px);line-height:1.14;margin:0 0 10px;text-wrap:balance}
+.dateline{font-size:14px;color:var(--ink2);margin:0 0 20px}
+.lede{font-size:17.5px;line-height:1.55;max-width:62ch;margin:0}
+h2{font-family:"IBM Plex Serif",Georgia,serif;font-weight:600;font-size:22.5px;line-height:1.25;margin:42px 0 12px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{margin:0 0 14px;padding-left:22px}li{margin-bottom:6px;max-width:66ch}
+li::marker{color:var(--ink3)}
+strong{font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface2);padding:1px 5px;border-radius:3px}
+.tw{overflow-x:auto;border:1px solid var(--rule);background:var(--surface);margin:16px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;border-top:1px solid var(--rule2);text-align:left;vertical-align:top}
+thead th{border-top:0;background:var(--surface2);font-weight:600;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+td.r,th.r{text-align:right;white-space:nowrap}
+tbody tr:hover td{background:var(--surface2)}
+.def{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);padding:10px 14px;font-size:14px;margin:16px 0;max-width:70ch}
+.def b{color:var(--accent-ink)}
+.call{border-left:3px solid var(--amber);background:var(--amber-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:18px 0;max-width:72ch}
+.call .lb{color:var(--amber)}.note .lb{color:var(--accent)}
+.call .lb,.note .lb{display:block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+.call p,.note p{margin:0 0 8px}.call p:last-child,.note p:last-child{margin:0}
+.src{font-size:13.5px;color:var(--ink2)}.src ul{padding-left:18px}
+.foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--rule);margin-top:52px;padding-top:16px;font-size:14px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="masthead">
+  <p class="eyebrow">AI_2 · Training Strategy Series · <b>Report 8 of 8</b></p>
+  <h1>The AI_2 Playbook</h1>
+  <p class="dateline">Written 2026-09-15. Everything here is a proposed experiment with a success metric and a kill criterion, in the project's own evidence style. Nothing below is a measured AI_2 result yet, except where explicitly cited to the baselines.</p>
+  <p class="lede">The question that started this series was: are we training with the wrong curriculum and strategy? Short answer from six reports of evidence: the curriculum's shape is right and matches what worked elsewhere, and the performance problem most likely lives in four specific mechanics, each cheap to test now that the native pipeline runs at 278k transitions per second. This page is the ordered plan.</p>
+</header>
+<main>
+
+<h2>The verdict on the current strategy</h2>
+<div class="tw"><table>
+<thead><tr><th>Design choice in AI_2 today</th><th>Verdict from the literature</th></tr></thead>
+<tbody>
+<tr><td>Staged curriculum: movement drills, then escalating combat phases</td><td>Right call at single-GPU scale. Matches DeepMind's football pipeline and the case studies; pure emergence needs 10-100x your samples (reports 2, 6)</td></tr>
+<tr><td>Damage-shaped rewards with win/KO on top, weights shifting across phases</td><td>Standard practice everywhere; the refinement is fading within phases, not only between them (reports 4, 6)</td></tr>
+<tr><td>Scripted style bots (edge-guard, weapon-hunter, recovery-punish)</td><td>Genuinely good idea, same family as Blade &amp; Soul's style pool; their late-phase <em>share</em> is the problem, not their existence (reports 4, 5)</td></tr>
+<tr><td>Promotion gates on success metrics with retention checks</td><td>Right mechanism; gates need to name the specific behavior and mode, and the project already fixed one gate-scope error (report 6)</td></tr>
+<tr><td>Continuous 10-dim actions with 0.5 button thresholds</td><td>The outlier. No fighting-game precedent, and the measured attack-initiation failure has a direct mechanistic explanation in it (reports 4, 7)</td></tr>
+<tr><td>Self-play at 28-32% with a uniform pool of 7 recent snapshots</td><td>Below every reference system late in training; uniform sampling and shallow pool are the two weakest links (reports 3, 5)</td></tr>
+</tbody>
+</table></div>
+
+<h2>The experiment ladder</h2>
+<p>Ordered by information per dollar. Each experiment stands alone; run them in sequence and stop whenever the fighter is good enough.</p>
+
+<h3>E0. Reward and action wiring audit — one session, no GPU</h3>
+<p>Before any strategy change, verify the plumbing, because README_BEST_MODEL_PLAN in the repo already flags three suspected wiring bugs, and a sign error dominates any curriculum question:</p>
+<ul>
+<li>Win reward sign: the plan file says current logic flips win/loss attribution. Confirm in the live train path.</li>
+<li>Phase 1 knockout weight is negative in config.yaml (-3.0) while the plan says the reward manager treats knockout as "agent got KO'd", so the sign may be backwards for the intended penalty.</li>
+<li>Aggression reward: the plan says it checks a <code>state_machine</code> attribute that does not exist, making the weight dead. Either wire it or delete the weight.</li>
+<li>Also audit: the navigation entropy comment says "lower entropy" while <code>nav_ent_coef: 0.05</code> is five times the base 0.01; and confirm which action representation each train path really uses (report 7's audit box).</li>
+</ul>
+<p><strong>Success:</strong> a one-page audit note stating, with file and line references, which of these are live bugs, already fixed, or misunderstandings. <strong>Kill criterion:</strong> none; this is reconnaissance and it caps a day.</p>
+
+<h3>E1. Instrument the attack dimension and declare the execution mode — no retraining</h3>
+<p>Add per-rollout logging of the attack dimension's policy mean and spread (W&amp;B is already wired). Re-run the existing 20-scenario contact panels for the preserved checkpoints in both action modes, which the harness already supports. Then make one decision and write it into the docs: which action-selection mode is the contract for gates and evaluations, and if it is deterministic, E2 becomes mandatory rather than optional.</p>
+<p><strong>Success:</strong> a chart of mean/spread over past training confirming or refuting the stuck-mean mechanism of report 7, and a written mode contract. <strong>Kill criterion:</strong> if the attack mean turns out to move healthily and the failure lies elsewhere, report 7's ranking re-orders and E2's design changes; the instrumentation still pays for itself.</p>
+
+<h3>E2. Fix attack initiation on the contact lesson — the first real A/B</h3>
+<p>Three arms, matched seeds and budget, on the B1 contact lesson: current continuous-threshold policy as control; discrete button head (Bernoulli or MultiDiscrete) arm; self-imitation arm (behavior-clone the agent's own successful sampled episodes, then continue PPO). Small time-penalty variant optional as a fourth arm if budget allows (report 4's Blade &amp; Soul lever).</p>
+<p><strong>Success:</strong> deterministic attack-initiation in ≥80% of encounters and deterministic hit rate at or above the current sampled rate, with navigation retention panels unchanged, over ≥3 seeds. <strong>Kill criterion:</strong> an arm that wins on attacks but loses navigation retention or safe-completion by more than the seed spread is not promoted. Cost note: at native-pipeline speed a 5M-transition arm is minutes of GPU loop time; the real cost is the curriculum port (E6) or running on the existing slower Python path, which is still only hours.</p>
+
+<h3>E3. Modernize the opponent mix — matched-budget A/B in phase 2 or 3</h3>
+<p>Control: current mix. Treatment, from reports 3 and 5: self-play share raised toward 0.6-0.7, pool deepened to 20+ spaced snapshots, PFSP sampling <code>(1 - winrate)^0.5</code> replacing uniform, scripted bots kept at ~0.15 for anchoring. Evaluate both arms on the frozen benchmark suite (all scripted styles plus fixed historical checkpoints), never on training win rate.</p>
+<p><strong>Success:</strong> higher win rate on the held-out suite and no cycling signature in a round-robin of the arm's own checkpoints. <strong>Kill criterion:</strong> if the treatment arm's held-out performance is flat after an agreed budget, keep the simpler mix and bank the negative result.</p>
+
+<h3>E4. Gate and fade mechanics — cheap config discipline alongside E3</h3>
+<p>Rewrite combat-phase gates as behavior-specific, buffered, mode-explicit checks (report 6): attack-initiation rate, hit rate, safe-completion, each over a few hundred episodes. Add within-phase annealing of the shaping weights that currently step between phases. These are config and harness changes; measure them as part of E3's arms rather than separately.</p>
+
+<h3>E5. Standing exploitability probe — the honest scoreboard</h3>
+<p>Once per milestone checkpoint: train a fresh short-budget PPO exploiter against the frozen champion and record its final win rate. Trend is the metric; FightLadder says the level will be humbling (report 3). The probe's product doubles as a pool member for E3's treatment arm and, if it finds a degenerate counter-style, as a bug report on the game or reward.</p>
+
+<h3>E6. Port the curriculum onto the native pipeline — the multiplier</h3>
+<p>Already the stated next step in the fullgame results, and it is what turns E2-E5 from overnight jobs into coffee-break jobs. The 3.98x-scaled configuration collects 16.7M transitions per minute of loop time; every experiment above is sized in tens of millions.</p>
+
+<h3>E7. Optional, later: auxiliary prediction heads</h3>
+<p>KataGo's densest-signal trick (report 1): add heads predicting near-future damage events and KO probability, trained alongside the value loss. A clean single-variable experiment once the pipeline is stable, with the usual multi-seed, held-out-suite evaluation.</p>
+
+<h2>Two training-health items that ride along</h2>
+<ul>
+<li><strong>The KL early stop.</strong> The September 9 profile found every measured update stopped after one optimizer step of a possible sixteen on the large checkpoint, on target_kl 0.01. That report explicitly declined to explain it and warned against deleting the safeguard for speed. It belongs on the strategy list too: if updates routinely take one step, the effective learning rate schedule is not what the config says. Diagnose with per-minibatch approx-KL logging in E1's instrumentation pass; candidate causes to test are advantage normalization, learning rate, and the threshold itself, one at a time.</li>
+<li><strong>Entropy schedule.</strong> OpenAI Five annealed entropy 0.01 to 0.001 across training (report 2). AI_2 holds 0.01 flat (0.05 in navigation, with a comment contradicting the value; see E0). After E2 lands, an entropy anneal in late combat phases is a one-line experiment.</li>
+</ul>
+
+<h2>What not to change yet</h2>
+<p>Model size, frame stacking, gamma, GAE lambda, and the PPO core match reference systems at your scale and are not implicated by any measurement. The opponent-history buffer (60x10 appended values, mostly zeros in navigation) is a measured compute topic in the repo's speed notes, not a strategy topic. One variable at a time is what made the September baselines trustworthy; keep that discipline as the experiments get more interesting.</p>
+
+<div class="note"><span class="lb">The one-paragraph version</span><p>Keep the curriculum. Audit the reward wiring first because a sign bug beats any strategy. Fix the attack button by making buttons discrete or by adopting sampled execution, with self-imitation as the bridge. Then shift the late-game diet from scripted bots to a deeper, difficulty-weighted self-play pool with an occasional exploiter, gate phases on the specific behavior they teach, and keep scoring everything against frozen benchmarks. Every reference system in this series is one of these moves at bigger scale, and the native pipeline has made all of them affordable.</p></div>
+
+<h2 class="src">Where each claim lives</h2>
+<div class="src"><ul>
+<li>Curriculum verdicts: reports 2, 4, 6; repo research/04-06</li>
+<li>Action space and attack failure: report 7 (mechanism), report 4 (practice consensus)</li>
+<li>Opponent mix: reports 3 and 5; OpenAI Five, AlphaStar, Phillip, Czarnecki</li>
+<li>Gates and fading: report 6; ADR, Bansal, AlphaGo Zero</li>
+<li>AI_2 measurements cited: baselines/combat-curriculum-session13 (attack panels), baselines/contact-collection-profile-20260909 (KL early stop), baselines/fullgame-20260908 and research/update-profile-20260913 (throughput), README_BEST_MODEL_PLAN (wiring flags)</li>
+</ul></div>
+
+</main>
+<nav class="foot">
+  <a href="07-attack-button.html">← The Attack-Button Problem</a>
+  <a href="index.html">Series index</a>
+</nav>
+</div>
+</body>
+</html>
